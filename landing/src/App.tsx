@@ -1,9 +1,7 @@
-import LandingPage from './components/landing/LandingPage'
+import McpA2aPage from './pages/McpA2aPage'
 
 function App() {
-  return (
-    <LandingPage />
-  )
+  return <McpA2aPage />
 }
 
 export default App

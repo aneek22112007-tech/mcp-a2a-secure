@@ -1,8 +1,9 @@
 import { useIntersectionReveal } from '../../hooks/useScrollProgress'
 import { ZERO_TRUST_CHECKS } from '../../data/landingData'
 import { Shield, Hash, WifiOff, Lock, FileText, Check } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
-const ICONS: Record<string, React.ElementType> = {
+const ICONS: Record<string, LucideIcon> = {
   shield: Shield,
   hash: Hash,
   'wifi-off': WifiOff,
