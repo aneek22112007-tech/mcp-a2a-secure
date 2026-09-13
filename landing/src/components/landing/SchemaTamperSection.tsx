@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useIntersectionReveal } from '../../hooks/useScrollProgress'
 import { ShieldAlert, ShieldCheck, Lock, AlertTriangle } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 type TamperState = 'verified' | 'changed' | 'detected' | 'blocked'
 
 const STATES: TamperState[] = ['verified', 'changed', 'detected', 'blocked']
 
-const STATE_LABELS: Record<TamperState, { label: string; color: string; bg: string; icon: React.ElementType }> = {
+const STATE_LABELS: Record<TamperState, { label: string; color: string; bg: string; icon: LucideIcon }> = {
   verified: { label: 'VERIFIED',  color: '#7CFF4F', bg: 'rgba(124,255,79,0.08)',  icon: ShieldCheck },
   changed:  { label: 'CHANGED',   color: '#F5B84B', bg: 'rgba(245,184,75,0.08)',  icon: AlertTriangle },
   detected: { label: 'DETECTED',  color: '#FF5C5C', bg: 'rgba(255,92,92,0.08)',   icon: ShieldAlert },
