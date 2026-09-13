@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Menu, X } from 'lucide-react'
 import { useUIStore } from '../../store/uiStore'
+import { Link } from 'react-router-dom'
 
 const NAV_LINKS = [
   { label: 'Protocol', href: '#protocol' },
@@ -87,16 +88,30 @@ export default function Nav() {
           </a>
         ))}
 
-        <a
-          href="https://github.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="pill-outline"
-          aria-label="View on GitHub"
-          style={{ fontSize: '0.65rem', padding: '0.5rem 1.25rem' }}
+        <Link
+          to="/signin"
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: '0.7rem',
+            fontWeight: 500,
+            letterSpacing: '0.15em',
+            textTransform: 'uppercase',
+            color: 'rgba(255,255,255,0.75)',
+            textDecoration: 'none',
+            transition: 'color 0.2s',
+          }}
+          onMouseEnter={e => ((e.target as HTMLElement).style.color = '#fff')}
+          onMouseLeave={e => ((e.target as HTMLElement).style.color = 'rgba(255,255,255,0.75)')}
         >
-          GitHub
-        </a>
+          Sign In
+        </Link>
+        <Link
+          to="/signup"
+          className="bg-green-400 text-black px-4 py-2 rounded-md font-bold text-xs tracking-wider"
+          style={{ fontSize: '0.65rem' }}
+        >
+          GET STARTED ↗
+        </Link>
       </nav>
 
       {/* Mobile hamburger */}
@@ -171,9 +186,12 @@ export default function Nav() {
               {link.label}
             </a>
           ))}
-          <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="pill-outline">
-            GitHub
-          </a>
+          <Link to="/signin" className="pill-outline" onClick={() => setNavOpen(false)}>
+            Sign In
+          </Link>
+          <Link to="/signup" className="bg-green-400 text-black px-6 py-3 rounded-md font-bold text-sm tracking-wider" onClick={() => setNavOpen(false)}>
+            GET STARTED ↗
+          </Link>
         </div>
       )}
 
