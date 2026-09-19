@@ -44,6 +44,23 @@ export const register = async (email: string, password: string) => {
   return handleResponse(response);
 };
 
+/**
+ * Exchange a Google ID token (credential) for a local JWT session token.
+ * The backend verifies the token with Google, upserts the user, and returns
+ * the same JWT shape as the standard login so the rest of the app is unaffected.
+ */
+export const googleLogin = async (credential: string) => {
+  const response = await fetch(`${API_URL}/auth/google-login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ credential }),
+  });
+
+  return handleResponse(response);
+};
+
 export const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
   const token = getAuthToken();
   
