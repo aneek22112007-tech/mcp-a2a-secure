@@ -67,7 +67,7 @@ export default function TamperDetectionSection() {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setSize(width, height)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     mount.appendChild(renderer.domElement)
 
     // ---------------- Lights ----------------
@@ -228,8 +228,8 @@ export default function TamperDetectionSection() {
         const target = i === activeIndex ? 1 : 0.15
         activeStrengths[i] += (target - activeStrengths[i]) * 0.06
         const s = 1 + activeStrengths[i] * 0.7
-        nodeMeshes[i].scale.setScalar(s)
-        nodeMeshes[i].material.emissiveIntensity = 0.4 + activeStrengths[i] * 2.2
+        nodeMeshes[i].scale.setScalar(s);
+        (nodeMeshes[i].material as any).emissiveIntensity = 0.4 + activeStrengths[i] * 2.2
         nodeGlows[i].scale.setScalar(1.1 + activeStrengths[i] * 1.6)
         nodeGlows[i].material.opacity = 0.2 + activeStrengths[i] * 0.6
 
@@ -239,7 +239,7 @@ export default function TamperDetectionSection() {
         const screenY = (-projected.y * 0.5 + 0.5) * mount!.clientHeight
         const labelEl = labelRefs.current[i]
         if (labelEl) {
-          labelEl.style.transform = `translate(-50%, 10px) translate(${screenX}px, ${screenY}px)`
+          labelEl.style.transform = `translate3d(calc(-50% + ${screenX}px), calc(10px + ${screenY}px), 0)`
           labelEl.style.opacity = String(0.55 + activeStrengths[i] * 0.45)
         }
       })
@@ -297,7 +297,7 @@ export default function TamperDetectionSection() {
         {STAGES.map((stage, i) => (
           <div
             key={stage.label}
-            ref={(el) => (labelRefs.current[i] = el)}
+            ref={(el) => { labelRefs.current[i] = el; }}
             className="absolute top-0 left-0 pointer-events-none select-none text-center"
             style={{ width: 150 }}
           >

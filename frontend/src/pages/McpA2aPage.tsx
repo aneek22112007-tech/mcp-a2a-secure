@@ -1,19 +1,20 @@
 import Nav from '../components/mcpa2a/Nav'
 import HeroSection from '../components/mcpa2a/HeroSection'
-import BuiltToLastSection from '../components/mcpa2a/BuiltToLastSection'
-import TileShatterSection from '../components/mcpa2a/TileShatterSection'
-import CoreFeaturesSection from '../components/mcpa2a/CoreFeaturesSection'
-import WhyNowSection from '../components/mcpa2a/WhyNowSection'
-import CompetitorLandscapeSection from '../components/mcpa2a/CompetitorLandscapeSection'
-import WhereWeFitSection from '../components/mcpa2a/WhereWeFitSection'
-import ArchitectureLayersSection from '../components/mcpa2a/ArchitectureLayersSection'
-import SandboxedExecutionSection from '../components/mcpa2a/SandboxedExecutionSection'
-import TamperDetectionSection from '../components/mcpa2a/TamperDetectionSection'
-import SecurityScannerSection from '../components/mcpa2a/SecurityScannerSection'
-import A2ADelegationSection from '../components/mcpa2a/A2ADelegationSection'
+import { Suspense, lazy } from 'react'
 
-import ThreatModelSection from '../components/mcpa2a/ThreatModelSection'
-import FooterSection from '../components/mcpa2a/FooterSection'
+const BuiltToLastSection = lazy(() => import('../components/mcpa2a/BuiltToLastSection'))
+const TileShatterSection = lazy(() => import('../components/mcpa2a/TileShatterSection'))
+const CoreFeaturesSection = lazy(() => import('../components/mcpa2a/CoreFeaturesSection'))
+const WhyNowSection = lazy(() => import('../components/mcpa2a/WhyNowSection'))
+const CompetitorLandscapeSection = lazy(() => import('../components/mcpa2a/CompetitorLandscapeSection'))
+const WhereWeFitSection = lazy(() => import('../components/mcpa2a/WhereWeFitSection'))
+const ArchitectureLayersSection = lazy(() => import('../components/mcpa2a/ArchitectureLayersSection'))
+const SandboxedExecutionSection = lazy(() => import('../components/mcpa2a/SandboxedExecutionSection'))
+const TamperDetectionSection = lazy(() => import('../components/mcpa2a/TamperDetectionSection'))
+const SecurityScannerSection = lazy(() => import('../components/mcpa2a/SecurityScannerSection'))
+const A2ADelegationSection = lazy(() => import('../components/mcpa2a/A2ADelegationSection'))
+const ThreatModelSection = lazy(() => import('../components/mcpa2a/ThreatModelSection'))
+const FooterSection = lazy(() => import('../components/mcpa2a/FooterSection'))
 import '../index.css'
 
 /**
@@ -27,20 +28,21 @@ export default function McpA2aPage() {
       <Nav />
       <main id="main-content" aria-label="MCP·A2A secure agent protocol landing page">
         <HeroSection />
-        <BuiltToLastSection />
-        <TileShatterSection />
-        <CoreFeaturesSection />
-        <WhyNowSection />
-        <CompetitorLandscapeSection />
-        <WhereWeFitSection />
-        <ArchitectureLayersSection />
-        <SandboxedExecutionSection />
-        <TamperDetectionSection />
-        <SecurityScannerSection />
-        <A2ADelegationSection />
-
-        <ThreatModelSection />
-        <FooterSection />
+        <Suspense fallback={<div style={{minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center'}}><div className="system-ready-spinner" /></div>}>
+          <BuiltToLastSection />
+          <TileShatterSection />
+          <CoreFeaturesSection />
+          <WhyNowSection />
+          <CompetitorLandscapeSection />
+          <WhereWeFitSection />
+          <ArchitectureLayersSection />
+          <SandboxedExecutionSection />
+          <TamperDetectionSection />
+          <SecurityScannerSection />
+          <A2ADelegationSection />
+          <ThreatModelSection />
+          <FooterSection />
+        </Suspense>
       </main>
     </>
   )

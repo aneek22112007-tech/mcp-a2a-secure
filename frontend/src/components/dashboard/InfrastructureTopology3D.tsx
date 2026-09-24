@@ -1,9 +1,10 @@
-import React, { useRef, useMemo, useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import React, { useRef, useMemo, useState, useEffect } from 'react';
+import { Canvas, invalidate } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useDashboardStore } from '../../store/dashboardStore';
 import type { TopologyNode } from '../../data/dashboardMockData';
+import { TopologyFilters, type TopologyFilterState, defaultTopologyFilters } from './TopologyFilters';
 
 /* ===== Node Component ===== */
 interface NodeMeshProps {
@@ -18,20 +19,6 @@ const NodeMesh: React.FC<NodeMeshProps> = ({ node, position, onHover, onSelect, 
   const meshRef = useRef<THREE.Mesh>(null!);
   const [hovered, setHovered] = useState(false);
 
-  useFrame((state) => {
-    if (meshRef.current) {
-      // Gentle floating motion
-      meshRef.current.position.y = position[1] + Math.sin(state.clock.elapsedTime + position[0]) * 0.1;
-      
-      // Pulse on hover or select
-      if (hovered || isSelected) {
-        const scale = 1 + Math.sin(state.clock.elapsedTime * 3) * 0.05;
-        meshRef.current.scale.setScalar(scale);
-      } else {
-        meshRef.current.scale.setScalar(1);
-      }
-    }
-  });
 
   const getNodeColor = () => {
     if (node.type === 'server') return '#FE6E44';
@@ -57,6 +44,7 @@ const NodeMesh: React.FC<NodeMeshProps> = ({ node, position, onHover, onSelect, 
       {/* Main node sphere */}
       <mesh
         ref={meshRef}
+        scale={hovered || isSelected ? 1.1 : 1}
         onPointerOver={(e) => {
           e.stopPropagation();
           setHovered(true);
@@ -135,12 +123,6 @@ interface ConnectionLinesProps {
 const ConnectionLines: React.FC<ConnectionLinesProps> = ({ nodes, connections }) => {
   const linesRef = useRef<THREE.Group>(null!);
 
-  useFrame((state) => {
-    if (linesRef.current) {
-      linesRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.1) * 0.02;
-    }
-  });
-
   const nodePositions = useMemo(() => {
     const map = new Map<string, [number, number, number]>();
     nodes.forEach(n => map.set(n.id, n.position));
@@ -179,7 +161,8 @@ const ConnectionLines: React.FC<ConnectionLinesProps> = ({ nodes, connections })
 const FloatingParticles: React.FC = () => {
   const particlesRef = useRef<THREE.Points>(null!);
 
-  const particleCount = 150;
+  // Reduced from 150 to 60 — still looks great, 60% less GPU/CPU
+  const particleCount = 60;
   const positions = useMemo(() => {
     const pos = new Float32Array(particleCount * 3);
     for (let i = 0; i < particleCount; i++) {
@@ -189,17 +172,6 @@ const FloatingParticles: React.FC = () => {
     }
     return pos;
   }, []);
-
-  useFrame((state) => {
-    if (particlesRef.current) {
-      particlesRef.current.rotation.y = state.clock.elapsedTime * 0.02;
-      const positions = particlesRef.current.geometry.attributes.position.array as Float32Array;
-      for (let i = 0; i < particleCount; i++) {
-        positions[i * 3 + 1] += Math.sin(state.clock.elapsedTime + i) * 0.001;
-      }
-      particlesRef.current.geometry.attributes.position.needsUpdate = true;
-    }
-  });
 
   return (
     <points ref={particlesRef}>
@@ -317,8 +289,7 @@ const Scene: React.FC<{
         enablePan={true}
         minDistance={5}
         maxDistance={20}
-        autoRotate
-        autoRotateSpeed={0.3}
+        autoRotate={false}
       />
     </>
   );
@@ -332,228 +303,331 @@ interface InfrastructureTopology3DProps {
 export const InfrastructureTopology3D: React.FC<InfrastructureTopology3DProps> = ({ height = '600px' }) => {
   const { topologyNodes, selectNode, selectedNodeId } = useDashboardStore();
   const [hoveredNode, setHoveredNode] = useState<TopologyNode | null>(null);
+  const [filters, setFilters] = useState<TopologyFilterState>(defaultTopologyFilters);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    // Mount the WebGL canvas after initial DOM paint so it doesn't block FCP/LCP
+    const timer = setTimeout(() => setIsReady(true), 40);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Pause WebGL rendering when canvas is not visible (e.g. navigated to another view)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) invalidate();
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Apply filters to nodes
+  const filteredNodes = useMemo(() => {
+    return topologyNodes.filter(node => {
+      // Filter by node type
+      if (!filters.nodeTypes[node.type]) return false;
+
+      // Filter by risk level
+      if (!filters.riskLevels[node.riskLevel]) return false;
+
+      // Filter by search query
+      if (filters.searchQuery.length > 0) {
+        const query = filters.searchQuery.toLowerCase();
+        if (!node.name.toLowerCase().includes(query) && !node.id.toLowerCase().includes(query)) {
+          return false;
+        }
+      }
+
+      // Focus mode: only show nodes with connections OR selected node
+      if (filters.focusMode) {
+        const hasConnections = node.connections.length > 0 || 
+                              topologyNodes.some(n => n.connections.includes(node.id));
+        const isSelected = node.id === selectedNodeId;
+        if (!hasConnections && !isSelected) return false;
+      }
+
+      return true;
+    });
+  }, [topologyNodes, filters, selectedNodeId]);
+
+  const handleResetFilters = () => {
+    setFilters(defaultTopologyFilters);
+  };
 
   return (
-    <div style={{ position: 'relative', width: '100%', height }}>
-      {/* 3D Canvas */}
-      <Canvas
-        camera={{ position: [8, 5, 8], fov: 50 }}
-        style={{ background: 'transparent' }}
-      >
-        <Scene
-          nodes={topologyNodes}
-          onNodeHover={setHoveredNode}
-          onNodeSelect={(node) => selectNode(node.id)}
-          selectedNodeId={selectedNodeId}
-        />
-      </Canvas>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+      {/* Filters */}
+      <TopologyFilters
+        filters={filters}
+        onChange={setFilters}
+        onReset={handleResetFilters}
+      />
 
-      {/* Hover Tooltip */}
-      {hoveredNode && (
+      {/* Topology Visualization */}
+      <div ref={containerRef} style={{ position: 'relative', width: '100%', height }}>
+        {/* 3D Canvas — dpr capped at 1.5 (retina at 2x = 4x pixels, no visible difference)
+            frameloop="demand" — only renders when invalidate() is called, not 60fps idle */}
+        {isReady && (
+          <Canvas
+            camera={{ position: [8, 5, 8], fov: 50 }}
+            style={{ background: 'transparent' }}
+            dpr={[1, 1.5]}
+            frameloop="demand"
+          >
+            <Scene
+              nodes={filteredNodes}
+              onNodeHover={setHoveredNode}
+              onNodeSelect={(node) => selectNode(node.id)}
+              selectedNodeId={selectedNodeId}
+            />
+          </Canvas>
+        )}
+
+        {/* Hover Tooltip */}
+        {hoveredNode && (
+          <div style={{
+            position: 'absolute',
+            top: '1rem',
+            left: '1rem',
+            background: 'rgba(0,0,0,0.9)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(254,110,68,0.3)',
+            borderRadius: '6px',
+            padding: '1rem',
+            minWidth: '240px',
+            pointerEvents: 'none',
+            zIndex: 10,
+          }}>
+            {/* Title */}
+            <div style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: '0.7rem',
+              fontWeight: 600,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              color: 'rgba(255,255,255,0.5)',
+              marginBottom: '0.5rem',
+              borderBottom: '1px solid rgba(254,110,68,0.2)',
+              paddingBottom: '0.5rem',
+            }}>
+              {hoveredNode.type === 'server' ? 'MCP SERVER' : hoveredNode.type === 'agent' ? 'AGENT' : 'TOOL'}
+            </div>
+
+            {/* Name */}
+            <div style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: '0.9rem',
+              fontWeight: 700,
+              color: '#fff',
+              marginBottom: '0.75rem',
+            }}>
+              {hoveredNode.name}
+            </div>
+
+            {/* Stats */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.4rem',
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontFamily: 'var(--font-body)',
+                fontSize: '0.7rem',
+              }}>
+                <span style={{ color: 'rgba(255,255,255,0.5)' }}>STATUS</span>
+                <span style={{ 
+                  color: hoveredNode.status === 'operational' || hoveredNode.status === 'active' ? '#7CFF4F' : '#FE6E44',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                }}>
+                  {hoveredNode.status}
+                </span>
+              </div>
+
+              {hoveredNode.metadata.toolCount && (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '0.7rem',
+                }}>
+                  <span style={{ color: 'rgba(255,255,255,0.5)' }}>TOOLS</span>
+                  <span style={{ color: '#FE6E44', fontWeight: 600 }}>{hoveredNode.metadata.toolCount}</span>
+                </div>
+              )}
+
+              {hoveredNode.metadata.callCount && (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: '0.7rem',
+                }}>
+                  <span style={{ color: 'rgba(255,255,255,0.5)' }}>CALLS</span>
+                  <span style={{ color: '#FE6E44', fontWeight: 600 }}>{hoveredNode.metadata.callCount}</span>
+                </div>
+              )}
+
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontFamily: 'var(--font-body)',
+                fontSize: '0.7rem',
+              }}>
+                <span style={{ color: 'rgba(255,255,255,0.5)' }}>LAST ACTIVITY</span>
+                <span style={{ color: 'rgba(255,255,255,0.75)' }}>{hoveredNode.metadata.lastActivity}</span>
+              </div>
+
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontFamily: 'var(--font-body)',
+                fontSize: '0.7rem',
+              }}>
+                <span style={{ color: 'rgba(255,255,255,0.5)' }}>RISK</span>
+                <span style={{ 
+                  color: hoveredNode.riskLevel === 'low' ? '#7CFF4F' : 
+                         hoveredNode.riskLevel === 'medium' ? '#FE6E44' : '#ff4444',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                }}>
+                  {hoveredNode.riskLevel}
+                </span>
+              </div>
+            </div>
+
+            {/* Hint */}
+            <div style={{
+              marginTop: '0.75rem',
+              paddingTop: '0.75rem',
+              borderTop: '1px solid rgba(255,255,255,0.05)',
+              fontFamily: 'var(--font-body)',
+              fontSize: '0.65rem',
+              color: 'rgba(255,255,255,0.3)',
+              fontStyle: 'italic',
+            }}>
+              Click to inspect details
+            </div>
+          </div>
+        )}
+
+        {/* Filter Results Badge */}
+        {filteredNodes.length < topologyNodes.length && (
+          <div style={{
+            position: 'absolute',
+            top: '1rem',
+            right: '1rem',
+            background: 'rgba(254,110,68,0.15)',
+            backdropFilter: 'blur(8px)',
+            border: '1px solid rgba(254,110,68,0.3)',
+            borderRadius: '6px',
+            padding: '0.5rem 0.75rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FE6E44" strokeWidth="2">
+              <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
+              <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
+            </svg>
+            <span style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: '0.7rem',
+              fontWeight: 600,
+              color: '#FE6E44',
+            }}>
+              {filteredNodes.length} / {topologyNodes.length} nodes
+            </span>
+          </div>
+        )}
+
+        {/* Controls Hint */}
         <div style={{
           position: 'absolute',
-          top: '1rem',
-          left: '1rem',
-          background: 'rgba(0,0,0,0.9)',
-          backdropFilter: 'blur(12px)',
-          border: '1px solid rgba(254,110,68,0.3)',
-          borderRadius: '6px',
-          padding: '1rem',
-          minWidth: '240px',
+          bottom: '1rem',
+          right: '1rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.25rem',
+          alignItems: 'flex-end',
+          fontFamily: 'var(--font-body)',
+          fontSize: '0.65rem',
+          color: 'rgba(255,255,255,0.3)',
           pointerEvents: 'none',
-          zIndex: 10,
         }}>
-          {/* Title */}
-          <div style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: '0.7rem',
-            fontWeight: 600,
-            letterSpacing: '0.12em',
-            textTransform: 'uppercase',
-            color: 'rgba(255,255,255,0.5)',
-            marginBottom: '0.5rem',
-            borderBottom: '1px solid rgba(254,110,68,0.2)',
-            paddingBottom: '0.5rem',
-          }}>
-            {hoveredNode.type === 'server' ? 'MCP SERVER' : hoveredNode.type === 'agent' ? 'AGENT' : 'TOOL'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+            Drag to rotate
           </div>
-
-          {/* Name */}
-          <div style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: '0.9rem',
-            fontWeight: 700,
-            color: '#fff',
-            marginBottom: '0.75rem',
-          }}>
-            {hoveredNode.name}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            Scroll to zoom
           </div>
+        </div>
 
-          {/* Stats */}
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.4rem',
-          }}>
+        {/* Legend */}
+        <div style={{
+          position: 'absolute',
+          bottom: '1rem',
+          left: '1rem',
+          background: 'rgba(0,0,0,0.7)',
+          backdropFilter: 'blur(8px)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '6px',
+          padding: '0.75rem',
+          display: 'flex',
+          gap: '1rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
+              width: '8px',
+              height: '8px',
+              background: '#FE6E44',
+              boxShadow: '0 0 6px #FE6E44',
+            }} />
+            <span style={{
               fontFamily: 'var(--font-body)',
-              fontSize: '0.7rem',
-            }}>
-              <span style={{ color: 'rgba(255,255,255,0.5)' }}>STATUS</span>
-              <span style={{ 
-                color: hoveredNode.status === 'operational' || hoveredNode.status === 'active' ? '#7CFF4F' : '#FE6E44',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-              }}>
-                {hoveredNode.status}
-              </span>
-            </div>
-
-            {hoveredNode.metadata.toolCount && (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontFamily: 'var(--font-body)',
-                fontSize: '0.7rem',
-              }}>
-                <span style={{ color: 'rgba(255,255,255,0.5)' }}>TOOLS</span>
-                <span style={{ color: '#FE6E44', fontWeight: 600 }}>{hoveredNode.metadata.toolCount}</span>
-              </div>
-            )}
-
-            {hoveredNode.metadata.callCount && (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontFamily: 'var(--font-body)',
-                fontSize: '0.7rem',
-              }}>
-                <span style={{ color: 'rgba(255,255,255,0.5)' }}>CALLS</span>
-                <span style={{ color: '#FE6E44', fontWeight: 600 }}>{hoveredNode.metadata.callCount}</span>
-              </div>
-            )}
-
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              fontFamily: 'var(--font-body)',
-              fontSize: '0.7rem',
-            }}>
-              <span style={{ color: 'rgba(255,255,255,0.5)' }}>LAST ACTIVITY</span>
-              <span style={{ color: 'rgba(255,255,255,0.75)' }}>{hoveredNode.metadata.lastActivity}</span>
-            </div>
-
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              fontFamily: 'var(--font-body)',
-              fontSize: '0.7rem',
-            }}>
-              <span style={{ color: 'rgba(255,255,255,0.5)' }}>RISK</span>
-              <span style={{ 
-                color: hoveredNode.riskLevel === 'low' ? '#7CFF4F' : 
-                       hoveredNode.riskLevel === 'medium' ? '#FE6E44' : '#ff4444',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-              }}>
-                {hoveredNode.riskLevel}
-              </span>
-            </div>
+              fontSize: '0.65rem',
+              color: 'rgba(255,255,255,0.6)',
+            }}>Servers</span>
           </div>
-
-          {/* Hint */}
-          <div style={{
-            marginTop: '0.75rem',
-            paddingTop: '0.75rem',
-            borderTop: '1px solid rgba(255,255,255,0.05)',
-            fontFamily: 'var(--font-body)',
-            fontSize: '0.65rem',
-            color: 'rgba(255,255,255,0.3)',
-            fontStyle: 'italic',
-          }}>
-            Click to inspect details
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              background: '#ffffff',
+              boxShadow: '0 0 6px #ffffff',
+            }} />
+            <span style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: '0.65rem',
+              color: 'rgba(255,255,255,0.6)',
+            }}>Agents</span>
           </div>
-        </div>
-      )}
-
-      {/* Controls Hint */}
-      <div style={{
-        position: 'absolute',
-        bottom: '1rem',
-        right: '1rem',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '0.25rem',
-        alignItems: 'flex-end',
-        fontFamily: 'var(--font-body)',
-        fontSize: '0.65rem',
-        color: 'rgba(255,255,255,0.3)',
-        pointerEvents: 'none',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-          </svg>
-          Drag to rotate
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          Scroll to zoom
-        </div>
-      </div>
-
-      {/* Legend */}
-      <div style={{
-        position: 'absolute',
-        bottom: '1rem',
-        left: '1rem',
-        background: 'rgba(0,0,0,0.7)',
-        backdropFilter: 'blur(8px)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: '6px',
-        padding: '0.75rem',
-        display: 'flex',
-        gap: '1rem',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <div style={{
-            width: '8px',
-            height: '8px',
-            background: '#FE6E44',
-            boxShadow: '0 0 6px #FE6E44',
-          }} />
-          <span style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: '0.65rem',
-            color: 'rgba(255,255,255,0.6)',
-          }}>Servers</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <div style={{
-            width: '8px',
-            height: '8px',
-            background: '#ffffff',
-            boxShadow: '0 0 6px #ffffff',
-          }} />
-          <span style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: '0.65rem',
-            color: 'rgba(255,255,255,0.6)',
-          }}>Agents</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <div style={{
-            width: '8px',
-            height: '8px',
-            background: '#7CFF4F',
-            boxShadow: '0 0 6px #7CFF4F',
-          }} />
-          <span style={{
-            fontFamily: 'var(--font-body)',
-            fontSize: '0.65rem',
-            color: 'rgba(255,255,255,0.6)',
-          }}>Healthy</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{
+              width: '8px',
+              height: '8px',
+              background: '#7CFF4F',
+              boxShadow: '0 0 6px #7CFF4F',
+            }} />
+            <span style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: '0.65rem',
+              color: 'rgba(255,255,255,0.6)',
+            }}>Healthy</span>
+          </div>
         </div>
       </div>
     </div>

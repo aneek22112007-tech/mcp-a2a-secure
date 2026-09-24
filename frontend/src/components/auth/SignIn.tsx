@@ -231,6 +231,7 @@ export const SignIn: React.FC = () => {
               style={{ ...inputStyle, letterSpacing: showPassword ? '0.02em' : '0.2em' }}
             />
             <button type="button" onClick={() => setShowPassword(!showPassword)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'rgba(255,255,255,0.35)' }}>
               {showPassword ? (
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -261,13 +262,13 @@ export const SignIn: React.FC = () => {
           style={{
             width: '100%',
             padding: '0.95rem',
-            background: loading ? 'rgba(254,110,68,0.5)' : 'var(--accent)',
+            background: loading ? 'rgba(254,110,68,0.5)' : '#FE6E44',
             border: 'none',
             borderRadius: '6px',
-            color: '#fff',
+            color: '#000',
             fontFamily: 'var(--font-display)',
-            fontSize: '0.7rem',
-            fontWeight: 700,
+            fontSize: '0.75rem',
+            fontWeight: 800,
             letterSpacing: '0.18em',
             textTransform: 'uppercase',
             cursor: loading ? 'not-allowed' : 'pointer',

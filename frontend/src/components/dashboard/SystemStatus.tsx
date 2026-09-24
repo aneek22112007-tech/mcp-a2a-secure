@@ -31,16 +31,45 @@ export const SystemStatus: React.FC = () => {
     return () => clearInterval(timer);
   }, [systemMetrics.securityScore]);
 
+  // Calculate Security Posture based on score and findings
+  const getSecurityPosture = (): { status: string; color: string } => {
+    if (systemMetrics.criticalFindings > 0 || systemMetrics.securityScore < 60) {
+      return { status: 'CRITICAL', color: '#ff4444' };
+    }
+    if (systemMetrics.highFindings > 2 || systemMetrics.securityScore < 75) {
+      return { status: 'DEGRADED', color: '#FE6E44' };
+    }
+    if (systemMetrics.highFindings > 0 || systemMetrics.mediumFindings > 5) {
+      return { status: 'ATTENTION', color: '#FFA726' };
+    }
+    return { status: 'SECURE', color: '#7CFF4F' };
+  };
+
+  const securityPosture = getSecurityPosture();
+
   const stats = [
     {
       label: 'SYSTEM STATUS',
       value: systemMetrics.systemStatus.toUpperCase(),
-      color: systemMetrics.systemStatus === 'operational' ? '#7CFF4F' : '#FE6E44',
+      color: systemMetrics.systemStatus === 'operational' ? '#7CFF4F' : systemMetrics.systemStatus === 'warning' ? '#FE6E44' : '#ff4444',
       icon: (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <circle cx="12" cy="12" r="10"/>
+          <path d="M12 6v6l4 2"/>
         </svg>
       ),
+      tooltip: 'Infrastructure operational status',
+    },
+    {
+      label: 'SECURITY POSTURE',
+      value: securityPosture.status,
+      color: securityPosture.color,
+      icon: (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      ),
+      tooltip: 'Overall security health assessment',
     },
     {
       label: 'LAST SCAN',
@@ -51,6 +80,7 @@ export const SystemStatus: React.FC = () => {
           <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
         </svg>
       ),
+      tooltip: 'Most recent security scan',
     },
     {
       label: 'ACTIVE SERVERS',
@@ -59,8 +89,10 @@ export const SystemStatus: React.FC = () => {
       icon: (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+          <line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
         </svg>
       ),
+      tooltip: 'MCP servers online',
     },
     {
       label: 'ACTIVE AGENTS',
@@ -69,18 +101,10 @@ export const SystemStatus: React.FC = () => {
       icon: (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/>
+          <polyline points="17 11 19 13 23 9"/>
         </svg>
       ),
-    },
-    {
-      label: 'RISK LEVEL',
-      value: systemMetrics.riskLevel.toUpperCase(),
-      color: systemMetrics.riskLevel === 'low' ? '#7CFF4F' : systemMetrics.riskLevel === 'medium' ? '#FE6E44' : '#ff4444',
-      icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-        </svg>
-      ),
+      tooltip: 'Verified agents connected',
     },
   ];
 
@@ -243,7 +267,7 @@ export const SystemStatus: React.FC = () => {
                 cy="60"
                 r="50"
                 fill="none"
-                stroke="#7CFF4F"
+                stroke={securityPosture.color}
                 strokeWidth="8"
                 strokeLinecap="round"
                 initial={{ strokeDasharray: '314', strokeDashoffset: '314' }}
@@ -251,7 +275,7 @@ export const SystemStatus: React.FC = () => {
                   strokeDashoffset: 314 - (314 * animatedScore) / 100,
                 }}
                 transition={{ duration: 1.5, ease: 'easeOut' }}
-                style={{ filter: 'drop-shadow(0 0 8px #7CFF4F)' }}
+                style={{ filter: `drop-shadow(0 0 8px ${securityPosture.color})` }}
               />
             </svg>
             {/* Center text */}
@@ -267,7 +291,7 @@ export const SystemStatus: React.FC = () => {
                 fontFamily: 'var(--font-display)',
                 fontSize: '2rem',
                 fontWeight: 700,
-                color: '#7CFF4F',
+                color: securityPosture.color,
               }}>
                 {animatedScore}
               </div>
@@ -294,16 +318,25 @@ export const SystemStatus: React.FC = () => {
               color: 'rgba(255,255,255,0.5)',
               marginBottom: '0.5rem',
             }}>
-              SECURITY POSTURE
+              SECURITY SCORE ANALYSIS
             </div>
             <div style={{
               fontFamily: 'var(--font-display)',
               fontSize: '1.5rem',
               fontWeight: 700,
-              color: '#7CFF4F',
+              color: securityPosture.color,
               marginBottom: '1rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
             }}>
-              EXCELLENT
+              {securityPosture.status}
+              {securityPosture.status === 'CRITICAL' && (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+              )}
             </div>
             <div style={{
               display: 'flex',
@@ -314,22 +347,42 @@ export const SystemStatus: React.FC = () => {
                 fontFamily: 'var(--font-body)',
                 fontSize: '0.75rem',
                 color: 'rgba(255,255,255,0.6)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
               }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
                 {systemMetrics.verifiedConnections.toLocaleString()} verified connections
               </div>
               <div style={{
                 fontFamily: 'var(--font-body)',
                 fontSize: '0.75rem',
                 color: 'rgba(255,255,255,0.6)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
               }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
                 {systemMetrics.blockedRequests} threats blocked
               </div>
               <div style={{
                 fontFamily: 'var(--font-body)',
                 fontSize: '0.75rem',
-                color: systemMetrics.activeFindings > 0 ? '#FE6E44' : 'rgba(255,255,255,0.6)',
+                color: systemMetrics.criticalFindings > 0 ? '#ff4444' : systemMetrics.activeFindings > 0 ? '#FE6E44' : 'rgba(255,255,255,0.6)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
               }}>
-                {systemMetrics.activeFindings} active findings
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                {systemMetrics.criticalFindings > 0 && `${systemMetrics.criticalFindings} critical, `}
+                {systemMetrics.highFindings > 0 && `${systemMetrics.highFindings} high, `}
+                {systemMetrics.activeFindings} total findings
               </div>
             </div>
           </div>
