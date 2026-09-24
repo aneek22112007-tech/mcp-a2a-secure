@@ -11,18 +11,14 @@ import { ServerInventory } from '../components/dashboard/ServerInventory';
 import { SecurityFindings } from '../components/dashboard/SecurityFindings';
 import { QuickActions } from '../components/dashboard/QuickActions';
 import { NodeInspector } from '../components/dashboard/NodeInspector';
-import { getAuthToken } from '../lib/api';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const [showInitialization, setShowInitialization] = useState(true);
 
-  // Check authentication
+  // Check authentication via API instead of local token
   useEffect(() => {
-    const token = getAuthToken();
-    if (!token) {
-      navigate('/signin');
-    }
+    // The fetchWithAuth wrapper handles 401 redirects automatically
   }, [navigate]);
 
   const handleInitializationComplete = () => {

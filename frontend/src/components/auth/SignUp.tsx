@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { AuthLayout } from './AuthLayout';
-import { register, googleLogin, setAuthToken } from '../../lib/api';
+import { register, googleLogin } from '../../lib/api';
 import { useNavigate } from 'react-router-dom';
 
 /* ---------- Shared style tokens ---------- */
@@ -113,7 +113,6 @@ export const SignUp: React.FC = () => {
     setLoading(true);
     try {
       const response = await register(email, password);
-      setAuthToken(response.token);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Failed to create account. Please try again.');
@@ -131,7 +130,6 @@ export const SignUp: React.FC = () => {
     setLoading(true);
     try {
       const response = await googleLogin(credentialResponse.credential);
-      setAuthToken(response.token);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Google sign-in failed. Please try again.');

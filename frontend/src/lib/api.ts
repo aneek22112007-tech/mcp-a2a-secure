@@ -1,17 +1,5 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
-export const setAuthToken = (token: string) => {
-  localStorage.setItem('auth_token', token);
-};
-
-export const getAuthToken = () => {
-  return localStorage.getItem('auth_token');
-};
-
-export const removeAuthToken = () => {
-  localStorage.removeItem('auth_token');
-};
-
 const handleResponse = async (response: Response) => {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
@@ -26,6 +14,7 @@ export const login = async (email: string, password: string) => {
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify({ email, password }),
   });
   
@@ -38,6 +27,7 @@ export const register = async (email: string, password: string) => {
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify({ email, password }),
   });
 
@@ -55,6 +45,7 @@ export const googleLogin = async (credential: string) => {
     headers: {
       'Content-Type': 'application/json',
     },
+    credentials: 'include',
     body: JSON.stringify({ credential }),
   });
 
@@ -62,20 +53,12 @@ export const googleLogin = async (credential: string) => {
 };
 
 export const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
-  const token = getAuthToken();
-  
-  const headers = {
-    ...options.headers,
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-
   const response = await fetch(`${API_URL}${url}`, {
     ...options,
-    headers,
+    credentials: 'include',
   });
 
   if (response.status === 401) {
-    removeAuthToken();
     window.location.href = '/login';
     throw new Error('Unauthorized');
   }
