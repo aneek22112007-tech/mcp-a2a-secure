@@ -18,7 +18,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, isSignUp }) =>
       overflow: 'hidden',
     }}>
       {/* Left Column: Form */}
-      <div style={{
+      <main style={{
         width: '100%',
         maxWidth: '500px',
         display: 'flex',
@@ -95,7 +95,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, isSignUp }) =>
             textTransform: 'uppercase',
           }}>mcp auth login</span>
         </div>
-      </div>
+      </main>
 
       {/* Right Column: 3D Visual */}
       <div style={{

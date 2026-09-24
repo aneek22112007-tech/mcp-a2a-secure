@@ -8,12 +8,44 @@ import {
   type SystemMetrics,
   type ActivityMetrics,
   type TopologyNode,
+  type A2ATask,
+  type A2AAgentCard,
+  type SandboxExecution,
+  type ToolCallTrace,
+  type AuditEvent,
+  type AIAnalysis,
   dashboardData,
   generateMockEvents,
   generateActivityMetrics,
 } from '../data/dashboardMockData';
 
-export type DashboardView = 'overview' | 'servers' | 'agents' | 'tools' | 'scanner' | 'findings' | 'policies' | 'fingerprints' | 'events' | 'architecture' | 'sandbox' | 'settings';
+export type DashboardView = 
+  | 'overview'
+  // Infrastructure
+  | 'servers' 
+  | 'agents' 
+  | 'tools'
+  | 'resources'
+  // Security
+  | 'scanner' 
+  | 'findings' 
+  | 'policies' 
+  | 'fingerprints'
+  // Execution
+  | 'sandbox'
+  | 'toolcalls'
+  // A2A Network
+  | 'a2aDelegation'
+  | 'a2aAgentCards'
+  | 'a2aTasks'
+  // Observability
+  | 'events'
+  | 'audit'
+  | 'architecture'
+  | 'metrics'
+  // AI
+  | 'aiAnalysis'
+  | 'aiModel';
 
 interface DashboardState {
   // Data
@@ -25,6 +57,20 @@ interface DashboardState {
   systemMetrics: SystemMetrics;
   activityMetrics: ActivityMetrics[];
   topologyNodes: TopologyNode[];
+  
+  // A2A Network data
+  a2aTasks: A2ATask[];
+  a2aAgentCards: A2AAgentCard[];
+  
+  // Execution data
+  sandboxExecutions: SandboxExecution[];
+  toolCallTraces: ToolCallTrace[];
+  
+  // Observability data
+  auditEvents: AuditEvent[];
+  
+  // AI data
+  aiAnalyses: AIAnalysis[];
   
   // UI State
   currentView: DashboardView;
@@ -67,6 +113,20 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   systemMetrics: dashboardData.systemMetrics,
   activityMetrics: dashboardData.activityMetrics,
   topologyNodes: dashboardData.topologyNodes,
+  
+  // A2A Network data
+  a2aTasks: dashboardData.a2aTasks,
+  a2aAgentCards: dashboardData.a2aAgentCards,
+  
+  // Execution data
+  sandboxExecutions: dashboardData.sandboxExecutions,
+  toolCallTraces: dashboardData.toolCallTraces,
+  
+  // Observability data
+  auditEvents: dashboardData.auditEvents,
+  
+  // AI data
+  aiAnalyses: dashboardData.aiAnalyses,
   
   // Initial UI state
   currentView: 'overview',
@@ -141,12 +201,39 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   setSearchQuery: (query) => set({ searchQuery: query }),
 }));
 
-// Auto-refresh events when live mode is enabled
+// Auto-refresh events — only when live mode is ON and the tab is visible.
+// Uses visibilitychange to pause when the user is not looking, saving main-thread
+// work and preventing unnecessary React re-renders every 5s in the background.
 if (typeof window !== 'undefined') {
-  setInterval(() => {
-    const state = useDashboardStore.getState();
-    if (state.isLiveMode) {
-      state.refreshEvents();
+  let liveTimer: ReturnType<typeof setInterval> | null = null;
+
+  const startLiveUpdates = () => {
+    if (liveTimer) return;
+    liveTimer = setInterval(() => {
+      const state = useDashboardStore.getState();
+      if (state.isLiveMode && !document.hidden) {
+        state.refreshEvents();
+      }
+    }, 5000);
+  };
+
+  const stopLiveUpdates = () => {
+    if (liveTimer) {
+      clearInterval(liveTimer);
+      liveTimer = null;
     }
-  }, 5000); // Refresh events every 5 seconds in live mode
+  };
+
+  // Pause while tab is hidden, resume when it comes back
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      stopLiveUpdates();
+    } else {
+      const state = useDashboardStore.getState();
+      if (state.isLiveMode) startLiveUpdates();
+    }
+  });
+
+  // Start on load
+  startLiveUpdates();
 }

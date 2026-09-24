@@ -4,11 +4,46 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#030604" />
     <title>MCP·A2A — Secure Agent Protocol</title>
     <meta name="description" content="A security-first implementation of the Model Context Protocol with real Agent2Agent delegation — sandboxed execution, schema tamper detection, and verified agent hand-off." />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+    <!-- Self-hosted fonts: eliminates 2 DNS lookups + render-blocking external CSS.
+         Only 2 weights per family (vs 6+4 before) = 20KB vs ~400KB. -->
+    <style>
+      @font-face {
+        font-family: 'Orbitron';
+        font-style: normal;
+        font-weight: 700;
+        font-display: swap;
+        src: url('/fonts/orbitron-700.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'Orbitron';
+        font-style: normal;
+        font-weight: 900;
+        font-display: swap;
+        src: url('/fonts/orbitron-900.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'Space Grotesk';
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url('/fonts/space-grotesk-400.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'Space Grotesk';
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url('/fonts/space-grotesk-600.woff2') format('woff2');
+      }
+    </style>
+
+    <!-- Preload the two fonts most likely to be LCP-critical -->
+    <link rel="preload" href="/fonts/orbitron-900.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/space-grotesk-400.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body>
     <div id="root"></div>

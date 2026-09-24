@@ -43,12 +43,16 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t
 }
 
+// Cap DPR for SecurityCore canvas — retina at 1.5x is visually identical at this scale
+const MAX_DPR = 1.5
+
 export default function SecurityCore({ state, scrollProgress }: SecurityCoreProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const currentConfig = useRef<CoreConfig>(STATE_CONFIGS.hero)
   const rafRef = useRef<number>(0)
   const timeRef = useRef<number>(0)
+  const pausedRef = useRef(false)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -56,17 +60,38 @@ export default function SecurityCore({ state, scrollProgress }: SecurityCoreProp
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR)
+
     const resize = () => {
-      canvas.width = canvas.offsetWidth * window.devicePixelRatio
-      canvas.height = canvas.offsetHeight * window.devicePixelRatio
+      canvas.width = canvas.offsetWidth * dpr
+      canvas.height = canvas.offsetHeight * dpr
     }
     resize()
-    window.addEventListener('resize', resize)
+
+    let resizeTimer: ReturnType<typeof setTimeout>
+    const onResize = () => {
+      clearTimeout(resizeTimer)
+      resizeTimer = setTimeout(resize, 150)
+    }
+    window.addEventListener('resize', onResize)
+
+    // Pause rendering when tab is not visible
+    const onVisibility = () => {
+      pausedRef.current = document.hidden
+      if (!document.hidden && rafRef.current === 0) {
+        rafRef.current = requestAnimationFrame(draw)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
 
     const target = STATE_CONFIGS[state]
     let frameId: number
 
     const draw = (time: number) => {
+      if (pausedRef.current) {
+        rafRef.current = 0
+        return
+      }
       timeRef.current = time * 0.001
       const t = timeRef.current
 
@@ -83,7 +108,6 @@ export default function SecurityCore({ state, scrollProgress }: SecurityCoreProp
 
       const W = canvas.width
       const H = canvas.height
-      const dpr = window.devicePixelRatio || 1
 
       ctx.clearRect(0, 0, W, H)
 
@@ -315,7 +339,10 @@ export default function SecurityCore({ state, scrollProgress }: SecurityCoreProp
 
     return () => {
       cancelAnimationFrame(frameId)
-      window.removeEventListener('resize', resize)
+      clearTimeout(resizeTimer)
+      window.removeEventListener('resize', onResize)
+      document.removeEventListener('visibilitychange', onVisibility)
+      rafRef.current = 0
     }
   }, [state])
 

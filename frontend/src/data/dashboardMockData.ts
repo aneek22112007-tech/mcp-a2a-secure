@@ -8,6 +8,9 @@ export type AgentStatus = 'active' | 'idle' | 'offline';
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
 export type FindingSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type EventType = 'tool_call' | 'policy' | 'scan' | 'a2a_connection' | 'anomaly' | 'auth' | 'block';
+export type A2ATaskStatus = 'pending' | 'active' | 'completed' | 'failed' | 'delegated';
+export type SandboxStatus = 'running' | 'completed' | 'failed' | 'timeout' | 'blocked';
+export type AuditAction = 'read' | 'write' | 'execute' | 'delete' | 'delegate' | 'verify' | 'block' | 'policy_update';
 
 export interface MCPServer {
   id: string;
@@ -97,6 +100,102 @@ export interface SystemMetrics {
   systemStatus: 'operational' | 'warning' | 'critical';
 }
 
+// A2A Task: Agent-to-Agent delegation task
+export interface A2ATask {
+  id: string;
+  title: string;
+  managerAgent: string;
+  workerAgent: string;
+  status: A2ATaskStatus;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  createdAt: string;
+  completedAt?: string;
+  toolsUsed: string[];
+  riskLevel: RiskLevel;
+  verificationStatus: 'pending' | 'verified' | 'failed';
+}
+
+// A2A Agent Card: Trust card for agent-to-agent auth
+export interface A2AAgentCard {
+  id: string;
+  agentId: string;
+  agentName: string;
+  issuer: string;
+  issuedAt: string;
+  expiresAt: string;
+  capabilities: string[];
+  trustScore: number;
+  verified: boolean;
+  revoked: boolean;
+  usageCount: number;
+  lastUsed: string;
+}
+
+// Sandbox Execution: Isolated tool execution record
+export interface SandboxExecution {
+  id: string;
+  toolName: string;
+  agentId: string;
+  status: SandboxStatus;
+  startTime: string;
+  endTime?: string;
+  duration?: number; // milliseconds
+  resourceUsage: {
+    cpu: number; // percentage
+    memory: number; // MB
+    network: number; // KB
+  };
+  exitCode?: number;
+  blocked: boolean;
+  blockReason?: string;
+}
+
+// Audit Event: Comprehensive audit trail
+export interface AuditEvent {
+  id: string;
+  timestamp: string;
+  action: AuditAction;
+  actor: string; // agent or user ID
+  actorType: 'agent' | 'user' | 'system';
+  resource: string;
+  resourceType: 'server' | 'agent' | 'tool' | 'policy' | 'finding';
+  success: boolean;
+  riskLevel: RiskLevel;
+  details: string;
+  ipAddress?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// AI Security Analysis: LLM-powered security insights
+export interface AIAnalysis {
+  id: string;
+  timestamp: string;
+  analysisType: 'threat_detection' | 'pattern_analysis' | 'risk_assessment' | 'anomaly_detection';
+  confidence: number; // 0-100
+  finding: string;
+  recommendation: string;
+  affectedResources: string[];
+  severity: FindingSeverity;
+  modelVersion: string;
+  processingTime: number; // milliseconds
+}
+
+// Tool Call Trace: Detailed tool execution trace
+export interface ToolCallTrace {
+  id: string;
+  timestamp: string;
+  toolName: string;
+  serverId: string;
+  agentId: string;
+  duration: number;
+  success: boolean;
+  inputHash: string;
+  outputHash: string;
+  verified: boolean;
+  sandboxId?: string;
+  riskLevel: RiskLevel;
+}
+
 // Generate timestamps
 const now = new Date();
 const getTimeAgo = (minutesAgo: number) => {
@@ -109,6 +208,13 @@ const formatTimeAgo = (minutesAgo: number) => {
   if (minutesAgo < 60) return `${Math.floor(minutesAgo)}m ago`;
   if (minutesAgo < 1440) return `${Math.floor(minutesAgo / 60)}h ago`;
   return `${Math.floor(minutesAgo / 1440)}d ago`;
+};
+
+// Generate random hash for demo purposes
+const generateHash = () => {
+  return Array.from({ length: 8 }, () => 
+    Math.floor(Math.random() * 16).toString(16)
+  ).join('');
 };
 
 // Mock Servers
@@ -485,6 +591,476 @@ export const generateTopologyNodes = (): TopologyNode[] => {
   return nodes;
 };
 
+// Mock A2A Tasks
+export const mockA2ATasks: A2ATask[] = [
+  {
+    id: 'a2a-001',
+    title: 'Process customer support tickets',
+    managerAgent: 'agent-07',
+    workerAgent: 'agent-12',
+    status: 'active',
+    priority: 'high',
+    createdAt: formatTimeAgo(15),
+    toolsUsed: ['database.query', 'nlp.analyze', 'ticket.update'],
+    riskLevel: 'medium',
+    verificationStatus: 'verified',
+  },
+  {
+    id: 'a2a-002',
+    title: 'Security scan delegation',
+    managerAgent: 'agent-04',
+    workerAgent: 'agent-21',
+    status: 'completed',
+    priority: 'critical',
+    createdAt: formatTimeAgo(120),
+    completedAt: formatTimeAgo(45),
+    toolsUsed: ['scan.vulnerability', 'code.analyze'],
+    riskLevel: 'low',
+    verificationStatus: 'verified',
+  },
+  {
+    id: 'a2a-003',
+    title: 'ML model training pipeline',
+    managerAgent: 'agent-15',
+    workerAgent: 'agent-09',
+    status: 'active',
+    priority: 'medium',
+    createdAt: formatTimeAgo(240),
+    toolsUsed: ['ml.train', 'data.fetch', 'vector.store'],
+    riskLevel: 'low',
+    verificationStatus: 'verified',
+  },
+  {
+    id: 'a2a-004',
+    title: 'Database optimization task',
+    managerAgent: 'agent-18',
+    workerAgent: 'agent-12',
+    status: 'pending',
+    priority: 'low',
+    createdAt: formatTimeAgo(5),
+    toolsUsed: ['database.analyze', 'query.optimize'],
+    riskLevel: 'low',
+    verificationStatus: 'pending',
+  },
+  {
+    id: 'a2a-005',
+    title: 'Content moderation batch',
+    managerAgent: 'agent-23',
+    workerAgent: 'agent-07',
+    status: 'failed',
+    priority: 'medium',
+    createdAt: formatTimeAgo(180),
+    completedAt: formatTimeAgo(165),
+    toolsUsed: ['content.analyze'],
+    riskLevel: 'high',
+    verificationStatus: 'failed',
+  },
+];
+
+// Mock A2A Agent Cards
+export const mockA2AAgentCards: A2AAgentCard[] = [
+  {
+    id: 'card-001',
+    agentId: 'agent-07',
+    agentName: 'Document Processor',
+    issuer: 'MCP-A2A-Authority',
+    issuedAt: formatTimeAgo(10080), // 7 days
+    expiresAt: formatTimeAgo(-43200), // 30 days from now
+    capabilities: ['filesystem.read', 'filesystem.write', 'nlp.process', 'vector.search'],
+    trustScore: 98,
+    verified: true,
+    revoked: false,
+    usageCount: 1284,
+    lastUsed: formatTimeAgo(0.5),
+  },
+  {
+    id: 'card-002',
+    agentId: 'agent-12',
+    agentName: 'Data Analyzer',
+    issuer: 'MCP-A2A-Authority',
+    issuedAt: formatTimeAgo(14400), // 10 days
+    expiresAt: formatTimeAgo(-28800), // 20 days from now
+    capabilities: ['database.query', 'database.write', 'analytics.run'],
+    trustScore: 95,
+    verified: true,
+    revoked: false,
+    usageCount: 892,
+    lastUsed: formatTimeAgo(1),
+  },
+  {
+    id: 'card-003',
+    agentId: 'agent-04',
+    agentName: 'Security Scanner',
+    issuer: 'MCP-A2A-Authority',
+    issuedAt: formatTimeAgo(7200), // 5 days
+    expiresAt: formatTimeAgo(-50400), // 35 days from now
+    capabilities: ['scan.security', 'audit.read', 'policy.enforce', 'block.request'],
+    trustScore: 100,
+    verified: true,
+    revoked: false,
+    usageCount: 2103,
+    lastUsed: formatTimeAgo(2),
+  },
+  {
+    id: 'card-004',
+    agentId: 'agent-09',
+    agentName: 'API Gateway',
+    issuer: 'MCP-A2A-Authority',
+    issuedAt: formatTimeAgo(20160), // 14 days
+    expiresAt: formatTimeAgo(-14400), // 10 days from now
+    capabilities: ['api.call', 'auth.verify', 'rate.limit'],
+    trustScore: 88,
+    verified: true,
+    revoked: false,
+    usageCount: 4521,
+    lastUsed: formatTimeAgo(0.2),
+  },
+  {
+    id: 'card-005',
+    agentId: 'agent-21',
+    agentName: 'Code Review Bot',
+    issuer: 'MCP-A2A-Authority',
+    issuedAt: formatTimeAgo(5760), // 4 days
+    expiresAt: formatTimeAgo(-36000), // 25 days from now
+    capabilities: ['code.read', 'code.analyze', 'notification.send'],
+    trustScore: 92,
+    verified: true,
+    revoked: false,
+    usageCount: 156,
+    lastUsed: formatTimeAgo(45),
+  },
+];
+
+// Mock Sandbox Executions
+export const mockSandboxExecutions: SandboxExecution[] = [
+  {
+    id: 'sbx-001',
+    toolName: 'filesystem.read',
+    agentId: 'agent-07',
+    status: 'completed',
+    startTime: formatTimeAgo(1),
+    endTime: formatTimeAgo(0.9),
+    duration: 124,
+    resourceUsage: { cpu: 12, memory: 48, network: 0 },
+    exitCode: 0,
+    blocked: false,
+  },
+  {
+    id: 'sbx-002',
+    toolName: 'database.query',
+    agentId: 'agent-12',
+    status: 'completed',
+    startTime: formatTimeAgo(3),
+    endTime: formatTimeAgo(2.8),
+    duration: 342,
+    resourceUsage: { cpu: 28, memory: 124, network: 45 },
+    exitCode: 0,
+    blocked: false,
+  },
+  {
+    id: 'sbx-003',
+    toolName: 'system.exec',
+    agentId: 'agent-09',
+    status: 'blocked',
+    startTime: formatTimeAgo(5),
+    endTime: formatTimeAgo(5),
+    duration: 8,
+    resourceUsage: { cpu: 2, memory: 12, network: 0 },
+    blocked: true,
+    blockReason: 'Unregistered tool - policy violation',
+  },
+  {
+    id: 'sbx-004',
+    toolName: 'ml.inference',
+    agentId: 'agent-15',
+    status: 'running',
+    startTime: formatTimeAgo(0.5),
+    resourceUsage: { cpu: 85, memory: 1024, network: 128 },
+    blocked: false,
+  },
+  {
+    id: 'sbx-005',
+    toolName: 'code.analyze',
+    agentId: 'agent-21',
+    status: 'completed',
+    startTime: formatTimeAgo(15),
+    endTime: formatTimeAgo(14.5),
+    duration: 1842,
+    resourceUsage: { cpu: 45, memory: 256, network: 12 },
+    exitCode: 0,
+    blocked: false,
+  },
+  {
+    id: 'sbx-006',
+    toolName: 'api.external',
+    agentId: 'agent-09',
+    status: 'timeout',
+    startTime: formatTimeAgo(20),
+    endTime: formatTimeAgo(18),
+    duration: 30000,
+    resourceUsage: { cpu: 5, memory: 32, network: 240 },
+    blocked: false,
+  },
+];
+
+// Mock Audit Events
+export const mockAuditEvents: AuditEvent[] = [
+  {
+    id: 'audit-001',
+    timestamp: formatTimeAgo(0.5),
+    action: 'execute',
+    actor: 'agent-07',
+    actorType: 'agent',
+    resource: 'filesystem.read',
+    resourceType: 'tool',
+    success: true,
+    riskLevel: 'low',
+    details: 'Read configuration file /etc/mcp/config.json',
+    ipAddress: '10.0.1.42',
+  },
+  {
+    id: 'audit-002',
+    timestamp: formatTimeAgo(2),
+    action: 'block',
+    actor: 'agent-09',
+    actorType: 'agent',
+    resource: 'system.exec',
+    resourceType: 'tool',
+    success: true,
+    riskLevel: 'high',
+    details: 'Blocked unregistered tool execution attempt',
+    ipAddress: '10.0.1.89',
+  },
+  {
+    id: 'audit-003',
+    timestamp: formatTimeAgo(5),
+    action: 'delegate',
+    actor: 'agent-07',
+    actorType: 'agent',
+    resource: 'agent-12',
+    resourceType: 'agent',
+    success: true,
+    riskLevel: 'medium',
+    details: 'Delegated task a2a-001 to worker agent',
+    ipAddress: '10.0.1.42',
+  },
+  {
+    id: 'audit-004',
+    timestamp: formatTimeAgo(8),
+    action: 'verify',
+    actor: 'system',
+    actorType: 'system',
+    resource: 'card-001',
+    resourceType: 'agent',
+    success: true,
+    riskLevel: 'low',
+    details: 'Agent card verified successfully',
+  },
+  {
+    id: 'audit-005',
+    timestamp: formatTimeAgo(12),
+    action: 'policy_update',
+    actor: 'user-admin',
+    actorType: 'user',
+    resource: 'pol-002',
+    resourceType: 'policy',
+    success: true,
+    riskLevel: 'medium',
+    details: 'Updated rate limit policy rules',
+    ipAddress: '10.0.0.5',
+    metadata: { oldRules: 8, newRules: 10 },
+  },
+  {
+    id: 'audit-006',
+    timestamp: formatTimeAgo(18),
+    action: 'write',
+    actor: 'agent-12',
+    actorType: 'agent',
+    resource: 'database-agent',
+    resourceType: 'server',
+    success: true,
+    riskLevel: 'low',
+    details: 'Updated customer records in database',
+    ipAddress: '10.0.1.56',
+  },
+  {
+    id: 'audit-007',
+    timestamp: formatTimeAgo(25),
+    action: 'execute',
+    actor: 'agent-04',
+    actorType: 'agent',
+    resource: 'scan.vulnerability',
+    resourceType: 'tool',
+    success: true,
+    riskLevel: 'low',
+    details: 'Completed security scan on srv-001',
+    ipAddress: '10.0.1.34',
+  },
+  {
+    id: 'audit-008',
+    timestamp: formatTimeAgo(32),
+    action: 'delete',
+    actor: 'user-admin',
+    actorType: 'user',
+    resource: 'find-002',
+    resourceType: 'finding',
+    success: true,
+    riskLevel: 'low',
+    details: 'Resolved and archived security finding',
+    ipAddress: '10.0.0.5',
+  },
+];
+
+// Mock AI Analyses
+export const mockAIAnalyses: AIAnalysis[] = [
+  {
+    id: 'ai-001',
+    timestamp: formatTimeAgo(10),
+    analysisType: 'threat_detection',
+    confidence: 94,
+    finding: 'Detected potential tool poisoning attempt on production-api server',
+    recommendation: 'Quarantine affected tool and verify schema integrity. Review recent changes to tool definitions.',
+    affectedResources: ['srv-001', 'production-api', 'execute_command'],
+    severity: 'high',
+    modelVersion: 'sentinel-v3.2.1',
+    processingTime: 284,
+  },
+  {
+    id: 'ai-002',
+    timestamp: formatTimeAgo(45),
+    analysisType: 'anomaly_detection',
+    confidence: 87,
+    finding: 'Unusual spike in database query rate from agent-12',
+    recommendation: 'Monitor agent behavior for next 24 hours. Consider adjusting rate limits if pattern continues.',
+    affectedResources: ['agent-12', 'srv-002'],
+    severity: 'medium',
+    modelVersion: 'sentinel-v3.2.1',
+    processingTime: 156,
+  },
+  {
+    id: 'ai-003',
+    timestamp: formatTimeAgo(120),
+    analysisType: 'pattern_analysis',
+    confidence: 76,
+    finding: 'Recurring failed authentication attempts from external IP range',
+    recommendation: 'Add IP range to blocklist. Enable enhanced authentication logging.',
+    affectedResources: ['srv-006', 'auth-service'],
+    severity: 'medium',
+    modelVersion: 'sentinel-v3.2.1',
+    processingTime: 892,
+  },
+  {
+    id: 'ai-004',
+    timestamp: formatTimeAgo(180),
+    analysisType: 'risk_assessment',
+    confidence: 92,
+    finding: 'Agent trust score degradation detected for agent-09',
+    recommendation: 'Investigate recent task failures. Consider agent card renewal with reduced capabilities.',
+    affectedResources: ['agent-09', 'card-004'],
+    severity: 'medium',
+    modelVersion: 'sentinel-v3.2.1',
+    processingTime: 445,
+  },
+  {
+    id: 'ai-005',
+    timestamp: formatTimeAgo(360),
+    analysisType: 'threat_detection',
+    confidence: 98,
+    finding: 'Critical: Unregistered tool execution attempt blocked',
+    recommendation: 'IMMEDIATE ACTION REQUIRED: Review agent permissions for agent-09. Conduct full security audit.',
+    affectedResources: ['agent-09', 'system.exec', 'sbx-003'],
+    severity: 'critical',
+    modelVersion: 'sentinel-v3.2.1',
+    processingTime: 124,
+  },
+];
+
+// Mock Tool Call Traces
+export const mockToolCallTraces: ToolCallTrace[] = [
+  {
+    id: 'trace-001',
+    timestamp: formatTimeAgo(1),
+    toolName: 'filesystem.read',
+    serverId: 'srv-001',
+    agentId: 'agent-07',
+    duration: 124,
+    success: true,
+    inputHash: generateHash(),
+    outputHash: generateHash(),
+    verified: true,
+    sandboxId: 'sbx-001',
+    riskLevel: 'low',
+  },
+  {
+    id: 'trace-002',
+    timestamp: formatTimeAgo(3),
+    toolName: 'database.query',
+    serverId: 'srv-002',
+    agentId: 'agent-12',
+    duration: 342,
+    success: true,
+    inputHash: generateHash(),
+    outputHash: generateHash(),
+    verified: true,
+    sandboxId: 'sbx-002',
+    riskLevel: 'low',
+  },
+  {
+    id: 'trace-003',
+    timestamp: formatTimeAgo(5),
+    toolName: 'system.exec',
+    serverId: 'srv-003',
+    agentId: 'agent-09',
+    duration: 8,
+    success: false,
+    inputHash: generateHash(),
+    outputHash: generateHash(),
+    verified: false,
+    sandboxId: 'sbx-003',
+    riskLevel: 'high',
+  },
+  {
+    id: 'trace-004',
+    timestamp: formatTimeAgo(8),
+    toolName: 'vector.search',
+    serverId: 'srv-008',
+    agentId: 'agent-07',
+    duration: 89,
+    success: true,
+    inputHash: generateHash(),
+    outputHash: generateHash(),
+    verified: true,
+    riskLevel: 'low',
+  },
+  {
+    id: 'trace-005',
+    timestamp: formatTimeAgo(12),
+    toolName: 'ml.inference',
+    serverId: 'srv-005',
+    agentId: 'agent-15',
+    duration: 1456,
+    success: true,
+    inputHash: generateHash(),
+    outputHash: generateHash(),
+    verified: true,
+    riskLevel: 'low',
+  },
+  {
+    id: 'trace-006',
+    timestamp: formatTimeAgo(15),
+    toolName: 'code.analyze',
+    serverId: 'srv-004',
+    agentId: 'agent-21',
+    duration: 1842,
+    success: true,
+    inputHash: generateHash(),
+    outputHash: generateHash(),
+    verified: true,
+    sandboxId: 'sbx-005',
+    riskLevel: 'low',
+  },
+];
+
 // Export all data
 export const dashboardData = {
   servers: mockServers,
@@ -495,4 +1071,14 @@ export const dashboardData = {
   events: generateMockEvents(20),
   activityMetrics: generateActivityMetrics(24),
   topologyNodes: generateTopologyNodes(),
+  // A2A Network data
+  a2aTasks: mockA2ATasks,
+  a2aAgentCards: mockA2AAgentCards,
+  // Execution data
+  sandboxExecutions: mockSandboxExecutions,
+  toolCallTraces: mockToolCallTraces,
+  // Observability data
+  auditEvents: mockAuditEvents,
+  // AI data
+  aiAnalyses: mockAIAnalyses,
 };

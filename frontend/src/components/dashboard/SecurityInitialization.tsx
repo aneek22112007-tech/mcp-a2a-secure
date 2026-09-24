@@ -7,10 +7,10 @@ interface SecurityInitializationProps {
 
 const initSteps = [
   { label: 'AUTHENTICATED', delay: 0 },
-  { label: 'ESTABLISHING SECURE SESSION...', delay: 300 },
-  { label: 'VERIFYING WORKSPACE...', delay: 600 },
-  { label: 'LOADING INFRASTRUCTURE...', delay: 900 },
-  { label: 'SYSTEM READY', delay: 1200 },
+  { label: 'ESTABLISHING SECURE SESSION...', delay: 80 },
+  { label: 'VERIFYING WORKSPACE...', delay: 160 },
+  { label: 'LOADING INFRASTRUCTURE...', delay: 240 },
+  { label: 'SYSTEM READY', delay: 320 },
 ];
 
 export const SecurityInitialization: React.FC<SecurityInitializationProps> = ({ onComplete }) => {
@@ -18,19 +18,28 @@ export const SecurityInitialization: React.FC<SecurityInitializationProps> = ({ 
   const [isComplete, setIsComplete] = useState(false);
 
   useEffect(() => {
+    const handleKeyDown = () => {
+      setIsComplete(true);
+      onComplete();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
     const timers = initSteps.map((step, index) => 
       setTimeout(() => {
         setCurrentStep(index);
         if (index === initSteps.length - 1) {
           setTimeout(() => {
             setIsComplete(true);
-            setTimeout(onComplete, 400);
-          }, 300);
+            setTimeout(onComplete, 150);
+          }, 120);
         }
       }, step.delay)
     );
 
-    return () => timers.forEach(timer => clearTimeout(timer));
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      timers.forEach(timer => clearTimeout(timer));
+    };
   }, [onComplete]);
 
   return (
@@ -40,6 +49,10 @@ export const SecurityInitialization: React.FC<SecurityInitializationProps> = ({ 
           initial={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.4 }}
+          onClick={() => {
+            setIsComplete(true);
+            onComplete();
+          }}
           style={{
             position: 'fixed',
             inset: 0,
@@ -49,6 +62,7 @@ export const SecurityInitialization: React.FC<SecurityInitializationProps> = ({ 
             alignItems: 'center',
             justifyContent: 'center',
             overflow: 'hidden',
+            cursor: 'pointer',
           }}
         >
           {/* Subtle Grid Background */}
@@ -162,7 +176,7 @@ export const SecurityInitialization: React.FC<SecurityInitializationProps> = ({ 
               alignItems: 'center',
               gap: '0.75rem',
             }}>
-              <AnimatePresence mode="wait">
+              <AnimatePresence>
                 {initSteps.slice(0, currentStep + 1).map((step, index) => (
                   <motion.div
                     key={index}

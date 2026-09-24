@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useDashboardStore } from '../../store/dashboardStore';
 import type { SecurityEvent } from '../../data/dashboardMockData';
 
@@ -69,14 +69,33 @@ const getStatusColor = (status: SecurityEvent['status']) => {
   }
 };
 
+// CSS-based row animation — no JS needed for simple fade-in
+const rowStyle: React.CSSProperties = {
+  animation: 'eventRowIn 0.25s ease-out both',
+}
+
+// Injected once into the document
+if (typeof document !== 'undefined') {
+  const style = document.getElementById('live-event-anim')
+  if (!style) {
+    const el = document.createElement('style')
+    el.id = 'live-event-anim'
+    el.textContent = `
+      @keyframes eventRowIn {
+        from { opacity: 0; transform: translateX(-12px); }
+        to   { opacity: 1; transform: translateX(0); }
+      }
+    `
+    document.head.appendChild(el)
+  }
+}
+
 const EventRow: React.FC<{ event: SecurityEvent; index: number }> = ({ event, index }) => {
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 20 }}
-      transition={{ duration: 0.3, delay: index * 0.05 }}
+    <div
       style={{
+        ...rowStyle,
+        animationDelay: `${Math.min(index * 20, 100)}ms`, // max 100ms total stagger
         display: 'grid',
         gridTemplateColumns: '80px 100px 1fr 120px 100px',
         gap: '1rem',
@@ -86,8 +105,8 @@ const EventRow: React.FC<{ event: SecurityEvent; index: number }> = ({ event, in
         borderBottom: '1px solid rgba(255,255,255,0.03)',
         transition: 'background 0.2s',
       }}
-      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-      onMouseLeave={(e) => e.currentTarget.style.background = index % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent'}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = index % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'transparent')}
     >
       {/* Timestamp */}
       <div style={{
@@ -152,7 +171,7 @@ const EventRow: React.FC<{ event: SecurityEvent; index: number }> = ({ event, in
       }}>
         {event.status}
       </div>
-    </motion.div>
+    </div>
   );
 };
 
@@ -303,11 +322,9 @@ export const LiveEventStream: React.FC<LiveEventStreamProps> = ({ maxHeight = '5
           overflowX: 'hidden',
         }}
       >
-        <AnimatePresence initial={false}>
-          {events.map((event, index) => (
-            <EventRow key={event.id} event={event} index={index} />
-          ))}
-        </AnimatePresence>
+        {events.map((event, index) => (
+          <EventRow key={event.id} event={event} index={index} />
+        ))}
       </div>
     </div>
   );
