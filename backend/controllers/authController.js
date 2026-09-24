@@ -49,9 +49,9 @@ export const register = async (req, res) => {
       { expiresIn: TOKEN_EXPIRY }
     );
 
+    res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 3600000 });
     res.status(201).json({ 
       message: 'User created successfully',
-      token,
       apiKey: newUser.apiKey // Provide API key for programmatic access
     });
   } catch (error) {
@@ -86,9 +86,9 @@ export const login = async (req, res) => {
       { expiresIn: TOKEN_EXPIRY }
     );
 
+    res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 3600000 });
     res.status(200).json({
-      message: 'Login successful',
-      token
+      message: 'Login successful'
     });
   } catch (error) {
     console.error('Login Error:', error);
@@ -165,9 +165,9 @@ export const googleLogin = async (req, res) => {
       { expiresIn: TOKEN_EXPIRY }
     );
 
+    res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: 3600000 });
     res.status(200).json({
       message: 'Google login successful',
-      token,
       // Expose the API key so programmatic agents can use per-client scoped access.
       apiKey: user.apiKey,
     });

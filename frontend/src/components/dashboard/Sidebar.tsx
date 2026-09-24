@@ -1,6 +1,5 @@
 import React from 'react';
 import { useDashboardStore, type DashboardView } from '../../store/dashboardStore';
-import { removeAuthToken } from '../../lib/api';
 import { useNavigate } from 'react-router-dom';
 
 interface NavItem {
@@ -126,7 +125,6 @@ export const Sidebar: React.FC = () => {
   const { currentView, setCurrentView, sidebarCollapsed, systemMetrics } = useDashboardStore();
 
   const handleLogout = () => {
-    removeAuthToken();
     navigate('/signin');
   };
 
