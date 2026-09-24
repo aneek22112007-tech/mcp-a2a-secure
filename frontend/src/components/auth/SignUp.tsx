@@ -112,7 +112,7 @@ export const SignUp: React.FC = () => {
     if (!agreed) { setError('You must agree to the Terms of Service.'); return; }
     setLoading(true);
     try {
-      const response = await register(email, password);
+      await register(email, password);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Failed to create account. Please try again.');
@@ -129,7 +129,7 @@ export const SignUp: React.FC = () => {
     setError('');
     setLoading(true);
     try {
-      const response = await googleLogin(credentialResponse.credential);
+      await googleLogin(credentialResponse.credential);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Google sign-in failed. Please try again.');

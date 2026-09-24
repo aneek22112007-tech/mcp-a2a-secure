@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { DashboardLayout } from '../components/dashboard/DashboardLayout';
 import { SecurityInitialization } from '../components/dashboard/SecurityInitialization';
@@ -15,7 +15,6 @@ const ToolCallsView = lazy(() => import('../components/dashboard/ToolCallsView')
 const AuditTrailView = lazy(() => import('../components/dashboard/AuditTrailView').then(m => ({ default: m.AuditTrailView })));
 const AIAnalysisView = lazy(() => import('../components/dashboard/AIAnalysisView').then(m => ({ default: m.AIAnalysisView })));
 
-import { getAuthToken, setAuthToken } from '../lib/api';
 import { useDashboardStore } from '../store/dashboardStore';
 
 // Lazy-load the heavy 3D topology (three.js = ~780KB) — only load when first rendered
@@ -97,12 +96,7 @@ export const Dashboard: React.FC = () => {
   });
   const { currentView } = useDashboardStore();
 
-  useEffect(() => {
-    const token = getAuthToken();
-    if (!token) {
-      setAuthToken('mcp-admin-demo-token');
-    }
-  }, []);
+  // Auth is handled via httpOnly cookies set by the backend on login
 
   const handleInitializationComplete = () => {
     if (typeof window !== 'undefined') {

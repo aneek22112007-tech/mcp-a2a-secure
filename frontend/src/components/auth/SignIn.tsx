@@ -84,7 +84,7 @@ export const SignIn: React.FC = () => {
     setError('');
     setLoading(true);
     try {
-      const response = await login(email, password);
+      await login(email, password);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Invalid credentials. Please try again.');
@@ -102,7 +102,7 @@ export const SignIn: React.FC = () => {
     setError('');
     setLoading(true);
     try {
-      const response = await googleLogin(credentialResponse.credential);
+      await googleLogin(credentialResponse.credential);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Google sign-in failed. Please try again.');
