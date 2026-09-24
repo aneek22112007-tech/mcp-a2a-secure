@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { AuthLayout } from './AuthLayout';
-import { login, googleLogin, setAuthToken } from '../../lib/api';
+import { login, googleLogin } from '../../lib/api';
 import { useNavigate } from 'react-router-dom';
 
 /* ---------- Reusable style helpers ---------- */
@@ -85,7 +85,6 @@ export const SignIn: React.FC = () => {
     setLoading(true);
     try {
       const response = await login(email, password);
-      setAuthToken(response.token);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Invalid credentials. Please try again.');
@@ -104,7 +103,6 @@ export const SignIn: React.FC = () => {
     setLoading(true);
     try {
       const response = await googleLogin(credentialResponse.credential);
-      setAuthToken(response.token);
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Google sign-in failed. Please try again.');

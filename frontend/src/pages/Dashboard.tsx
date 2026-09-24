@@ -8,6 +8,7 @@ import { ServerInventory } from '../components/dashboard/ServerInventory';
 import { SecurityFindings } from '../components/dashboard/SecurityFindings';
 import { QuickActions } from '../components/dashboard/QuickActions';
 import { NodeInspector } from '../components/dashboard/NodeInspector';
+
 const A2ADelegationView = lazy(() => import('../components/dashboard/A2ADelegationView').then(m => ({ default: m.A2ADelegationView })));
 const A2AAgentCardsView = lazy(() => import('../components/dashboard/A2AAgentCardsView').then(m => ({ default: m.A2AAgentCardsView })));
 const ToolCallsView = lazy(() => import('../components/dashboard/ToolCallsView').then(m => ({ default: m.ToolCallsView })));

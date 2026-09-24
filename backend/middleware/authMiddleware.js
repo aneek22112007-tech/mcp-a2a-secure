@@ -7,13 +7,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_fallback_key_do_not_u
  * Enforces session security.
  */
 export const requireAuth = (req, res, next) => {
-  const authHeader = req.headers.authorization;
+  const token = req.cookies?.token;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!token) {
     return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
   }
-
-  const token = authHeader.split(' ')[1];
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
