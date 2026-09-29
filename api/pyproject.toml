@@ -1,0 +1,16 @@
+[project]
+name = "polaris"
+version = "0.1.0"
+description = "MCP server with secure notes tools for the mcp-a2a-secure platform"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp<2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

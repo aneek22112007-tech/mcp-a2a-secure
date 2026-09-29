@@ -24,3 +24,13 @@ yarn-error.log*
 *.njsproj
 *.sln
 *.sw?
+
+# Python
+api/data/
+api/.venv/
+api/__pycache__/
+api/**/__pycache__/
+api/.pytest_cache/
+api/**/.pytest_cache/
+*.pyc
+*.pyo
