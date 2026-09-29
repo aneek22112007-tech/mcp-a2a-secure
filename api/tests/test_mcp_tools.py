@@ -11,7 +11,6 @@ plain Python callable, so tools are exercised by calling them directly.
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixture – isolate the notes directory
 # ---------------------------------------------------------------------------
@@ -40,7 +39,7 @@ def isolated_notes(tmp_path, monkeypatch):
 
 def test_write_then_read(isolated_notes):
     """write_note creates a file; read_note returns its content."""
-    from app.mcp_server import write_note, read_note
+    from app.mcp_server import read_note, write_note
 
     result = write_note(name="hello", content="# Hello\nworld")
     assert result == "saved hello"
@@ -56,7 +55,7 @@ def test_write_then_read(isolated_notes):
 
 def test_list_notes_sorted(isolated_notes):
     """list_notes returns names without .md extension, in lexicographic order."""
-    from app.mcp_server import write_note, list_notes
+    from app.mcp_server import list_notes, write_note
 
     for note_name in ("zebra", "apple", "mango"):
         write_note(name=note_name, content=f"# {note_name}")
@@ -98,10 +97,36 @@ def test_read_note_traversal_deep(isolated_notes):
 
 def test_write_note_overwrite(isolated_notes):
     """A second write_note call replaces the original content."""
-    from app.mcp_server import write_note, read_note
+    from app.mcp_server import read_note, write_note
 
     write_note(name="draft", content="first version")
     write_note(name="draft", content="second version")
 
     content = read_note(name="draft")
     assert content == "second version"
+
+
+# ---------------------------------------------------------------------------
+# Test 6 – write_note traversal raises ValueError
+# ---------------------------------------------------------------------------
+
+
+def test_write_note_traversal(isolated_notes):
+    """../x must be rejected before any filesystem access."""
+    from app.mcp_server import write_note
+
+    with pytest.raises(ValueError, match="invalid note name"):
+        write_note(name="../x", content="y")
+
+
+# ---------------------------------------------------------------------------
+# Test 7 – write_note empty name raises ValueError
+# ---------------------------------------------------------------------------
+
+
+def test_write_note_empty_name(isolated_notes):
+    """Empty name must be rejected."""
+    from app.mcp_server import write_note
+
+    with pytest.raises(ValueError, match="invalid note name"):
+        write_note(name="", content="y")
