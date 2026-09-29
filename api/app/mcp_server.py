@@ -9,6 +9,7 @@ Run with:
     uv run python -m app.mcp_server
 """
 
+import re
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -25,6 +26,7 @@ NOTES_DIR.mkdir(parents=True, exist_ok=True)
 # ---------------------------------------------------------------------------
 
 mcp = FastMCP("polaris")
+mcp.settings.streamable_http_path = "/"
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +41,9 @@ def _safe(name: str) -> Path:
     path still lives inside NOTES_DIR.  A simple ``".." in name`` test is
     **not** used because it can be bypassed with encoded or alternate forms.
     """
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
+        raise ValueError(f"invalid note name: {name!r}")
+        
     candidate = (NOTES_DIR / f"{name}.md").resolve()
     if NOTES_DIR.resolve() not in candidate.parents:
         raise ValueError(f"invalid note name: {name!r}")
