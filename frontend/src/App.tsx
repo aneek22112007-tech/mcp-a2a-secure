@@ -13,6 +13,9 @@ const SignUp = lazy(() =>
 const Dashboard = lazy(() =>
   import('./pages/Dashboard').then(m => ({ default: m.Dashboard }))
 )
+const DashboardV2 = lazy(() =>
+  import('./pages/DashboardV2').then(m => ({ default: m.DashboardV2 }))
+)
 
 // Lightweight fallback — no layout shift, no spinner flash
 function RouteFallback() {
@@ -57,6 +60,7 @@ function App() {
             }
           />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard-v2" element={<DashboardV2 />} />
         </Routes>
       </Suspense>
     </Router>

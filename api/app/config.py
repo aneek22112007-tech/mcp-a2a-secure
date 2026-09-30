@@ -6,5 +6,6 @@ class Settings(BaseSettings):
     app_name: str = "Polaris"
     environment: str = "dev"
     cors_origins: list[str] = ["http://localhost:5173"]
+    mcp_self_url: str = "http://127.0.0.1:8000/mcp/"
 
 settings = Settings()
