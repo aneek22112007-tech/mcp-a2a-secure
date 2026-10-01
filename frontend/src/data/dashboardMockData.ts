@@ -220,6 +220,18 @@ const generateHash = () => {
 // Mock Servers
 export const mockServers: MCPServer[] = [
   {
+    id: 'srv-mcp-guard',
+    name: 'mcp-guard (Active)',
+    version: 'v0.1.0',
+    status: 'operational',
+    tools: 3,
+    lastScan: 'Just now',
+    riskLevel: 'low',
+    lastActivity: 'Just now',
+    description: 'MCP Guard Server (FastAPI + STDIO & Streamable HTTP)',
+    endpoint: 'http://localhost:8000/mcp',
+  },
+  {
     id: 'srv-001',
     name: 'production-filesystem',
     version: 'v1.4.2',

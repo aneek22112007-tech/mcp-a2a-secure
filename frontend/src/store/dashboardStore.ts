@@ -21,6 +21,7 @@ import {
 
 export type DashboardView = 
   | 'overview'
+  | 'mcpNotes'
   // Infrastructure
   | 'servers' 
   | 'agents' 

@@ -1,6 +1,6 @@
-"""MCP server – Polaris notes tools.
+"""MCP Guard — core notes tools.
 
-Exposes three tools over stdio:
+Exposes three tools over stdio and streamable HTTP:
   - list_notes   : list all saved notes
   - read_note    : read a single note by name
   - write_note   : create or overwrite a note
@@ -25,7 +25,7 @@ NOTES_DIR.mkdir(parents=True, exist_ok=True)
 # Server
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP("polaris")
+mcp = FastMCP("mcp-guard")
 mcp.settings.streamable_http_path = "/"
 
 
@@ -43,7 +43,7 @@ def _safe(name: str) -> Path:
     """
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
         raise ValueError(f"invalid note name: {name!r}")
-        
+
     candidate = (NOTES_DIR / f"{name}.md").resolve()
     if NOTES_DIR.resolve() not in candidate.parents:
         raise ValueError(f"invalid note name: {name!r}")

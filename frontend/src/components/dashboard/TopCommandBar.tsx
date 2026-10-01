@@ -1,11 +1,28 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useDashboardStore } from '../../store/dashboardStore';
+import { getMcpInfo } from '../../lib/mcpApi';
 
 export const TopCommandBar: React.FC = () => {
-  const { currentView, toggleCommandPalette, systemMetrics } = useDashboardStore();
+  const { currentView, setCurrentView, toggleCommandPalette, systemMetrics } = useDashboardStore();
+  const [mcpStatus, setMcpStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+
+  useEffect(() => {
+    const checkMcp = async () => {
+      try {
+        await getMcpInfo();
+        setMcpStatus('online');
+      } catch {
+        setMcpStatus('offline');
+      }
+    };
+    checkMcp();
+    const interval = setInterval(checkMcp, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const breadcrumbs: Record<string, string> = {
     overview: 'Overview',
+    mcpNotes: 'MCP Guard / Server & Notes',
     servers: 'Infrastructure / Servers',
     agents: 'Infrastructure / Agents',
     tools: 'Infrastructure / Tools',
@@ -159,6 +176,46 @@ export const TopCommandBar: React.FC = () => {
               {systemMetrics.activeFindings}
             </div>
           )}
+        </button>
+
+        {/* Polaris MCP Live Status Badge */}
+        <button
+          onClick={() => setCurrentView('mcpNotes')}
+          title="Click to view MCP Guard Server & Notes"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.5rem 0.75rem',
+            background: mcpStatus === 'online' ? 'rgba(124,255,79,0.08)' : mcpStatus === 'offline' ? 'rgba(255,68,68,0.08)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${mcpStatus === 'online' ? 'rgba(124,255,79,0.3)' : mcpStatus === 'offline' ? 'rgba(255,68,68,0.3)' : 'rgba(255,255,255,0.1)'}`,
+            borderRadius: '6px',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.opacity = '0.85';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.opacity = '1';
+          }}
+        >
+          <div style={{
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            background: mcpStatus === 'online' ? '#7CFF4F' : mcpStatus === 'offline' ? '#ff4444' : '#FFA726',
+            boxShadow: `0 0 8px ${mcpStatus === 'online' ? '#7CFF4F' : mcpStatus === 'offline' ? '#ff4444' : '#FFA726'}`,
+          }} />
+          <span style={{
+            fontFamily: "'SF Mono', monospace",
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            color: mcpStatus === 'online' ? '#7CFF4F' : mcpStatus === 'offline' ? '#ff4444' : '#FFA726',
+          }}>
+            {mcpStatus === 'online' ? 'MCP GUARD: LIVE (:8000)' : mcpStatus === 'offline' ? 'MCP: OFFLINE' : 'MCP: CHECKING...'}
+          </span>
         </button>
 
         {/* System Status */}
