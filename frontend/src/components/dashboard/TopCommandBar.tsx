@@ -178,7 +178,7 @@ export const TopCommandBar: React.FC = () => {
           )}
         </button>
 
-        {/* Polaris MCP Live Status Badge */}
+        {/* MCP Guard Live Status Badge */}
         <button
           onClick={() => setCurrentView('mcpNotes')}
           title="Click to view MCP Guard Server & Notes"

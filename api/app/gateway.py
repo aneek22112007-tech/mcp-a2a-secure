@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
+import logging
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException
 
@@ -33,8 +35,11 @@ except ImportError:  # SDK layout guard
 # Constants
 # ---------------------------------------------------------------------------
 
-#: Maximum serialised byte-size of the ``args`` dict (64 KiB).
-MAX_ARG_BYTES: int = 64 * 1024
+#: Maximum serialised byte-size of the ``args`` dict (128 KiB).
+#: Must be larger than the 100 KiB note content limit so that a max-size
+#: note write request is never rejected by the gateway before the route
+#: validator has a chance to produce a meaningful 413 response.
+MAX_ARG_BYTES: int = 128 * 1024
 
 #: Maximum wall-clock seconds per tool invocation.
 TOOL_TIMEOUT_SECONDS: float = 5.0
@@ -125,19 +130,25 @@ async def call_tool(
     #    whitespace) so the byte count is stable and reproducible.
     # ------------------------------------------------------------------
     try:
-        serialised = json.dumps(args, sort_keys=True, separators=(",", ":"))
+        # ensure_ascii=False: non-ASCII chars must not be escape-expanded
+        # before byte-counting, or a 24 KiB Cyrillic note would be counted
+        # as ~72 KiB of \uXXXX sequences and rejected incorrectly.
+        serialised = json.dumps(
+            args, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
     except (TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=400,
             detail=f"Arguments cannot be serialised: {exc}",
         ) from exc
 
-    if len(serialised.encode()) > MAX_ARG_BYTES:
+    payload_bytes = serialised.encode()
+    if len(payload_bytes) > MAX_ARG_BYTES:
         raise HTTPException(
             status_code=413,
             detail=(
                 f"Arguments exceed the {MAX_ARG_BYTES // 1024} KiB gateway limit "
-                f"({len(serialised.encode())} bytes received)."
+                f"({len(payload_bytes)} bytes received)."
             ),
         )
 
@@ -167,31 +178,51 @@ async def call_tool(
     except ToolError as exc:
         # The MCP SDK wraps tool-raised exceptions in ToolError.
         # Inspect the original cause to map to the right HTTP status.
-        msg = str(exc)
         cause = exc.__cause__
+        msg = str(exc)
+
         if isinstance(cause, FileNotFoundError) or "No such file" in msg:
             raise HTTPException(status_code=404, detail="Note not found.") from exc
-        if isinstance(cause, (ValueError, TypeError)):
-            # Strip SDK prefix for a clean client-facing message.
-            detail = str(cause) if cause else msg
+
+        # OS-level errors (PermissionError, IsADirectoryError, etc.) must
+        # never leak filesystem paths to the client.  Log the details and
+        # return a generic 500.
+        if isinstance(cause, OSError) or "Errno" in msg or "Permission denied" in msg or "Is a directory" in msg:
+            logger.exception(
+                "[gateway] OS error in tool %r: %r", name, cause or exc
+            )
+            raise HTTPException(
+                status_code=500, detail="Internal tool error."
+            ) from exc
+
+        if isinstance(cause, ValueError):
+            raise HTTPException(status_code=400, detail=str(cause)) from exc
+
+        # Other ToolError that looks like validation.
+        if "invalid note name" in msg:
+            match = re.search(r"invalid note name: [^\n\r]+", msg)
+            detail = match.group(0) if match else "invalid note name"
             raise HTTPException(status_code=400, detail=detail) from exc
-        # Other ToolError: treat as 400 if the message looks like validation,
-        # otherwise surface as 400 (client sent a bad name/content).
-        if "invalid note name" in msg or "invalid" in msg.lower():
-            raise HTTPException(status_code=400, detail=msg) from exc
-        raise HTTPException(status_code=400, detail=msg) from exc
+
+        logger.exception("[gateway] Unhandled tool error in tool %r: %r", name, exc)
+        raise HTTPException(status_code=500, detail="Internal tool error.") from exc
+
     except (ValueError, TypeError, KeyError) as exc:
         # Tool-level validation errors that escape ToolError wrapping.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Note not found.") from exc
+    except OSError as exc:
+        # Filesystem errors outside ToolError (e.g. bare read_text failures).
+        logger.exception("[gateway] OS error in tool %r: %r", name, exc)
+        raise HTTPException(status_code=500, detail="Internal tool error.") from exc
     except Exception as exc:
         # Unexpected failures: log internally, return a generic 500 so that
         # tracebacks, filesystem paths, and internal details are never leaked.
-        print(f"[gateway] unhandled error in tool '{name}': {exc!r}", file=sys.stderr)
+        logger.exception("[gateway] unhandled error in tool %r: %r", name, exc)
         raise HTTPException(
             status_code=500,
-            detail="An internal error occurred.  The server team has been notified.",
+            detail="An internal error occurred.",
         ) from exc
 
     duration_ms = round((time.monotonic() - t0) * 1000, 2)

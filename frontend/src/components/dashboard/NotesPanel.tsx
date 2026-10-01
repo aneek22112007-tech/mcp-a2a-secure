@@ -2,14 +2,14 @@
  * NotesPanel.tsx — live MCP-backed notes panel for the dashboard.
  *
  * This is the ONLY dashboard component that fetches real data from the
- * Polaris FastAPI + MCP backend.  All other dashboard panels use the
+ * MCP Guard FastAPI + MCP backend.  All other dashboard panels use the
  * existing mock data (which is intentional — those panels have no real
  * backend equivalent yet).
  *
  * Data flow:
  *   NotesPanel → mcpApi.ts → GET /api/notes → list_notes() MCP tool
  *   NotesPanel → mcpApi.ts → GET /api/notes/:name → read_note() MCP tool
- *   NotesPanel → mcpApi.ts → POST /api/notes/:name → write_note() MCP tool
+ *   NotesPanel → mcpApi.ts → PUT /api/notes/:name → write_note() MCP tool
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';

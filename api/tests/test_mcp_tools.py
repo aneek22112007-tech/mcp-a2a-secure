@@ -1,4 +1,4 @@
-"""Tests for the MCP Polaris notes tools.
+"""Tests for the MCP Guard notes tools.
 
 All tests operate on a temporary, isolated notes directory so that they do
 not create permanent files in the repository.  The module-level ``NOTES_DIR``
@@ -32,19 +32,25 @@ def isolated_notes(tmp_path, monkeypatch):
     return tmp_notes
 
 
+@pytest.fixture()
+def anyio_backend():
+    return "asyncio"
+
+
 # ---------------------------------------------------------------------------
 # Test 1 – write_note then read_note
 # ---------------------------------------------------------------------------
 
 
-def test_write_then_read(isolated_notes):
+@pytest.mark.anyio
+async def test_write_then_read(isolated_notes):
     """write_note creates a file; read_note returns its content."""
     from app.mcp_server import read_note, write_note
 
-    result = write_note(name="hello", content="# Hello\nworld")
+    result = await write_note(name="hello", content="# Hello\nworld")
     assert result == "saved hello"
 
-    content = read_note(name="hello")
+    content = await read_note(name="hello")
     assert content == "# Hello\nworld"
 
 
@@ -53,14 +59,15 @@ def test_write_then_read(isolated_notes):
 # ---------------------------------------------------------------------------
 
 
-def test_list_notes_sorted(isolated_notes):
+@pytest.mark.anyio
+async def test_list_notes_sorted(isolated_notes):
     """list_notes returns names without .md extension, in lexicographic order."""
     from app.mcp_server import list_notes, write_note
 
     for note_name in ("zebra", "apple", "mango"):
-        write_note(name=note_name, content=f"# {note_name}")
+        await write_note(name=note_name, content=f"# {note_name}")
 
-    names = list_notes()
+    names = await list_notes()
     assert names == ["apple", "mango", "zebra"]
 
 
@@ -69,12 +76,13 @@ def test_list_notes_sorted(isolated_notes):
 # ---------------------------------------------------------------------------
 
 
-def test_read_note_traversal_single_dot_dot(isolated_notes):
+@pytest.mark.anyio
+async def test_read_note_traversal_single_dot_dot(isolated_notes):
     """../x must be rejected before any filesystem access."""
     from app.mcp_server import read_note
 
     with pytest.raises(ValueError, match="invalid note name"):
-        read_note(name="../x")
+        await read_note(name="../x")
 
 
 # ---------------------------------------------------------------------------
@@ -82,12 +90,13 @@ def test_read_note_traversal_single_dot_dot(isolated_notes):
 # ---------------------------------------------------------------------------
 
 
-def test_read_note_traversal_deep(isolated_notes):
+@pytest.mark.anyio
+async def test_read_note_traversal_deep(isolated_notes):
     """../../etc/passwd traversal must be rejected."""
     from app.mcp_server import read_note
 
     with pytest.raises(ValueError, match="invalid note name"):
-        read_note(name="../../etc/passwd")
+        await read_note(name="../../etc/passwd")
 
 
 # ---------------------------------------------------------------------------
@@ -95,14 +104,15 @@ def test_read_note_traversal_deep(isolated_notes):
 # ---------------------------------------------------------------------------
 
 
-def test_write_note_overwrite(isolated_notes):
+@pytest.mark.anyio
+async def test_write_note_overwrite(isolated_notes):
     """A second write_note call replaces the original content."""
     from app.mcp_server import read_note, write_note
 
-    write_note(name="draft", content="first version")
-    write_note(name="draft", content="second version")
+    await write_note(name="draft", content="first version")
+    await write_note(name="draft", content="second version")
 
-    content = read_note(name="draft")
+    content = await read_note(name="draft")
     assert content == "second version"
 
 
@@ -111,12 +121,13 @@ def test_write_note_overwrite(isolated_notes):
 # ---------------------------------------------------------------------------
 
 
-def test_write_note_traversal(isolated_notes):
+@pytest.mark.anyio
+async def test_write_note_traversal(isolated_notes):
     """../x must be rejected before any filesystem access."""
     from app.mcp_server import write_note
 
     with pytest.raises(ValueError, match="invalid note name"):
-        write_note(name="../x", content="y")
+        await write_note(name="../x", content="y")
 
 
 # ---------------------------------------------------------------------------
@@ -124,9 +135,37 @@ def test_write_note_traversal(isolated_notes):
 # ---------------------------------------------------------------------------
 
 
-def test_write_note_empty_name(isolated_notes):
+@pytest.mark.anyio
+async def test_write_note_empty_name(isolated_notes):
     """Empty name must be rejected."""
     from app.mcp_server import write_note
 
     with pytest.raises(ValueError, match="invalid note name"):
-        write_note(name="", content="y")
+        await write_note(name="", content="y")
+
+
+# ---------------------------------------------------------------------------
+# Test 8 – Gateway timeout returns HTTP 504
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_gateway_timeout(monkeypatch):
+    """Slow tool calls exceeding TOOL_TIMEOUT_SECONDS trigger HTTP 504."""
+    import asyncio
+    from fastapi import HTTPException
+    import app.gateway as gateway_module
+
+    async def _slow_dispatch(name, args):
+        await asyncio.sleep(0.5)
+        return "done"
+
+    monkeypatch.setattr(gateway_module, "TOOL_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(gateway_module, "_dispatch", _slow_dispatch)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await gateway_module.call_tool("read_note", {"name": "hello"})
+
+    assert exc_info.value.status_code == 504
+    assert "did not complete within" in exc_info.value.detail
+

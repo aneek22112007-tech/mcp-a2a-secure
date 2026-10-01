@@ -1,1 +1,1 @@
-"""HTTP routes for the Polaris API."""
+"""HTTP routes for the MCP Guard API."""

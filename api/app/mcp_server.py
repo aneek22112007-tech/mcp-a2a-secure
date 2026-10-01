@@ -12,6 +12,7 @@ Run with:
 import re
 from pathlib import Path
 
+import anyio
 from mcp.server.fastmcp import FastMCP
 
 # ---------------------------------------------------------------------------
@@ -38,7 +39,7 @@ def _safe(name: str) -> Path:
     """Return the resolved Path for *name*, or raise ValueError on traversal.
 
     The check resolves the candidate path and verifies that the resolved
-    path still lives inside NOTES_DIR.  A simple ``".." in name`` test is
+    path still lives inside NOTES_DIR.  A simple ``"..\" in name`` test is
     **not** used because it can be bypassed with encoded or alternate forms.
     """
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
@@ -51,22 +52,26 @@ def _safe(name: str) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Tools
+# Tools  (async so the gateway's asyncio.wait_for can cancel slow calls)
 # ---------------------------------------------------------------------------
 
 
 @mcp.tool()
-def list_notes() -> list[str]:
+async def list_notes() -> list[str]:
     """List saved notes.
 
     Returns the note names (without the ``.md`` suffix) sorted
     lexicographically.
     """
-    return sorted(p.stem for p in NOTES_DIR.glob("*.md"))
+
+    def _read() -> list[str]:
+        return sorted(p.stem for p in NOTES_DIR.glob("*.md"))
+
+    return await anyio.to_thread.run_sync(_read)
 
 
 @mcp.tool()
-def read_note(name: str) -> str:
+async def read_note(name: str) -> str:
     """Read one note.
 
     Args:
@@ -79,11 +84,12 @@ def read_note(name: str) -> str:
         ValueError: If *name* attempts a path-traversal attack.
         FileNotFoundError: If the note does not exist.
     """
-    return _safe(name).read_text()
+    path = _safe(name)  # raises ValueError synchronously — fine before I/O
+    return await anyio.to_thread.run_sync(path.read_text)
 
 
 @mcp.tool()
-def write_note(name: str, content: str) -> str:
+async def write_note(name: str, content: str) -> str:
     """Create or overwrite a note.
 
     Args:
@@ -96,7 +102,12 @@ def write_note(name: str, content: str) -> str:
     Raises:
         ValueError: If *name* attempts a path-traversal attack.
     """
-    _safe(name).write_text(content)
+    path = _safe(name)  # raises ValueError synchronously — fine before I/O
+
+    def _write() -> None:
+        path.write_text(content)
+
+    await anyio.to_thread.run_sync(_write)
     return f"saved {name}"
 
 

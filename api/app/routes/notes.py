@@ -14,8 +14,8 @@ GET  /api/mcp/info        – MCP Guard server metadata
 
 from __future__ import annotations
 
-from fastapi import APIRouter
-from pydantic import BaseModel, field_validator
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from app.gateway import call_tool
 
@@ -39,15 +39,6 @@ MAX_CONTENT_BYTES: int = 100 * 1024
 
 class NoteBody(BaseModel):
     content: str
-
-    @field_validator("content")
-    @classmethod
-    def content_not_too_large(cls, v: str) -> str:
-        if len(v.encode()) > MAX_CONTENT_BYTES:
-            raise ValueError(
-                f"Note content exceeds the {MAX_CONTENT_BYTES // 1024} KiB limit."
-            )
-        return v
 
 
 class NoteItem(BaseModel):
@@ -110,9 +101,15 @@ async def api_write_note(name: str, body: NoteBody) -> NoteDetail:
     """Create or overwrite a note with the supplied Markdown content.
 
     Body: ``{"content": "..."}``  (max 100 KiB).
-    Returns 400 if *name* is invalid or *content* exceeds the size limit.
+    Returns 400 if *name* is invalid.
+    Returns 413 if *content* exceeds the 100 KiB limit.
     All I/O is routed through the MCP Guard gateway.
     """
+    if len(body.content.encode()) > MAX_CONTENT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Note content exceeds the {MAX_CONTENT_BYTES // 1024} KiB limit.",
+        )
     await call_tool("write_note", {"name": name, "content": body.content})
     return NoteDetail(name=name, content=body.content)
 

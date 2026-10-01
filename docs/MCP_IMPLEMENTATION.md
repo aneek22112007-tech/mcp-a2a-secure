@@ -2,7 +2,7 @@
 
 > **Project:** mcp-a2a-secure — a secure AI agent dashboard with live MCP integration  
 > **Author:** Aneek  
-> **MCP Server:** Polaris (Python / FastMCP)
+> **MCP Server:** MCP Guard (Python / FastMCP)
 
 ---
 
@@ -51,7 +51,7 @@ The **Client** is the code inside the host that speaks the MCP protocol — it c
 
 ### MCP Server
 The **Server** exposes tools, resources, and prompts over the MCP protocol.  
-*In this project:* `api/app/mcp_server.py` — the **Polaris** server.
+*In this project:* `api/app/mcp_server.py` — the **MCP Guard** server.
 
 ### Tools
 **Tools** are functions the AI can call. Each tool has:
@@ -126,7 +126,7 @@ graph TD
         C
         E
         F
-        H[FastMCP — Polaris]
+        H[FastMCP — MCP Guard]
     end
 
     subgraph "Node Auth Layer (backend/)"
@@ -176,7 +176,7 @@ mcp-a2a-secure/
 │   └── src/
 │       ├── lib/
 │       │   ├── api.ts            ← Auth API client (Node backend)
-│       │   └── mcpApi.ts     ← Polaris MCP API client (FastAPI backend)
+│       │   └── mcpApi.ts     ← MCP Guard MCP API client (FastAPI backend)
 │       ├── components/dashboard/
 │       │   ├── NotesPanel.tsx    ← REAL DATA — calls mcpApi.ts
 │       │   └── ... (other components use mock data)
@@ -231,11 +231,11 @@ NOTES_DIR.mkdir(parents=True, exist_ok=True)
 ### 5.3 Server initialisation
 
 ```python
-mcp = FastMCP("polaris")
+mcp = FastMCP("mcp-guard")
 mcp.settings.streamable_http_path = "/"
 ```
 
-- `FastMCP("polaris")` creates the MCP server instance named "polaris"
+- `FastMCP("mcp-guard")` creates the MCP server instance named "mcp-guard"
 - The name appears in the Inspector when you connect
 - `streamable_http_path = "/"` means the Streamable HTTP endpoint will be at the root of where it is mounted — when mounted at `/mcp` in FastAPI, it responds at `/mcp/`
 
@@ -591,7 +591,7 @@ Expected: **17 passed**
 
 | Concept | File | Function / Class | What it does |
 |---|---|---|---|
-| MCP Server | `api/app/mcp_server.py` | `FastMCP("polaris")` | Initialises the named MCP server |
+| MCP Server | `api/app/mcp_server.py` | `FastMCP("mcp-guard")` | Initialises the named MCP server |
 | Tool registration | `api/app/mcp_server.py` | `@mcp.tool()` | Registers Python function as MCP tool |
 | Tool: list notes | `api/app/mcp_server.py` | `list_notes()` | Returns sorted list of note names |
 | Tool: read note | `api/app/mcp_server.py` | `read_note(name)` | Returns note content as string |

@@ -107,59 +107,81 @@ async def test_write_overwrite(client: AsyncClient):
     assert r.json()["content"] == "v2"
 
 
-# 5. Reading a note that doesn't exist returns 404
+# 5. Reading a note that doesn't exist returns exactly 404
 async def test_read_missing_returns_404(client: AsyncClient):
     r = await client.get("/api/notes/doesnotexist")
     assert r.status_code == 404
 
 
-# 6a. Traversal: URL-encoded ../x in write (rejected at router or handler level)
+# 6a. Traversal: URL-encoded ../x in write — ASGI normalises path → 404
 async def test_traversal_encoded_write(client: AsyncClient):
     r = await client.put("/api/notes/..%2Fx", json={"content": "bad"})
-    # The ASGI stack path-normalises ../ so the router returns 404 (no matching route)
-    # OR the _safe() guard returns 400. Both reject the traversal attempt safely.
-    assert r.status_code in (400, 404)
+    # ASGI path-normalises ../ before routing, so the router returns 404.
+    assert r.status_code == 404
 
 
-# 6b. Traversal: URL-encoded ../x in read (rejected at router or handler level)
+# 6b. Traversal: URL-encoded ../x in read — same ASGI normalisation → 404
 async def test_traversal_encoded_read(client: AsyncClient):
     r = await client.get("/api/notes/..%2Fx")
-    assert r.status_code in (400, 404)
+    assert r.status_code == 404
 
 
-# 7. URL-encoded deep traversal ../../etc/passwd (rejected at router or handler level)
+# 7. URL-encoded deep traversal ../../etc/passwd — ASGI normalisation → 404
 async def test_traversal_deep_encoded(client: AsyncClient):
     r = await client.get("/api/notes/..%2F..%2Fetc%2Fpasswd")
-    assert r.status_code in (400, 404)
+    assert r.status_code == 404
 
 
-# 8. Name with space (invalid character)
+# 8. Name with space (invalid character) → exactly 400
 async def test_invalid_chars_rejected(client: AsyncClient):
     r = await client.put("/api/notes/bad%20name", json={"content": "x"})
     assert r.status_code == 400
 
 
-# 9. Name longer than 64 characters rejected
+# 9. Name longer than 64 characters → exactly 400
 async def test_long_name_rejected(client: AsyncClient):
     long_name = "a" * 65
     r = await client.put(f"/api/notes/{long_name}", json={"content": "x"})
     assert r.status_code == 400
 
 
-# 10. Oversized body (>100 KiB) rejected by Pydantic before gateway
+# 10. Oversized body (> 100 KiB) → exactly 413 (not 422)
 async def test_oversized_body_rejected(client: AsyncClient):
     big_content = "x" * (100 * 1024 + 1)
     r = await client.put("/api/notes/test", json={"content": big_content})
-    # Pydantic validator raises ValueError → FastAPI returns 422
-    assert r.status_code == 422
+    assert r.status_code == 413
 
 
-# 11. GET /api/notes/ (trailing slash) returns the list, not a named-note read
+# 10b. 70 KiB note content (between old 64 KB gateway limit and 100 KB route
+# limit) — must be accepted (tests the gateway limit raise to 128 KiB).
+async def test_seventy_kb_note_accepted(client: AsyncClient):
+    content = "x" * (70 * 1024)
+    r = await client.put("/api/notes/large", json={"content": content})
+    assert r.status_code == 200
+
+
+# 10c. 100 KiB + 1 byte note content → exactly 413
+async def test_hundred_kb_plus_one_rejected(client: AsyncClient):
+    content = "x" * (100 * 1024 + 1)
+    r = await client.put("/api/notes/toolarge", json={"content": content})
+    assert r.status_code == 413
+
+
+# 11. GET /api/notes/ with trailing slash — the router follows redirect to 200
 async def test_list_via_trailing_slash(client: AsyncClient):
-    r = await client.get("/api/notes/")
-    assert r.status_code in (200, 307)
-    if r.status_code == 200:
-        assert isinstance(r.json(), list)
+    r = await client.get("/api/notes/", follow_redirects=True)
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+# 11b. Empty name segment → router never matches the named-note route → 404
+async def test_empty_name_segment(client: AsyncClient):
+    # /api/notes/ with follow_redirects=False — the router should return 200
+    # for /api/notes (list) or 404 for any segment that doesn't match.
+    # An empty path-segment after the slash is just the list endpoint again.
+    r = await client.get("/api/notes/", follow_redirects=False)
+    # The list endpoint handles this — either 200 or a redirect to the list.
+    assert r.status_code in (200, 307, 308)
 
 
 # ===========================================================================
@@ -178,13 +200,13 @@ async def test_gateway_unknown_tool_rejected():
     assert exc_info.value.status_code == 404
 
 
-# 13. Oversized args (>64 KiB) → HTTP 413
+# 13. Oversized args (> 128 KiB) → HTTP 413
 async def test_gateway_oversized_args_rejected():
     from fastapi import HTTPException
 
     from app.gateway import call_tool
 
-    big = "x" * (64 * 1024 + 1)
+    big = "x" * (128 * 1024 + 1)
     with pytest.raises(HTTPException) as exc_info:
         await call_tool("write_note", {"name": "t", "content": big})
     assert exc_info.value.status_code == 413
@@ -200,7 +222,9 @@ async def test_gateway_success_shape():
     assert isinstance(result["duration_ms"], float)
 
 
-# 15. Slow tool → HTTP 504 after TOOL_TIMEOUT_SECONDS
+# 15. Slow tool → HTTP 504 after TOOL_TIMEOUT_SECONDS.
+#     Uses a real async sleep rather than a mock, because the timeout only
+#     fires if the awaitable actually suspends (a sync mock returns instantly).
 async def test_gateway_timeout():
     from fastapi import HTTPException
 
@@ -214,8 +238,9 @@ async def test_gateway_timeout():
         await asyncio.sleep(10)
 
     try:
-        with patch("app.gateway._dispatch", new=AsyncMock(side_effect=_slow)), pytest.raises(HTTPException) as exc_info:
-            await call_tool("list_notes", {})
+        with patch("app.gateway._dispatch", new=AsyncMock(side_effect=_slow)):
+            with pytest.raises(HTTPException) as exc_info:
+                await call_tool("list_notes", {})
         assert exc_info.value.status_code == 504
     finally:
         gw_module.TOOL_TIMEOUT_SECONDS = original_timeout
@@ -238,6 +263,36 @@ async def test_notes_routes_use_gateway(client: AsyncClient):
     assert ("write_note", {"name": "check", "content": "hello"}) in captured
 
 
+# 16b. GET list route calls gateway.call_tool("list_notes", {})
+async def test_list_route_uses_gateway(client: AsyncClient):
+    captured: list[tuple[str, dict]] = []
+
+    async def fake_call_tool(name: str, args: dict, **_kw):
+        captured.append((name, args))
+        return {"ok": True, "result": [], "duration_ms": 1.0}
+
+    with patch("app.routes.notes.call_tool", new=fake_call_tool):
+        r = await client.get("/api/notes")
+
+    assert r.status_code == 200
+    assert ("list_notes", {}) in captured
+
+
+# 16c. GET read route calls gateway.call_tool("read_note", {"name": ...})
+async def test_read_route_uses_gateway(client: AsyncClient):
+    captured: list[tuple[str, dict]] = []
+
+    async def fake_call_tool(name: str, args: dict, **_kw):
+        captured.append((name, args))
+        return {"ok": True, "result": "hello content", "duration_ms": 1.0}
+
+    with patch("app.routes.notes.call_tool", new=fake_call_tool):
+        r = await client.get("/api/notes/myNote")
+
+    assert r.status_code == 200
+    assert ("read_note", {"name": "myNote"}) in captured
+
+
 # 17. MCP Guard server info endpoint — name and tools
 async def test_mcp_info_shape(client: AsyncClient):
     r = await client.get("/api/mcp/info")
@@ -247,3 +302,22 @@ async def test_mcp_info_shape(client: AsyncClient):
     assert data["transport"] == "streamable-http"
     assert data["mcp_endpoint"] == "/mcp/"
     assert set(data["tools"]) == {"list_notes", "read_note", "write_note"}
+
+
+# 18. OS error in tool -> 500 "Internal tool error." and no file path leaked
+async def test_gateway_oserror_sanitised():
+    from fastapi import HTTPException
+    from mcp.server.fastmcp.exceptions import ToolError
+    import app.gateway as gateway_module
+
+    async def _failing_dispatch(name, args):
+        raise ToolError("[Errno 21] Is a directory: '/path/to/api/data/notes/dirnote.md'")
+
+    with patch.object(gateway_module, "_dispatch", side_effect=_failing_dispatch):
+        with pytest.raises(HTTPException) as exc_info:
+            await gateway_module.call_tool("read_note", {"name": "dirnote"})
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "Internal tool error."
+    assert "dirnote.md" not in exc_info.value.detail
+    assert "Errno" not in exc_info.value.detail

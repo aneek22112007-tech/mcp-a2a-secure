@@ -32,7 +32,6 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_methods=["GET", "POST", "PUT"],
     allow_headers=["*"],
-    allow_credentials=True,
 )
 
 # Status endpoints (PR #76 — real MCP handshake health check)

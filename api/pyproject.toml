@@ -14,7 +14,6 @@ dependencies = [
 dev = [
     "httpx>=0.28.1",
     "pytest>=9.1.1",
-    "pytest-anyio>=0.0.0",
     "ruff>=0.16.9",
 ]
 
