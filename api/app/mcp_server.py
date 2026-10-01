@@ -65,7 +65,7 @@ async def list_notes() -> list[str]:
     """
 
     def _read() -> list[str]:
-        return sorted(p.stem for p in NOTES_DIR.glob("*.md"))
+        return sorted(p.stem for p in NOTES_DIR.glob("*.md") if p.is_file())
 
     return await anyio.to_thread.run_sync(_read)
 

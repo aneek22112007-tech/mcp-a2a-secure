@@ -59,7 +59,9 @@ def live_server():
 
 
 def test_status_online(live_server, monkeypatch):
-    monkeypatch.setattr(settings, "mcp_self_url", f"http://127.0.0.1:{live_server}/mcp/")
+    monkeypatch.setattr(
+        settings, "mcp_self_url", f"http://127.0.0.1:{live_server}/mcp/"
+    )
     response = httpx.get(f"http://127.0.0.1:{live_server}/api/status", timeout=10)
 
     assert response.status_code == 200

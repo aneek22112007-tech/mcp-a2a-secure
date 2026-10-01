@@ -238,9 +238,11 @@ async def test_gateway_timeout():
         await asyncio.sleep(10)
 
     try:
-        with patch("app.gateway._dispatch", new=AsyncMock(side_effect=_slow)):
-            with pytest.raises(HTTPException) as exc_info:
-                await call_tool("list_notes", {})
+        with (
+            patch("app.gateway._dispatch", new=AsyncMock(side_effect=_slow)),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await call_tool("list_notes", {})
         assert exc_info.value.status_code == 504
     finally:
         gw_module.TOOL_TIMEOUT_SECONDS = original_timeout
@@ -308,14 +310,19 @@ async def test_mcp_info_shape(client: AsyncClient):
 async def test_gateway_oserror_sanitised():
     from fastapi import HTTPException
     from mcp.server.fastmcp.exceptions import ToolError
+
     import app.gateway as gateway_module
 
     async def _failing_dispatch(name, args):
-        raise ToolError("[Errno 21] Is a directory: '/path/to/api/data/notes/dirnote.md'")
+        raise ToolError(
+            "[Errno 21] Is a directory: '/path/to/api/data/notes/dirnote.md'"
+        )
 
-    with patch.object(gateway_module, "_dispatch", side_effect=_failing_dispatch):
-        with pytest.raises(HTTPException) as exc_info:
-            await gateway_module.call_tool("read_note", {"name": "dirnote"})
+    with (
+        patch.object(gateway_module, "_dispatch", side_effect=_failing_dispatch),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await gateway_module.call_tool("read_note", {"name": "dirnote"})
 
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "Internal tool error."

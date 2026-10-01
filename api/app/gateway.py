@@ -16,10 +16,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException
 
@@ -30,6 +29,8 @@ try:
     from mcp.server.fastmcp.exceptions import ToolError
 except ImportError:  # SDK layout guard
     ToolError = Exception  # type: ignore[assignment,misc]
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -172,7 +173,7 @@ async def call_tool(
             status_code=504,
             detail=(
                 f"Tool '{name}' did not complete within "
-                f"{TOOL_TIMEOUT_SECONDS:.0f} seconds."
+                f"{TOOL_TIMEOUT_SECONDS:g} seconds."
             ),
         )
     except ToolError as exc:
@@ -187,13 +188,14 @@ async def call_tool(
         # OS-level errors (PermissionError, IsADirectoryError, etc.) must
         # never leak filesystem paths to the client.  Log the details and
         # return a generic 500.
-        if isinstance(cause, OSError) or "Errno" in msg or "Permission denied" in msg or "Is a directory" in msg:
-            logger.exception(
-                "[gateway] OS error in tool %r: %r", name, cause or exc
-            )
-            raise HTTPException(
-                status_code=500, detail="Internal tool error."
-            ) from exc
+        if (
+            isinstance(cause, OSError)
+            or "Errno" in msg
+            or "Permission denied" in msg
+            or "Is a directory" in msg
+        ):
+            logger.exception("[gateway] OS error in tool %r", name)
+            raise HTTPException(status_code=500, detail="Internal tool error.") from exc
 
         if isinstance(cause, ValueError):
             raise HTTPException(status_code=400, detail=str(cause)) from exc
@@ -204,7 +206,7 @@ async def call_tool(
             detail = match.group(0) if match else "invalid note name"
             raise HTTPException(status_code=400, detail=detail) from exc
 
-        logger.exception("[gateway] Unhandled tool error in tool %r: %r", name, exc)
+        logger.exception("[gateway] Unhandled tool error in tool %r", name)
         raise HTTPException(status_code=500, detail="Internal tool error.") from exc
 
     except (ValueError, TypeError, KeyError) as exc:
@@ -214,12 +216,12 @@ async def call_tool(
         raise HTTPException(status_code=404, detail="Note not found.") from exc
     except OSError as exc:
         # Filesystem errors outside ToolError (e.g. bare read_text failures).
-        logger.exception("[gateway] OS error in tool %r: %r", name, exc)
+        logger.exception("[gateway] OS error in tool %r", name)
         raise HTTPException(status_code=500, detail="Internal tool error.") from exc
     except Exception as exc:
         # Unexpected failures: log internally, return a generic 500 so that
         # tracebacks, filesystem paths, and internal details are never leaked.
-        logger.exception("[gateway] unhandled error in tool %r: %r", name, exc)
+        logger.exception("[gateway] unhandled error in tool %r", name)
         raise HTTPException(
             status_code=500,
             detail="An internal error occurred.",

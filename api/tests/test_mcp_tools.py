@@ -153,7 +153,9 @@ async def test_write_note_empty_name(isolated_notes):
 async def test_gateway_timeout(monkeypatch):
     """Slow tool calls exceeding TOOL_TIMEOUT_SECONDS trigger HTTP 504."""
     import asyncio
+
     from fastapi import HTTPException
+
     import app.gateway as gateway_module
 
     async def _slow_dispatch(name, args):
@@ -168,4 +170,3 @@ async def test_gateway_timeout(monkeypatch):
 
     assert exc_info.value.status_code == 504
     assert "did not complete within" in exc_info.value.detail
-
