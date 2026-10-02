@@ -3,8 +3,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
 
+import httpx
 from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 
 URL = "http://localhost:8000/mcp/"
 
@@ -12,19 +13,19 @@ URL = "http://localhost:8000/mcp/"
 @asynccontextmanager
 async def connect(url: str, timeout: float = 30) -> AsyncIterator[ClientSession]:
     """Open a Streamable HTTP MCP session that the caller can initialize."""
-    async with (
-        streamablehttp_client(
-            url,
-            timeout=timeout,
-            sse_read_timeout=timeout,
-        ) as (read, write, _),
-        ClientSession(
-            read,
-            write,
-            read_timeout_seconds=timedelta(seconds=timeout),
-        ) as session,
-    ):
-        yield session
+    client = httpx.AsyncClient(timeout=timeout)
+    try:
+        async with (
+            streamable_http_client(url, http_client=client) as (read, write, _),
+            ClientSession(
+                read,
+                write,
+                read_timeout_seconds=timedelta(seconds=timeout),
+            ) as session,
+        ):
+            yield session
+    finally:
+        await client.aclose()
 
 
 async def main() -> None:
