@@ -51,6 +51,8 @@ def test_validation_error_format():
     assert "error" in data
     assert data["error"]["code"] == "VALIDATION_ERROR"
     assert data["error"]["details"] is not None
+    for item in data["error"]["details"]:
+        assert set(item) == {"loc", "msg", "type"}
 
 
 def test_gateway_error_format():

@@ -9,62 +9,58 @@ from app.middleware import request_id_context
 
 logger = logging.getLogger(__name__)
 
+_ERROR_CODES = {
+    400: "BAD_REQUEST",
+    403: "FORBIDDEN",
+    404: "NOT_FOUND",
+    405: "METHOD_NOT_ALLOWED",
+    413: "PAYLOAD_TOO_LARGE",
+    422: "VALIDATION_ERROR",
+    500: "INTERNAL_SERVER_ERROR",
+    504: "GATEWAY_TIMEOUT",
+}
 
-def register_error_handlers(app: FastAPI):
 
+def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
         request: Request, exc: RequestValidationError
     ):
-        req_id = request_id_context.get()
         return JSONResponse(
             status_code=422,
             content={
                 "error": {
                     "code": "VALIDATION_ERROR",
                     "message": "The request could not be processed.",
-                    "details": exc.errors(),
-                    "request_id": req_id,
+                    "details": _public_validation_errors(exc),
+                    "request_id": _request_id(request),
                 }
             },
         )
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-        req_id = request_id_context.get()
-
-        # Determine code based on status_code
-        code = "HTTP_ERROR"
-        if exc.status_code == 404:
-            code = "NOT_FOUND"
-        elif exc.status_code == 400:
-            code = "BAD_REQUEST"
-        elif exc.status_code == 403:
-            code = "FORBIDDEN"
-        elif exc.status_code == 413:
-            code = "PAYLOAD_TOO_LARGE"
-        elif exc.status_code == 504:
-            code = "GATEWAY_TIMEOUT"
-        elif exc.status_code == 500:
-            code = "INTERNAL_SERVER_ERROR"
-
         return JSONResponse(
             status_code=exc.status_code,
             content={
                 "error": {
-                    "code": code,
-                    "message": getattr(exc, "detail", "An error occurred."),
+                    "code": _ERROR_CODES.get(exc.status_code, "HTTP_ERROR"),
+                    "message": _public_http_message(exc),
                     "details": None,
-                    "request_id": req_id,
+                    "request_id": _request_id(request),
                 }
             },
         )
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
-        req_id = request_id_context.get()
+        # Log the type and traceback for operators. The client message stays generic
+        # and does not include the exception text, paths, or SQL.
+        request_id = _request_id(request)
         logger.exception(
-            "Unhandled server exception for request %s: %s", req_id, str(exc)
+            "Unhandled server exception type=%s request_id=%s",
+            type(exc).__name__,
+            request_id,
         )
         return JSONResponse(
             status_code=500,
@@ -73,7 +69,41 @@ def register_error_handlers(app: FastAPI):
                     "code": "INTERNAL_SERVER_ERROR",
                     "message": "An unexpected error occurred.",
                     "details": None,
-                    "request_id": req_id,
+                    "request_id": request_id,
                 }
             },
         )
+
+
+def _public_validation_errors(exc: RequestValidationError) -> list[dict[str, object]]:
+    public: list[dict[str, object]] = []
+    for error in exc.errors():
+        public.append(
+            {
+                "loc": error.get("loc"),
+                "msg": error.get("msg"),
+                "type": error.get("type"),
+            }
+        )
+    return public
+
+
+def _public_http_message(exc: StarletteHTTPException) -> str:
+    if exc.status_code >= 500 and exc.status_code != 504:
+        return "An unexpected error occurred."
+    if isinstance(exc.detail, str) and exc.detail:
+        return exc.detail
+    return "An error occurred."
+
+
+def _request_id(request: Request | None = None) -> str | None:
+    current = request_id_context.get()
+    if current:
+        return current
+    # ServerErrorMiddleware runs after the request-context middleware resets
+    # its context variable. The id stored on the scope is still available.
+    if request is not None:
+        stored = request.scope.get("mcp_guard.request_id")
+        if isinstance(stored, str) and stored:
+            return stored
+    return None

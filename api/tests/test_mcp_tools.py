@@ -157,12 +157,13 @@ async def test_gateway_timeout(monkeypatch):
     from fastapi import HTTPException
 
     import app.gateway as gateway_module
+    from app.config import settings
 
     async def _slow_dispatch(name, args):
         await asyncio.sleep(0.5)
         return "done"
 
-    monkeypatch.setattr(gateway_module, "TOOL_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(settings, "tool_timeout_s", 0.1)
     monkeypatch.setattr(gateway_module, "_dispatch", _slow_dispatch)
 
     with pytest.raises(HTTPException) as exc_info:

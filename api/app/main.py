@@ -11,39 +11,57 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.types import ASGIApp
 
 from app.config import settings
 from app.errors import register_error_handlers
-from app.mcp_server import mcp
-from app.middleware import RequestContextMiddleware
+from app.mcp_server import ensure_notes_dir, mcp
+from app.middleware import (
+    BodySizeLimitMiddleware,
+    RequestContextMiddleware,
+    SecurityHeadersMiddleware,
+    install_request_id_logging,
+)
 from app.routes.notes import router as notes_router
 from app.routes.status import router as status_router
+
+install_request_id_logging()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.started_at = time.monotonic()
+    ensure_notes_dir()
     async with mcp.session_manager.run():
         yield
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
-# Register error handlers
 register_error_handlers(app)
 
-# Note: Middlewares are executed in reverse order of addition.
-# So RequestContextMiddleware goes first (runs last/outermost wrapper)
-# or last? Wait, `app.add_middleware` adds to the top of the stack.
-# We want CORSMiddleware to execute first (outermost), and RequestContextMiddleware to execute next.
-# So we add RequestContextMiddleware FIRST, then CORSMiddleware.
-app.add_middleware(RequestContextMiddleware)
+# add_middleware inserts at the front of the user stack, so the last addition
+# runs first on the way in. Starlette still places ServerErrorMiddleware
+# outside every user middleware. Security headers wrap that built stack so
+# unhandled 500s and CORS preflight responses receive them too.
+app.add_middleware(BodySizeLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
+app.add_middleware(RequestContextMiddleware)
+
+_build_middleware_stack = app.build_middleware_stack
+
+
+def _build_stack_with_security_headers() -> ASGIApp:
+    return SecurityHeadersMiddleware(_build_middleware_stack())
+
+
+app.build_middleware_stack = _build_stack_with_security_headers  # type: ignore[method-assign]
 
 # Status endpoints (PR #76 — real MCP handshake health check)
 app.include_router(status_router)

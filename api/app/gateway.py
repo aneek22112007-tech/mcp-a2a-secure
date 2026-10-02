@@ -22,6 +22,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.config import settings
+
 # The single FastMCP instance that owns all registered tools.
 from app.mcp_server import mcp
 
@@ -41,9 +43,6 @@ logger = logging.getLogger(__name__)
 #: note write request is never rejected by the gateway before the route
 #: validator has a chance to produce a meaningful 413 response.
 MAX_ARG_BYTES: int = 128 * 1024
-
-#: Maximum wall-clock seconds per tool invocation.
-TOOL_TIMEOUT_SECONDS: float = 5.0
 
 # ---------------------------------------------------------------------------
 # Registered tool allowlist
@@ -111,7 +110,7 @@ async def call_tool(
     ------
     HTTPException 404  – unknown or unregistered tool
     HTTPException 413  – serialised argument size exceeds ``MAX_ARG_BYTES``
-    HTTPException 504  – tool did not complete within ``TOOL_TIMEOUT_SECONDS``
+    HTTPException 504  – tool did not complete within ``settings.tool_timeout_s``
     HTTPException 400  – invalid arguments rejected by the tool
     HTTPException 500  – unexpected internal failure (detail is generic;
                          original exception is logged to stderr, not leaked)
@@ -162,19 +161,18 @@ async def call_tool(
     # ------------------------------------------------------------------
     # 3. Execute with timeout
     # ------------------------------------------------------------------
+    # Read on each call so tests can monkeypatch settings.tool_timeout_s.
+    timeout_s = settings.tool_timeout_s
     t0 = time.monotonic()
     try:
         result_raw = await asyncio.wait_for(
             _dispatch(name, args),
-            timeout=TOOL_TIMEOUT_SECONDS,
+            timeout=timeout_s,
         )
     except TimeoutError:
         raise HTTPException(
             status_code=504,
-            detail=(
-                f"Tool '{name}' did not complete within "
-                f"{TOOL_TIMEOUT_SECONDS:g} seconds."
-            ),
+            detail=(f"Tool '{name}' did not complete within {timeout_s:g} seconds."),
         )
     except ToolError as exc:
         # The MCP SDK wraps tool-raised exceptions in ToolError.
