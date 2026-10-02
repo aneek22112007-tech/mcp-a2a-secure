@@ -18,7 +18,9 @@ request_id_context: contextvars.ContextVar[str] = contextvars.ContextVar(
 )
 
 _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
-_CONTENT_LENGTH_RE = re.compile(rb"0|[1-9][0-9]*")
+_CONTENT_LENGTH_RE = re.compile(rb"[0-9]+")
+# Longer digit strings are rejected before int() so a huge header cannot stall the process.
+_MAX_CONTENT_LENGTH_DIGITS = 18
 
 STRICT_CSP = "default-src 'none'; frame-ancestors 'none'"
 # Swagger and ReDoc load scripts and styles from the FastAPI CDN and call
@@ -76,8 +78,6 @@ def install_request_id_logging() -> None:
 
     request_filter = RequestIdLogFilter()
     root = logging.getLogger()
-    if not any(isinstance(item, RequestIdLogFilter) for item in root.filters):
-        root.addFilter(request_filter)
     for handler in root.handlers:
         if not any(isinstance(item, RequestIdLogFilter) for item in handler.filters):
             handler.addFilter(request_filter)
@@ -198,8 +198,8 @@ class BodySizeLimitMiddleware:
             )
             return
         if lengths:
-            declared = _parse_content_length(lengths[0])
-            if declared is None:
+            raw_length = lengths[0]
+            if not _CONTENT_LENGTH_RE.fullmatch(raw_length):
                 await _send_error(
                     send,
                     gate,
@@ -208,7 +208,8 @@ class BodySizeLimitMiddleware:
                     "Content-Length must be a non-negative integer.",
                 )
                 return
-            if declared > limit:
+            # Digit length is checked first so int() is never called on a huge header.
+            if len(raw_length) > _MAX_CONTENT_LENGTH_DIGITS or int(raw_length) > limit:
                 await _send_error(
                     send,
                     gate,
@@ -302,12 +303,6 @@ def _header_values(scope: Scope, name: bytes) -> list[bytes]:
     return [value for key, value in scope.get("headers", []) if key.lower() == name]
 
 
-def _parse_content_length(raw: bytes) -> int | None:
-    if not _CONTENT_LENGTH_RE.fullmatch(raw):
-        return None
-    return int(raw)
-
-
 def _replace_header(scope: Scope, name: bytes, value: bytes) -> None:
     headers = _without(scope.get("headers", []), name)
     headers.append((name, value))
@@ -346,7 +341,8 @@ async def _send_error(
                 "details": None,
                 "request_id": request_id,
             }
-        }
+        },
+        separators=(",", ":"),
     ).encode("utf-8")
     await send(
         {

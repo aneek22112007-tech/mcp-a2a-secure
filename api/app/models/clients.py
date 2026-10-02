@@ -4,17 +4,13 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, utc_now
-from app.models.types import UTCDateTime
 
 if TYPE_CHECKING:
     from app.models.api_keys import ApiKey
-
-CLIENT_STATUS_ACTIVE = "active"
-CLIENT_STATUS_INACTIVE = "inactive"
 
 
 class Client(Base):
@@ -24,14 +20,12 @@ class Client(Base):
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(50), default=CLIENT_STATUS_ACTIVE, nullable=False
-    )
+    status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        UTCDateTime(), default=utc_now, nullable=False
+        DateTime(timezone=True), default=utc_now, nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        UTCDateTime(), default=utc_now, onupdate=utc_now, nullable=False
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
     api_keys: Mapped[list[ApiKey]] = relationship(

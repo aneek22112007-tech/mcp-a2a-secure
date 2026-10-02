@@ -151,7 +151,7 @@ async def test_write_note_empty_name(isolated_notes):
 
 @pytest.mark.anyio
 async def test_gateway_timeout(monkeypatch):
-    """Slow tool calls exceeding TOOL_TIMEOUT_SECONDS trigger HTTP 504."""
+    """Slow tool calls exceeding settings.tool_timeout_s trigger HTTP 504."""
     import asyncio
 
     from fastapi import HTTPException

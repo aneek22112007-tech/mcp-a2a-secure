@@ -222,7 +222,7 @@ async def test_gateway_success_shape():
     assert isinstance(result["duration_ms"], float)
 
 
-# 15. Slow tool → HTTP 504 after TOOL_TIMEOUT_SECONDS.
+# 15. Slow tool → HTTP 504 after settings.tool_timeout_s.
 #     Uses a real async sleep rather than a mock, because the timeout only
 #     fires if the awaitable actually suspends (a sync mock returns instantly).
 async def test_gateway_timeout(monkeypatch):

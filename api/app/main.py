@@ -36,32 +36,34 @@ async def lifespan(app: FastAPI):
         yield
 
 
-app = FastAPI(title=settings.app_name, lifespan=lifespan)
+def apply_http_middleware(application: FastAPI) -> None:
+    """Install the HTTP middleware stack.
+
+    Starlette builds ServerErrorMiddleware outside ``add_middleware`` entries.
+    Request context wraps that built stack so 500 logs still see the request id.
+    Security headers wrap the request context, including those error responses.
+    """
+
+    application.add_middleware(BodySizeLimitMiddleware)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    )
+    original_build = application.build_middleware_stack
+
+    def build_middleware_stack() -> ASGIApp:
+        return SecurityHeadersMiddleware(RequestContextMiddleware(original_build()))
+
+    application.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]
+
+
+app = FastAPI(title=settings.app_name, lifespan=lifespan, redoc_url=None)
 
 register_error_handlers(app)
-
-# add_middleware inserts at the front of the user stack, so the last addition
-# runs first on the way in. Starlette still places ServerErrorMiddleware
-# outside every user middleware. Security headers wrap that built stack so
-# unhandled 500s and CORS preflight responses receive them too.
-app.add_middleware(BodySizeLimitMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
-)
-app.add_middleware(RequestContextMiddleware)
-
-_build_middleware_stack = app.build_middleware_stack
-
-
-def _build_stack_with_security_headers() -> ASGIApp:
-    return SecurityHeadersMiddleware(_build_middleware_stack())
-
-
-app.build_middleware_stack = _build_stack_with_security_headers  # type: ignore[method-assign]
+apply_http_middleware(app)
 
 # Status endpoints (PR #76 — real MCP handshake health check)
 app.include_router(status_router)

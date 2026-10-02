@@ -100,8 +100,7 @@ def _request_id(request: Request | None = None) -> str | None:
     current = request_id_context.get()
     if current:
         return current
-    # ServerErrorMiddleware runs after the request-context middleware resets
-    # its context variable. The id stored on the scope is still available.
+    # The scope keeps a copy for callers that run after the context variable is cleared.
     if request is not None:
         stored = request.scope.get("mcp_guard.request_id")
         if isinstance(stored, str) and stored:

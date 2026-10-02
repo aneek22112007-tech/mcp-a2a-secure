@@ -1,13 +1,16 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from app.config import settings
-from app.main import app
+from app.errors import register_error_handlers
+from app.main import app, apply_http_middleware
 from app.middleware import (
     DOCS_CSP,
     STRICT_CSP,
@@ -22,6 +25,15 @@ from app.middleware import (
 pytestmark = pytest.mark.anyio
 
 client = TestClient(app)
+
+
+def _isolated_app() -> FastAPI:
+    """Same middleware stack as the process app, without mutating its routes."""
+
+    application = FastAPI()
+    register_error_handlers(application)
+    apply_http_middleware(application)
+    return application
 
 
 def test_cors_rejects_untrusted_origin():
@@ -125,6 +137,46 @@ async def test_chunked_body_over_limit_is_413(monkeypatch):
     assert header_map[b"x-request-id"]
 
 
+async def test_leading_zero_content_length_is_accepted():
+    body = b"x" * 17
+    sent: list[dict] = []
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = _scope("POST", "/health", headers=[(b"content-length", b"017")])
+    await app(scope, receive, send)
+    start = next(
+        message for message in sent if message["type"] == "http.response.start"
+    )
+    assert start["status"] == 405
+
+
+async def test_huge_content_length_is_413():
+    sent: list[dict] = []
+
+    async def receive():
+        raise AssertionError("oversized Content-Length was read")
+
+    async def send(message):
+        sent.append(message)
+
+    scope = _scope(
+        "POST",
+        "/health",
+        headers=[(b"content-length", b"1" * 4400)],
+    )
+    await app(scope, receive, send)
+    start = next(
+        message for message in sent if message["type"] == "http.response.start"
+    )
+    assert start["status"] == 413
+    assert _json_body(sent)["error"]["code"] == "PAYLOAD_TOO_LARGE"
+
+
 async def test_malformed_content_length_is_400():
     sent: list[dict] = []
 
@@ -149,15 +201,18 @@ async def test_malformed_content_length_is_400():
     assert "nope" not in json.dumps(payload)
 
 
-def test_internal_error_hides_details_and_keeps_headers():
-    @app.get("/__test__/explode")
+def test_internal_error_hides_details_and_keeps_headers(caplog):
+    application = _isolated_app()
+
+    @application.get("/explode")
     async def explode():
         raise RuntimeError("SECRET_DB_PASSWORD /Users/hidden SELECT * FROM api_keys")
 
     # Starlette re-raises after the 500 handler so servers can log it.
     # The response itself is what this test has to observe.
-    quiet = TestClient(app, raise_server_exceptions=False)
-    response = quiet.get("/__test__/explode")
+    caplog.set_level(logging.ERROR, logger="app.errors")
+    quiet = TestClient(application, raise_server_exceptions=False)
+    response = quiet.get("/explode", headers={"X-Request-ID": "err-500-id"})
     assert response.status_code == 500
     body = response.json()
     assert body["error"]["code"] == "INTERNAL_SERVER_ERROR"
@@ -169,6 +224,11 @@ def test_internal_error_hides_details_and_keeps_headers():
     assert "/Users/hidden" not in response.text
     assert response.headers["content-security-policy"] == STRICT_CSP
     assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-request-id"] == "err-500-id"
+    error_logs = [record for record in caplog.records if record.name == "app.errors"]
+    assert error_logs
+    assert error_logs[-1].request_id == "err-500-id"
+    assert error_logs[-1].request_id != "-"
 
 
 def test_gateway_timeout_response_format(monkeypatch):
@@ -235,19 +295,21 @@ def test_request_context_is_reset_after_the_response():
 
 
 async def test_request_ids_stay_isolated_across_concurrent_requests():
-    @app.get("/__test__/whoami")
+    application = _isolated_app()
+
+    @application.get("/whoami")
     async def whoami():
         await asyncio.sleep(0.05)
         return {"request_id": request_id_context.get()}
 
     async def one(http: AsyncClient, request_id: str) -> tuple[str, str]:
         response = await http.get(
-            "/__test__/whoami",
+            "/whoami",
             headers={"X-Request-ID": request_id},
         )
         return response.headers["x-request-id"], response.json()["request_id"]
 
-    transport = ASGITransport(app=app)
+    transport = ASGITransport(app=application)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         first, second = await asyncio.gather(
             one(http, "alpha-id"), one(http, "beta-id")
@@ -278,8 +340,34 @@ def test_request_id_logging_install_is_idempotent():
     install_request_id_logging()
     install_request_id_logging()
     root = logging.getLogger()
-    matches = [item for item in root.filters if isinstance(item, RequestIdLogFilter)]
-    assert len(matches) == 1
+    assert not any(isinstance(item, RequestIdLogFilter) for item in root.filters)
+    record = logging.getLogRecordFactory()(
+        "app.test", logging.INFO, __file__, 1, "hello", (), None
+    )
+    assert record.request_id == "-"
+
+
+def test_log_config_formats_request_id():
+    config_path = Path(__file__).resolve().parents[1] / "log_config.json"
+    config = json.loads(config_path.read_text())
+    default_format = config["formatters"]["default"]["format"]
+    access_format = config["formatters"]["access"]["format"]
+    assert "%(request_id)s" in default_format
+    assert "%(request_id)s" in access_format
+
+    token = request_id_context.set("fmt-req")
+    try:
+        record = logging.getLogRecordFactory()(
+            "app.test", logging.INFO, __file__, 1, "hello", (), None
+        )
+    finally:
+        request_id_context.reset(token)
+    assert "rid=fmt-req" in logging.Formatter(default_format).format(record)
+
+    bare = logging.getLogRecordFactory()(
+        "uvicorn.access", logging.INFO, __file__, 1, "GET /health", (), None
+    )
+    assert "rid=-" in logging.Formatter(access_format).format(bare)
 
 
 async def test_empty_terminal_body_chunk_is_preserved():

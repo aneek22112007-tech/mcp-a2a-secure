@@ -34,8 +34,3 @@ api/.pytest_cache/
 api/**/.pytest_cache/
 *.pyc
 *.pyo
-
-# Local databases
-*.db
-*.sqlite*
-*.db-journal

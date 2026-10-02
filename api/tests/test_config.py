@@ -1,7 +1,3 @@
-from pathlib import Path
-
-from sqlalchemy.engine.url import make_url
-
 from app.config import Settings
 
 
@@ -73,11 +69,3 @@ def test_settings_do_not_create_directories(monkeypatch, tmp_path):
     assert not notes.exists()
     assert not database.exists()
     assert not database.parent.exists()
-
-
-def test_database_path_is_package_relative(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    settings = _isolated_settings(monkeypatch)
-    expected = Path(__file__).resolve().parents[1] / "data" / "mcp_guard.db"
-    assert Path(make_url(settings.database_url).database) == expected
-    assert not str(expected).startswith(str(tmp_path))

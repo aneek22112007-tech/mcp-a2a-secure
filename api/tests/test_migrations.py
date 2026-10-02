@@ -66,13 +66,7 @@ async def test_schema_validity(alembic_config):
         await session.flush()
 
         # Create ApiKey
-        api_key = ApiKey(
-            client_id=client.id,
-            key_prefix="test_",
-            key_hash="hashed_abc",
-            name="test-key",
-            scopes=[],
-        )
+        api_key = ApiKey(client_id=client.id, key_prefix="test_", key_hash="hashed_abc")
         session.add(api_key)
 
         # Create AuditEvent
@@ -81,7 +75,6 @@ async def test_schema_validity(alembic_config):
             api_key_id=api_key.id,
             action="test_action",
             status="success",
-            decision="allowed",
         )
         session.add(audit)
 

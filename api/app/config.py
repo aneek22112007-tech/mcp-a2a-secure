@@ -1,38 +1,29 @@
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Package root is api/, regardless of the process working directory.
 _API_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_DB_PATH = (_API_ROOT / "data" / "mcp_guard.db").resolve()
-_DEFAULT_DATABASE_URL = f"sqlite+aiosqlite:///{_DEFAULT_DB_PATH}"
 _DEFAULT_NOTES_DIR = _API_ROOT / "data" / "notes"
 
 
 class Settings(BaseSettings):
     """Process configuration.
 
-    Constructing settings must not create directories or touch the database.
-    Resource directories are created by database startup and note storage.
+    Constructing settings must not create directories.
+    Note storage creates its own directory when it is first used.
     """
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        extra="ignore",
-        populate_by_name=True,
-    )
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "MCP Guard"
-    environment: str = Field(
-        default="dev",
-        validation_alias=AliasChoices("ENVIRONMENT", "APP_ENV"),
-    )
+    environment: str = "dev"
     cors_origins: list[str] = ["http://localhost:5173"]
     mcp_self_url: str = "http://127.0.0.1:8000/mcp/"
 
     database_url: str = Field(
-        default=_DEFAULT_DATABASE_URL,
+        default="sqlite+aiosqlite:///data/mcp_guard.db",
         description="Async database connection URL",
     )
 
