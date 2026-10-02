@@ -1,39 +1,71 @@
-from pathlib import Path
-
 from app.config import Settings
 
 
-def test_default_config_values():
-    settings = Settings()
+def _isolated_settings(monkeypatch, **overrides) -> Settings:
+    for key in (
+        "APP_NAME",
+        "ENVIRONMENT",
+        "APP_ENV",
+        "DATABASE_URL",
+        "NOTES_DIR",
+        "MAX_BODY_BYTES",
+        "TOOL_TIMEOUT_S",
+        "CORS_ORIGINS",
+        "MCP_SELF_URL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in overrides.items():
+        monkeypatch.setenv(key, value)
+    return Settings(_env_file=None)
+
+
+def test_default_config_values(monkeypatch):
+    settings = _isolated_settings(monkeypatch)
     assert settings.app_name == "MCP Guard"
     assert settings.environment == "dev"
     assert "http://localhost:5173" in settings.cors_origins
     assert settings.mcp_self_url == "http://127.0.0.1:8000/mcp/"
     assert settings.notes_dir.name == "notes"
     assert settings.notes_dir.parent.name == "data"
-    assert settings.notes_dir.exists()
+    assert settings.max_body_bytes == 1_048_576
+    assert settings.tool_timeout_s == 5
 
 
-def test_config_extra_ignore():
-    # If we pass an unknown value, it should be ignored and not raise ValidationError
-    settings = Settings(unknown_field="value")
-    assert not hasattr(settings, "unknown_field")
+def test_config_extra_ignore(monkeypatch):
+    settings = _isolated_settings(monkeypatch)
+    built = settings.model_copy(update={})
+    assert not hasattr(built, "unknown_field")
+    ignored = Settings(_env_file=None, unknown_field="value")
+    assert not hasattr(ignored, "unknown_field")
 
 
-def test_config_env_overrides(monkeypatch):
-    monkeypatch.setenv("APP_NAME", "Test App")
-    monkeypatch.setenv("ENVIRONMENT", "test")
-    monkeypatch.setenv("NOTES_DIR", "/tmp/mcp_test_notes")
-
-    settings = Settings()
+def test_config_env_overrides(monkeypatch, tmp_path):
+    notes = tmp_path / "notes"
+    settings = _isolated_settings(
+        monkeypatch,
+        APP_NAME="Test App",
+        ENVIRONMENT="test",
+        NOTES_DIR=str(notes),
+        MAX_BODY_BYTES="2048",
+        TOOL_TIMEOUT_S="2.5",
+    )
     assert settings.app_name == "Test App"
     assert settings.environment == "test"
-    assert settings.notes_dir == Path("/tmp/mcp_test_notes").resolve()
-    assert settings.notes_dir.exists()
+    assert settings.notes_dir == notes.resolve()
+    assert not notes.exists()
+    assert settings.max_body_bytes == 2048
+    assert settings.tool_timeout_s == 2.5
 
 
-def test_config_invalid_notes_dir():
-    # pydantic Settings doesn't prevent creating a Path from any string, but we want to make sure it's created.
-    # if we pass an empty string, it resolves to current directory.
-    # Pydantic's Path type doesn't validate strictly unless we do further checks. But since we use Path, we're testing model_post_init behavior.
-    pass
+def test_settings_do_not_create_directories(monkeypatch, tmp_path):
+    notes = tmp_path / "missing-notes"
+    database = tmp_path / "nested" / "guard.db"
+    settings = _isolated_settings(
+        monkeypatch,
+        NOTES_DIR=str(notes),
+        DATABASE_URL=f"sqlite+aiosqlite:///{database}",
+    )
+    assert settings.notes_dir == notes.resolve()
+    assert not notes.exists()
+    assert not database.exists()
+    assert not database.parent.exists()

@@ -23,6 +23,17 @@ from app.config import settings
 
 NOTES_DIR = settings.notes_dir
 
+
+def ensure_notes_dir() -> Path:
+    """Create the notes directory when storage is first used.
+
+    Settings construction does not create directories.
+    """
+
+    NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    return NOTES_DIR
+
+
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
@@ -104,6 +115,7 @@ async def write_note(name: str, content: str) -> str:
         ValueError: If *name* attempts a path-traversal attack.
     """
     path = _safe(name)  # raises ValueError synchronously — fine before I/O
+    ensure_notes_dir()
 
     def _write() -> None:
         path.write_text(content)
@@ -117,4 +129,5 @@ async def write_note(name: str, content: str) -> str:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    ensure_notes_dir()
     mcp.run()

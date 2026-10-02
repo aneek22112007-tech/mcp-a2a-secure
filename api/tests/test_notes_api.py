@@ -222,30 +222,26 @@ async def test_gateway_success_shape():
     assert isinstance(result["duration_ms"], float)
 
 
-# 15. Slow tool → HTTP 504 after TOOL_TIMEOUT_SECONDS.
+# 15. Slow tool → HTTP 504 after settings.tool_timeout_s.
 #     Uses a real async sleep rather than a mock, because the timeout only
 #     fires if the awaitable actually suspends (a sync mock returns instantly).
-async def test_gateway_timeout():
+async def test_gateway_timeout(monkeypatch):
     from fastapi import HTTPException
 
-    import app.gateway as gw_module
+    from app.config import settings
     from app.gateway import call_tool
 
-    original_timeout = gw_module.TOOL_TIMEOUT_SECONDS
-    gw_module.TOOL_TIMEOUT_SECONDS = 0.05  # 50 ms for test speed
+    monkeypatch.setattr(settings, "tool_timeout_s", 0.05)
 
     async def _slow(*_a, **_kw):
         await asyncio.sleep(10)
 
-    try:
-        with (
-            patch("app.gateway._dispatch", new=AsyncMock(side_effect=_slow)),
-            pytest.raises(HTTPException) as exc_info,
-        ):
-            await call_tool("list_notes", {})
-        assert exc_info.value.status_code == 504
-    finally:
-        gw_module.TOOL_TIMEOUT_SECONDS = original_timeout
+    with (
+        patch("app.gateway._dispatch", new=AsyncMock(side_effect=_slow)),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        await call_tool("list_notes", {})
+    assert exc_info.value.status_code == 504
 
 
 # 16. Notes routes invoke gateway.call_tool, not the filesystem directly
