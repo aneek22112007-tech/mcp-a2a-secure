@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import logging.config
 from pathlib import Path
 
 import pytest
@@ -368,6 +369,62 @@ def test_log_config_formats_request_id():
         "uvicorn.access", logging.INFO, __file__, 1, "GET /health", (), None
     )
     assert "rid=-" in logging.Formatter(access_format).format(bare)
+
+
+def _snapshot_logging() -> dict:
+    root = logging.getLogger()
+    loggers: dict[str, tuple] = {}
+    for name, logger in root.manager.loggerDict.items():
+        if not isinstance(logger, logging.Logger):
+            continue
+        loggers[name] = (
+            logger.level,
+            logger.handlers[:],
+            logger.filters[:],
+            logger.propagate,
+            logger.disabled,
+        )
+    return {
+        "root": (root.level, root.handlers[:], root.filters[:], root.propagate),
+        "loggers": loggers,
+    }
+
+
+def _restore_logging(snapshot: dict) -> None:
+    root = logging.getLogger()
+    level, handlers, filters, propagate = snapshot["root"]
+    root.setLevel(level)
+    root.handlers[:] = handlers
+    root.filters[:] = filters
+    root.propagate = propagate
+    restored = set(snapshot["loggers"])
+    for name, saved in snapshot["loggers"].items():
+        logger = logging.getLogger(name)
+        logger.setLevel(saved[0])
+        logger.handlers[:] = saved[1]
+        logger.filters[:] = saved[2]
+        logger.propagate = saved[3]
+        logger.disabled = saved[4]
+    for name, logger in list(root.manager.loggerDict.items()):
+        if name in restored or not isinstance(logger, logging.Logger):
+            continue
+        logger.handlers.clear()
+
+
+def test_log_config_dictconfig_formats_app_logger(capsys):
+    config_path = Path(__file__).resolve().parents[1] / "log_config.json"
+    config = json.loads(config_path.read_text())
+    snapshot = _snapshot_logging()
+    token = request_id_context.set("cfg-test")
+    try:
+        logging.config.dictConfig(config)
+        logging.getLogger("app.errors").info("dictconfig check")
+        captured = capsys.readouterr()
+    finally:
+        request_id_context.reset(token)
+        _restore_logging(snapshot)
+    assert "rid=cfg-test" in captured.err
+    assert captured.err.count("dictconfig check") == 1
 
 
 async def test_empty_terminal_body_chunk_is_preserved():

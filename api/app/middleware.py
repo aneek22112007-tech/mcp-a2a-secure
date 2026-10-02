@@ -23,7 +23,7 @@ _CONTENT_LENGTH_RE = re.compile(rb"[0-9]+")
 _MAX_CONTENT_LENGTH_DIGITS = 18
 
 STRICT_CSP = "default-src 'none'; frame-ancestors 'none'"
-# Swagger and ReDoc load scripts and styles from the FastAPI CDN and call
+# Swagger UI loads scripts and styles from the FastAPI CDN and calls
 # back to this origin for the OpenAPI document. Every other route stays strict.
 DOCS_CSP = (
     "default-src 'none'; "
@@ -294,7 +294,7 @@ def _accepted_request_id(scope: Scope) -> str | None:
 
 
 def _csp_for_path(path: str) -> str:
-    if path in {"/docs", "/redoc"} or path.startswith(("/docs/", "/redoc/")):
+    if path == "/docs" or path.startswith("/docs/"):
         return DOCS_CSP
     return STRICT_CSP
 
