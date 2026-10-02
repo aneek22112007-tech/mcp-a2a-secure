@@ -15,12 +15,13 @@ from pathlib import Path
 import anyio
 from mcp.server.fastmcp import FastMCP
 
+from app.config import settings
+
 # ---------------------------------------------------------------------------
 # Storage directory
 # ---------------------------------------------------------------------------
 
-NOTES_DIR = Path(__file__).parent.parent / "data" / "notes"
-NOTES_DIR.mkdir(parents=True, exist_ok=True)
+NOTES_DIR = settings.notes_dir
 
 # ---------------------------------------------------------------------------
 # Server

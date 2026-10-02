@@ -13,7 +13,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.errors import register_error_handlers
 from app.mcp_server import mcp
+from app.middleware import RequestContextMiddleware
 from app.routes.notes import router as notes_router
 from app.routes.status import router as status_router
 
@@ -27,6 +29,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
+# Register error handlers
+register_error_handlers(app)
+
+# Note: Middlewares are executed in reverse order of addition.
+# So RequestContextMiddleware goes first (runs last/outermost wrapper)
+# or last? Wait, `app.add_middleware` adds to the top of the stack.
+# We want CORSMiddleware to execute first (outermost), and RequestContextMiddleware to execute next.
+# So we add RequestContextMiddleware FIRST, then CORSMiddleware.
+app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
