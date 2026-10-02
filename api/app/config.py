@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
     mcp_self_url: str = "http://127.0.0.1:8000/mcp/"
 
+    database_url: str = Field(
+        default="sqlite+aiosqlite:///data/mcp_guard.db",
+        description="Async database connection URL",
+    )
+
     notes_dir: Path = Field(
         default=Path(__file__).parent.parent / "data" / "notes",
         description="Directory to store notes",

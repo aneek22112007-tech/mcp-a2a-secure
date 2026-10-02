@@ -4,9 +4,12 @@ version = "0.1.0"
 description = "MCP Guard — centralized gateway, notes API, and security sandbox for mcp-a2a-secure"
 requires-python = ">=3.11"
 dependencies = [
+    "aiosqlite>=0.22.1",
+    "alembic>=1.20.0",
     "fastapi>=0.142.0",
     "mcp<2",
     "pydantic-settings>=2.15.0",
+    "sqlalchemy[asyncio]>=2.0.0",
     "uvicorn[standard]>=0.54.0",
 ]
 
