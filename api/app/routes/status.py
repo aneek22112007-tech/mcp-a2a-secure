@@ -71,7 +71,9 @@ async def api_status(request: Request) -> StatusResponse:
     started = time.perf_counter()
     try:
         async with asyncio.timeout(PROBE_TIMEOUT_SECONDS):
-            async with connect(settings.mcp_self_url, timeout=PROBE_TIMEOUT_SECONDS) as session:
+            async with connect(
+                settings.mcp_self_url, timeout=PROBE_TIMEOUT_SECONDS
+            ) as session:
                 initialized = await session.initialize()
                 listed = await session.list_tools()
     # Every transport, timeout, and protocol failure is a status, not a 500.

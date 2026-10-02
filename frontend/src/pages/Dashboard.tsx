@@ -8,6 +8,7 @@ import { ServerInventory } from '../components/dashboard/ServerInventory';
 import { SecurityFindings } from '../components/dashboard/SecurityFindings';
 import { QuickActions } from '../components/dashboard/QuickActions';
 import { NodeInspector } from '../components/dashboard/NodeInspector';
+import { NotesPanel } from '../components/dashboard/NotesPanel';
 
 const A2ADelegationView = lazy(() => import('../components/dashboard/A2ADelegationView').then(m => ({ default: m.A2ADelegationView })));
 const A2AAgentCardsView = lazy(() => import('../components/dashboard/A2AAgentCardsView').then(m => ({ default: m.A2AAgentCardsView })));
@@ -106,6 +107,13 @@ export const Dashboard: React.FC = () => {
   };
 
   const renderView = () => {
+    if (currentView === 'mcpNotes') {
+      return (
+        <div style={{ padding: '2rem' }}>
+          <NotesPanel />
+        </div>
+      );
+    }
     if (currentView === 'a2aDelegation') return <Suspense fallback={<TopologySkeleton />}><A2ADelegationView /></Suspense>;
     if (currentView === 'a2aAgentCards') return <Suspense fallback={<TopologySkeleton />}><A2AAgentCardsView /></Suspense>;
     if (currentView === 'toolcalls') return <Suspense fallback={<TopologySkeleton />}><ToolCallsView /></Suspense>;
@@ -157,6 +165,10 @@ export const Dashboard: React.FC = () => {
     return (
       <div style={{ position: 'relative' }}>
         <SystemStatus />
+
+        <div style={{ padding: '2rem 2rem 0' }}>
+          <NotesPanel />
+        </div>
 
         <div style={{
           padding: '2rem',
