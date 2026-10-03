@@ -58,7 +58,7 @@ async def client():
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
-        headers={"Authorization": "Bearer mcpg_test"}
+        headers={"Authorization": "Bearer mcpg_test"},
     ) as ac:
         yield ac
 

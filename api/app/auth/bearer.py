@@ -51,7 +51,7 @@ async def authenticate(raw_headers: Iterable[tuple[bytes, bytes]]) -> Principal:
     except AuthenticationError as exc:
         logger.warning("[auth] Request denied reason=%s", exc.args[0])
         raise
-    
+
     principal = await get_api_key_verifier().verify(token)
     if principal is None:
         logger.warning("[auth] Request denied reason=rejected")

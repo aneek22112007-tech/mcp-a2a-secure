@@ -1,5 +1,6 @@
 import logging
-from typing import Callable
+from collections.abc import Callable
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer
@@ -28,13 +29,15 @@ async def get_principal(
             detail="Authentication required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     request.state.principal = principal
     return principal
 
 
 def require_scopes(*scopes: str) -> Callable:
-    async def scope_dependency(principal: Principal = Depends(get_principal)) -> Principal:
+    async def scope_dependency(
+        principal: Annotated[Principal, Depends(get_principal)],
+    ) -> Principal:
         for scope in scopes:
             if not principal.has_scope(scope):
                 raise HTTPException(
@@ -45,6 +48,7 @@ def require_scopes(*scopes: str) -> Callable:
                     },
                 )
         return principal
+
     return scope_dependency
 
 
@@ -56,7 +60,7 @@ async def authorize_route(
     route_path = request.scope["route"].path
 
     required_scope = ROUTE_SCOPES.get((check_method, route_path))
-    
+
     if (check_method, route_path) not in ROUTE_SCOPES:
         logger.warning(
             "[auth] Unmapped route accessed, failing closed method=%s path=%s",
@@ -76,7 +80,7 @@ async def authorize_route(
             detail="Authentication required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     if not principal.has_scope(required_scope):
         raise HTTPException(
             status_code=403,
@@ -85,6 +89,6 @@ async def authorize_route(
                 "WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{required_scope}"'
             },
         )
-    
+
     request.state.principal = principal
     return principal

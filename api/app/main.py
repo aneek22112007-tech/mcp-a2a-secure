@@ -34,9 +34,9 @@ install_request_id_logging()
 async def lifespan(app: FastAPI):
     app.state.started_at = time.monotonic()
     ensure_notes_dir()
-    
+
     # TODO (P2): set_api_key_verifier(HmacApiKeyVerifier()) here
-    
+
     async with mcp.session_manager.run():
         yield
 
@@ -80,7 +80,6 @@ app.include_router(status_router)
 # Notes REST endpoints (Day 1 — gateway-backed CRUD)
 app.include_router(notes_router)
 
-check_route_scope_coverage(app)
 
 @app.get("/health")
 def health():
@@ -89,3 +88,7 @@ def health():
 
 # MCP streamable-HTTP transport — Inspector and A2A workers connect here
 app.mount("/mcp", McpBearerAuthMiddleware(mcp.streamable_http_app()))
+
+# Must be called after every route and mount is registered so the allowlist
+# check catches unmapped routes at import time, not at first request.
+check_route_scope_coverage(app)

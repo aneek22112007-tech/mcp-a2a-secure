@@ -67,7 +67,7 @@ class McpInfo(BaseModel):
 
 @router.get("/notes", response_model=list[str], summary="List all notes")
 async def api_list_notes(
-    principal: Annotated[Principal, Depends(get_principal)]
+    principal: Annotated[Principal, Depends(get_principal)],
 ) -> list[str]:
     """Return sorted list of note names (without .md extension).
 
@@ -86,8 +86,7 @@ async def api_list_notes(
 
 @router.get("/notes/{name}", response_model=NoteDetail, summary="Read a note")
 async def api_read_note(
-    name: str,
-    principal: Annotated[Principal, Depends(get_principal)]
+    name: str, principal: Annotated[Principal, Depends(get_principal)]
 ) -> NoteDetail:
     """Read the content of a single note by name.
 
@@ -106,9 +105,7 @@ async def api_read_note(
     "/notes/{name}", response_model=NoteDetail, summary="Create or update a note"
 )
 async def api_write_note(
-    name: str, 
-    body: NoteBody,
-    principal: Annotated[Principal, Depends(get_principal)]
+    name: str, body: NoteBody, principal: Annotated[Principal, Depends(get_principal)]
 ) -> NoteDetail:
     """Create or overwrite a note with the supplied Markdown content.
 
@@ -122,7 +119,9 @@ async def api_write_note(
             status_code=413,
             detail=f"Note content exceeds the {MAX_CONTENT_BYTES // 1024} KiB limit.",
         )
-    await call_tool("write_note", {"name": name, "content": body.content}, actor=principal)
+    await call_tool(
+        "write_note", {"name": name, "content": body.content}, actor=principal
+    )
     return NoteDetail(name=name, content=body.content)
 
 

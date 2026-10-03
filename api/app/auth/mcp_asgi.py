@@ -1,4 +1,5 @@
 import logging
+
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.auth.bearer import AuthenticationError, authenticate
@@ -6,6 +7,7 @@ from app.auth.scopes import MCP_REQUIRED_SCOPE
 from app.middleware import _send_error
 
 logger = logging.getLogger(__name__)
+
 
 class McpBearerAuthMiddleware:
     def __init__(self, app: ASGIApp, required_scope: str = MCP_REQUIRED_SCOPE) -> None:
@@ -50,7 +52,9 @@ class McpBearerAuthMiddleware:
                 extra_headers=[
                     (
                         b"www-authenticate",
-                        f'Bearer error="insufficient_scope", scope="{self.required_scope}"'.encode("ascii")
+                        f'Bearer error="insufficient_scope", scope="{self.required_scope}"'.encode(
+                            "ascii"
+                        ),
                     )
                 ],
             )

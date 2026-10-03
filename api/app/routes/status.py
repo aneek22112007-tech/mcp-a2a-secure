@@ -75,8 +75,10 @@ async def api_status(request: Request) -> StatusResponse:
     started = time.perf_counter()
     headers = None
     if settings.mcp_self_api_key:
-        headers = {"Authorization": f"Bearer {settings.mcp_self_api_key.get_secret_value()}"}
-        
+        headers = {
+            "Authorization": f"Bearer {settings.mcp_self_api_key.get_secret_value()}"
+        }
+
     try:
         async with asyncio.timeout(PROBE_TIMEOUT_SECONDS):
             async with connect(

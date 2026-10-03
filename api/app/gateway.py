@@ -88,7 +88,8 @@ async def call_tool(
     name: str,
     args: dict[str, Any],
     *,
-    actor: Principal | None = None,  # Day-3 hook: authorization is enforced at the route layer. Carries identity for A3 audit attribution.
+    actor: Principal
+    | None = None,  # Day-3 hook: authorization is enforced at the route layer. Carries identity for A3 audit attribution.
 ) -> dict[str, Any]:
     """Invoke an MCP tool through the centralized gateway.
 

@@ -63,6 +63,7 @@ def test_status_online(live_server, monkeypatch):
         settings, "mcp_self_url", f"http://127.0.0.1:{live_server}/mcp/"
     )
     from pydantic import SecretStr
+
     monkeypatch.setattr(settings, "mcp_self_api_key", SecretStr("mcpg_test"))
     response = httpx.get(f"http://127.0.0.1:{live_server}/api/status", timeout=10)
 

@@ -322,7 +322,7 @@ def _has_header(headers: list[tuple[bytes, bytes]], name: bytes) -> bool:
 
 async def _send_error(
     send: Send,
-    gate: "_ResponseGate | None",
+    gate: _ResponseGate | None,
     status: int,
     code: str,
     message: str,
@@ -347,7 +347,7 @@ async def _send_error(
         },
         separators=(",", ":"),
     ).encode("utf-8")
-    
+
     headers = [
         (b"content-type", b"application/json"),
         (b"content-length", str(len(payload)).encode("ascii")),
@@ -363,4 +363,3 @@ async def _send_error(
         }
     )
     await send({"type": "http.response.body", "body": payload, "more_body": False})
-
