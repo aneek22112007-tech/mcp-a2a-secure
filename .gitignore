@@ -34,3 +34,9 @@ api/.pytest_cache/
 api/**/.pytest_cache/
 *.pyc
 *.pyo
+
+# Coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

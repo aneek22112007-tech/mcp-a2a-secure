@@ -60,7 +60,11 @@ def apply_http_middleware(application: FastAPI) -> None:
     application.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]
 
 
-app = FastAPI(title=settings.app_name, lifespan=lifespan, redoc_url=None)
+docs_args = {}
+if settings.environment not in ("development", "dev", "local"):
+    docs_args = {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+app = FastAPI(title=settings.app_name, lifespan=lifespan, **docs_args)
 
 register_error_handlers(app)
 apply_http_middleware(app)

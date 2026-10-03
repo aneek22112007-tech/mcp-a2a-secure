@@ -15,10 +15,25 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "coverage>=7.6",
     "httpx>=0.28.1",
     "pytest>=9.1.1",
+    "pytest-anyio>=0.0.0",
+    "pytest-cov>=6.0",
     "ruff>=0.16.9",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=app --cov-report=term-missing"
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+omit = ["app/mcp_server.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]
