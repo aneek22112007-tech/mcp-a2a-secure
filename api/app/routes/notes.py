@@ -14,15 +14,18 @@ GET  /api/mcp/info        – MCP Guard server metadata
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.auth import Principal, authorize_route, get_principal
 from app.gateway import call_tool
 
 # Also keep a thin import of api_mcp_info helpers for the /api/mcp/info endpoint
 from app.mcp_server import mcp
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(authorize_route)])
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -63,12 +66,14 @@ class McpInfo(BaseModel):
 
 
 @router.get("/notes", response_model=list[str], summary="List all notes")
-async def api_list_notes() -> list[str]:
+async def api_list_notes(
+    principal: Annotated[Principal, Depends(get_principal)]
+) -> list[str]:
     """Return sorted list of note names (without .md extension).
 
     All I/O is routed through the MCP Guard gateway.
     """
-    payload = await call_tool("list_notes", {})
+    payload = await call_tool("list_notes", {}, actor=principal)
     result = payload["result"]
     # The tool returns a list; normalise in case the SDK wraps it.
     if isinstance(result, list):
@@ -80,14 +85,17 @@ async def api_list_notes() -> list[str]:
 
 
 @router.get("/notes/{name}", response_model=NoteDetail, summary="Read a note")
-async def api_read_note(name: str) -> NoteDetail:
+async def api_read_note(
+    name: str,
+    principal: Annotated[Principal, Depends(get_principal)]
+) -> NoteDetail:
     """Read the content of a single note by name.
 
     Returns 400 if *name* contains invalid characters or traversal sequences.
     Returns 404 if the note does not exist.
     All I/O is routed through the MCP Guard gateway.
     """
-    payload = await call_tool("read_note", {"name": name})
+    payload = await call_tool("read_note", {"name": name}, actor=principal)
     content = payload["result"]
     if not isinstance(content, str):
         content = str(content)
@@ -97,7 +105,11 @@ async def api_read_note(name: str) -> NoteDetail:
 @router.put(
     "/notes/{name}", response_model=NoteDetail, summary="Create or update a note"
 )
-async def api_write_note(name: str, body: NoteBody) -> NoteDetail:
+async def api_write_note(
+    name: str, 
+    body: NoteBody,
+    principal: Annotated[Principal, Depends(get_principal)]
+) -> NoteDetail:
     """Create or overwrite a note with the supplied Markdown content.
 
     Body: ``{"content": "..."}``  (max 100 KiB).
@@ -110,7 +122,7 @@ async def api_write_note(name: str, body: NoteBody) -> NoteDetail:
             status_code=413,
             detail=f"Note content exceeds the {MAX_CONTENT_BYTES // 1024} KiB limit.",
         )
-    await call_tool("write_note", {"name": name, "content": body.content})
+    await call_tool("write_note", {"name": name, "content": body.content}, actor=principal)
     return NoteDetail(name=name, content=body.content)
 
 

@@ -3,7 +3,7 @@
 Mounts:
   - REST router: status endpoints (from PR #76)
   - REST router: notes endpoints (Day 1)
-  - MCP streamable-HTTP transport at /mcp/
+  - MCP streamable-HTTP transport at /mcp/ (Day 2 Auth)
 """
 
 import time
@@ -13,6 +13,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp
 
+from app.auth import McpBearerAuthMiddleware
+from app.auth.scopes import check_route_scope_coverage
 from app.config import settings
 from app.errors import register_error_handlers
 from app.mcp_server import ensure_notes_dir, mcp
@@ -32,6 +34,9 @@ install_request_id_logging()
 async def lifespan(app: FastAPI):
     app.state.started_at = time.monotonic()
     ensure_notes_dir()
+    
+    # TODO (P2): set_api_key_verifier(HmacApiKeyVerifier()) here
+    
     async with mcp.session_manager.run():
         yield
 
@@ -75,6 +80,7 @@ app.include_router(status_router)
 # Notes REST endpoints (Day 1 — gateway-backed CRUD)
 app.include_router(notes_router)
 
+check_route_scope_coverage(app)
 
 @app.get("/health")
 def health():
@@ -82,4 +88,4 @@ def health():
 
 
 # MCP streamable-HTTP transport — Inspector and A2A workers connect here
-app.mount("/mcp", mcp.streamable_http_app())
+app.mount("/mcp", McpBearerAuthMiddleware(mcp.streamable_http_app()))

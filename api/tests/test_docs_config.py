@@ -46,7 +46,7 @@ def _make_app(environment: str) -> FastAPI:
 def test_docs_available_in_dev_environment(env: str) -> None:
     """Swagger UI, ReDoc, and OpenAPI schema are accessible in dev/local modes."""
     app = _make_app(env)
-    client = TestClient(app)
+    client = TestClient(app, headers={"Authorization": "Bearer mcpg_test"})
 
     docs = client.get("/docs")
     assert docs.status_code == 200, f"/docs returned {docs.status_code} for env={env!r}"
@@ -71,7 +71,7 @@ def test_docs_available_in_dev_environment(env: str) -> None:
 def test_docs_disabled_in_non_dev_environment(env: str) -> None:
     """Documentation endpoints return 404 in non-development environments."""
     app = _make_app(env)
-    client = TestClient(app)
+    client = TestClient(app, headers={"Authorization": "Bearer mcpg_test"})
 
     docs = client.get("/docs")
     assert docs.status_code == 404, f"/docs returned {docs.status_code} for env={env!r}"

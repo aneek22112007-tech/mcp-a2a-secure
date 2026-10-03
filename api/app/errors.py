@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 _ERROR_CODES = {
     400: "BAD_REQUEST",
+    401: "UNAUTHORIZED",
     403: "FORBIDDEN",
     404: "NOT_FOUND",
     405: "METHOD_NOT_ALLOWED",
@@ -42,6 +43,7 @@ def register_error_handlers(app: FastAPI) -> None:
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return JSONResponse(
             status_code=exc.status_code,
+            headers=getattr(exc, "headers", None),
             content={
                 "error": {
                     "code": _ERROR_CODES.get(exc.status_code, "HTTP_ERROR"),

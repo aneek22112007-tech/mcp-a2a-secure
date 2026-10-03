@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Package root is api/, regardless of the process working directory.
@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     )
     cors_origins: list[str] = ["http://localhost:5173"]
     mcp_self_url: str = "http://127.0.0.1:8000/mcp/"
+    mcp_self_api_key: SecretStr | None = Field(
+        default=None,
+        description="API key for internal status probe",
+    )
 
     database_url: str = Field(
         default=_DEFAULT_DB_URL,

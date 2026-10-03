@@ -25,7 +25,7 @@ from app.middleware import (
 
 pytestmark = pytest.mark.anyio
 
-client = TestClient(app)
+client = TestClient(app, headers={"Authorization": "Bearer mcpg_test"})
 
 
 def _isolated_app() -> FastAPI:
