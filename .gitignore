@@ -25,6 +25,11 @@ yarn-error.log*
 *.sln
 *.sw?
 
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
 # Python
 api/data/
 api/.venv/
