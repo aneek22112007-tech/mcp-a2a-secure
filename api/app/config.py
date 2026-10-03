@@ -1,11 +1,14 @@
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Package root is api/, regardless of the process working directory.
 _API_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_NOTES_DIR = _API_ROOT / "data" / "notes"
+
+_DEFAULT_DB_PATH = _API_ROOT / "data" / "mcp_guard.db"
+_DEFAULT_DB_URL = f"sqlite+aiosqlite:///{_DEFAULT_DB_PATH}"
 
 
 class Settings(BaseSettings):
@@ -18,12 +21,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "MCP Guard"
-    environment: str = "dev"
+    environment: str = Field(
+        default="dev",
+        validation_alias=AliasChoices("ENVIRONMENT", "APP_ENV"),
+    )
     cors_origins: list[str] = ["http://localhost:5173"]
     mcp_self_url: str = "http://127.0.0.1:8000/mcp/"
 
     database_url: str = Field(
-        default="sqlite+aiosqlite:///data/mcp_guard.db",
+        default=_DEFAULT_DB_URL,
         description="Async database connection URL",
     )
 
