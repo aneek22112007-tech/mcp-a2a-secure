@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Literal
 
@@ -11,6 +12,8 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.mcp_client import connect
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -41,14 +44,14 @@ def _uptime_seconds(request: Request) -> int:
     return max(0, int(time.monotonic() - started))
 
 
-def _error_message(exc: BaseException) -> str:
-    message = str(exc).strip()
-    if message:
-        return message
-    return type(exc).__name__
-
-
 def _offline(request: Request, exc: BaseException) -> StatusResponse:
+    # Log diagnostic details server-side; never expose str(exc) to the client.
+    # exc_info is omitted here; the exception object is passed to avoid LOG014.
+    logger.warning(
+        "[status] MCP probe failed type=%s msg=%.200s",
+        type(exc).__name__,
+        str(exc),
+    )
     return StatusResponse(
         mcp="offline",
         latency_ms=None,
@@ -57,7 +60,7 @@ def _offline(request: Request, exc: BaseException) -> StatusResponse:
         protocol_version=None,
         uptime_seconds=_uptime_seconds(request),
         tools=[],
-        error=_error_message(exc),
+        error="mcp_unavailable",
     )
 
 
