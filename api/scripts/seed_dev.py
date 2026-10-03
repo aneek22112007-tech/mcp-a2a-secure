@@ -9,7 +9,6 @@ It does not create API keys or any other credential.
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 from pathlib import Path
 
