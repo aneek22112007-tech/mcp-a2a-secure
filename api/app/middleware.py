@@ -322,16 +322,19 @@ def _has_header(headers: list[tuple[bytes, bytes]], name: bytes) -> bool:
 
 async def _send_error(
     send: Send,
-    gate: _ResponseGate,
+    gate: _ResponseGate | None,
     status: int,
     code: str,
     message: str,
+    *,
+    extra_headers: list[tuple[bytes, bytes]] | None = None,
 ) -> None:
     """Send one JSON error. A second call is ignored once headers have started."""
 
-    if gate.started:
+    if gate is not None and gate.started:
         return
-    gate.started = True
+    if gate is not None:
+        gate.started = True
     request_id = request_id_context.get() or None
     payload = json.dumps(
         {
@@ -344,14 +347,19 @@ async def _send_error(
         },
         separators=(",", ":"),
     ).encode("utf-8")
+
+    headers = [
+        (b"content-type", b"application/json"),
+        (b"content-length", str(len(payload)).encode("ascii")),
+    ]
+    if extra_headers:
+        headers.extend(extra_headers)
+
     await send(
         {
             "type": "http.response.start",
             "status": status,
-            "headers": [
-                (b"content-type", b"application/json"),
-                (b"content-length", str(len(payload)).encode("ascii")),
-            ],
+            "headers": headers,
         }
     )
     await send({"type": "http.response.body", "body": payload, "more_body": False})

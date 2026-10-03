@@ -7,15 +7,16 @@ import logging
 import time
 from typing import Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
+from app.auth import authorize_route
 from app.config import settings
 from app.mcp_client import connect
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(authorize_route)])
 
 PROBE_TIMEOUT_SECONDS = 3
 
@@ -72,10 +73,16 @@ async def api_status(request: Request) -> StatusResponse:
     status, not a server error.
     """
     started = time.perf_counter()
+    headers = None
+    if settings.mcp_self_api_key:
+        headers = {
+            "Authorization": f"Bearer {settings.mcp_self_api_key.get_secret_value()}"
+        }
+
     try:
         async with asyncio.timeout(PROBE_TIMEOUT_SECONDS):
             async with connect(
-                settings.mcp_self_url, timeout=PROBE_TIMEOUT_SECONDS
+                settings.mcp_self_url, timeout=PROBE_TIMEOUT_SECONDS, headers=headers
             ) as session:
                 initialized = await session.initialize()
                 listed = await session.list_tools()

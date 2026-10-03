@@ -5,8 +5,8 @@ Direct access to the underlying tool functions from route handlers is
 intentionally avoided so that future cross-cutting concerns can be inserted
 in a single place without modifying individual routes.
 
-Day-3 hook:  Add authorization/scope check inside ``call_tool`` before the
-             ``_dispatch`` call.  The ``actor`` parameter is reserved for that.
+Day-3 hook:  Authorization is enforced at the route layer. The ``actor``
+             parameter carries the authenticated identity for A3 audit attribution.
 Day-4 hook:  Add audit persistence inside ``call_tool`` after ``_dispatch``
              returns (both allowed and denied attempts should be recorded).
 """
@@ -18,11 +18,14 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
 from app.config import settings
+
+if TYPE_CHECKING:
+    from app.auth import Principal
 
 # The single FastMCP instance that owns all registered tools.
 from app.mcp_server import mcp
@@ -85,7 +88,8 @@ async def call_tool(
     name: str,
     args: dict[str, Any],
     *,
-    actor: str | None = None,  # Day-3 hook: pass authenticated identity here
+    actor: Principal
+    | None = None,  # Day-3 hook: authorization is enforced at the route layer. Carries identity for A3 audit attribution.
 ) -> dict[str, Any]:
     """Invoke an MCP tool through the centralized gateway.
 

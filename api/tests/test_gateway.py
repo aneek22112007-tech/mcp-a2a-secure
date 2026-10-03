@@ -37,7 +37,7 @@ except ImportError:  # SDK layout guard
 
 pytestmark = pytest.mark.anyio
 
-client = TestClient(app)
+client = TestClient(app, headers={"Authorization": "Bearer mcpg_test"})
 
 # ---------------------------------------------------------------------------
 # Helpers

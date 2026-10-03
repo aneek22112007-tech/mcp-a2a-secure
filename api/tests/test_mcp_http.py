@@ -4,7 +4,11 @@ from app.main import app
 
 
 def test_mcp_http_transport():
-    with TestClient(app, base_url="http://localhost:8000") as client:
+    with TestClient(
+        app,
+        base_url="http://localhost:8000",
+        headers={"Authorization": "Bearer mcpg_test"},
+    ) as client:
         init_res = client.post(
             "/mcp/",
             headers={

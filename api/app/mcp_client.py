@@ -11,9 +11,11 @@ URL = "http://localhost:8000/mcp/"
 
 
 @asynccontextmanager
-async def connect(url: str, timeout: float = 30) -> AsyncIterator[ClientSession]:
+async def connect(
+    url: str, timeout: float = 30, headers: dict[str, str] | None = None
+) -> AsyncIterator[ClientSession]:
     """Open a Streamable HTTP MCP session that the caller can initialize."""
-    client = httpx.AsyncClient(timeout=timeout)
+    client = httpx.AsyncClient(timeout=timeout, headers=headers)
     try:
         async with (
             streamable_http_client(url, http_client=client) as (read, write, _),

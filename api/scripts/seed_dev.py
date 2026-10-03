@@ -34,19 +34,23 @@ def _prepare_import_path() -> None:
 
 
 async def _seed() -> None:
-    from sqlalchemy import select
+    from sqlalchemy import inspect, select
 
     from app.database import async_session_maker, engine
-    from app.models import Base, Client
+    from app.models import Client
     from app.repos.clients import create
 
-    from sqlalchemy import inspect
     async with engine.begin() as connection:
+
         def check_table(sync_conn):
             return inspect(sync_conn).has_table("clients")
+
         has_clients = await connection.run_sync(check_table)
         if not has_clients:
-            print("seed_dev: table 'clients' does not exist. Please run 'uv run alembic upgrade head' first.", file=sys.stderr)
+            print(
+                "seed_dev: table 'clients' does not exist. Please run 'uv run alembic upgrade head' first.",
+                file=sys.stderr,
+            )
             raise SystemExit(1)
 
     async with async_session_maker() as session:
