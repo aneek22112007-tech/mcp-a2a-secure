@@ -21,7 +21,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "MCP Guard"
-    environment: str = Field(default="dev", validation_alias=AliasChoices("APP_ENV", "ENVIRONMENT", "environment"))
+    environment: str = Field(
+        default="dev",
+        validation_alias=AliasChoices("ENVIRONMENT", "APP_ENV"),
+    )
     cors_origins: list[str] = ["http://localhost:5173"]
     mcp_self_url: str = "http://127.0.0.1:8000/mcp/"
 

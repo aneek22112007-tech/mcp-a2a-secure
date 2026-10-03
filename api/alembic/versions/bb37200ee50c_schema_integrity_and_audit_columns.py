@@ -45,6 +45,7 @@ def upgrade() -> None:
             existing_nullable=True,
             nullable=False,
             server_default=sa.text("'[]'"),
+            postgresql_using="scopes::json",
         )
         batch_op.create_unique_constraint(
             batch_op.f("uq_api_keys_key_hash"), ["key_hash"]
@@ -135,5 +136,6 @@ def downgrade() -> None:
             existing_nullable=False,
             nullable=True,
             server_default=None,
+            postgresql_using="scopes::text",
         )
         batch_op.drop_column("name")

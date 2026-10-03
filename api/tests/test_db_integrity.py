@@ -329,6 +329,13 @@ def test_seed_script_is_idempotent_and_refuses_production(tmp_path):
     assert "production" in blocked.stderr
     assert not refused.exists()
 
+    from sqlalchemy import create_engine
+    from app.models import Base
+    
+    sync_engine = create_engine(f"sqlite:///{database}")
+    Base.metadata.create_all(sync_engine)
+    sync_engine.dispose()
+
     first = run("dev")
     assert first.returncode == 0, first.stderr
     second = run("dev")

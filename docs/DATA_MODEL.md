@@ -1,6 +1,6 @@
-# MCP-A2A-Secure Data Model
+# MCP Guard Data Model
 
-This document outlines the core data model for MCP-A2A-Secure (Polaris), which includes clients, API keys, audit events, and sandbox execution runs.
+This document outlines the core data model for MCP Guard, which includes clients, API keys, audit events, and sandbox execution runs.
 
 ## Entity Relationship Diagram
 
@@ -34,21 +34,25 @@ erDiagram
     audit_events {
         string id PK "UUID"
         string client_id FK "References clients.id"
-        string decision "allowed/denied (max 50)"
+        string api_key_id FK "References api_keys.id (nullable)"
+        string key_prefix "Used API key prefix (nullable, max 20)"
+        string request_id "Correlated request ID (nullable, max 64)"
         string action "e.g., tool.call (max 100)"
+        string tool_name "Name of the MCP tool (nullable, max 100)"
+        string args_hash "Hashed tool arguments (nullable, max 255)"
+        string decision "allowed/denied (max 16)"
+        text reason "Rejection or error reason (nullable)"
         string status "success/error/denied (max 50)"
-        string tool_name "Name of the MCP tool (nullable, max 255)"
-        string key_prefix "Used API key prefix (nullable, max 50)"
-        string reason "Rejection or error reason (nullable, max 255)"
         int status_code "HTTP status code (nullable)"
-        float duration_ms "Execution duration (nullable)"
         string error_code "Standardized error code (nullable, max 100)"
+        float duration_ms "Execution duration (nullable)"
         datetime created_at "UTC timestamp, Indexed"
     }
 
     sandbox_runs {
         string id PK "UUID"
         string client_id FK "References clients.id"
+        string audit_event_id FK "References audit_events.id (nullable)"
         string status "pending/running/finished/failed (max 50)"
         int exit_code "Process exit code (nullable)"
         text error_metadata "Detailed error JSON (nullable)"

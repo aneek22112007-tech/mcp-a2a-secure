@@ -18,9 +18,9 @@ _DEV_CLIENTS = ("dev-admin", "demo-agent")
 def _refuse_production() -> None:
     from app.config import settings
 
-    if settings.environment.strip().lower() == "production":
+    if settings.environment.strip().lower() not in ("dev", "development", "local"):
         print(
-            "seed_dev: refusing to run because environment is production",
+            f"seed_dev: refusing to run because environment is {settings.environment}",
             file=sys.stderr,
         )
         raise SystemExit(1)
@@ -40,8 +40,14 @@ async def _seed() -> None:
     from app.models import Base, Client
     from app.repos.clients import create
 
+    from sqlalchemy import inspect
     async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+        def check_table(sync_conn):
+            return inspect(sync_conn).has_table("clients")
+        has_clients = await connection.run_sync(check_table)
+        if not has_clients:
+            print("seed_dev: table 'clients' does not exist. Please run 'uv run alembic upgrade head' first.", file=sys.stderr)
+            raise SystemExit(1)
 
     async with async_session_maker() as session:
         try:
