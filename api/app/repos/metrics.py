@@ -88,9 +88,9 @@ async def get_metrics_summary(session: AsyncSession) -> dict:
             for row in busiest_res.all()
         ]
 
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to query metrics from database")
         result["database"]["available"] = False
-        result["database"]["error"] = str(e)
+        result["database"]["error"] = "unavailable"
 
     return result

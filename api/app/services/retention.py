@@ -19,20 +19,21 @@ async def run_retention_cleanup() -> None:
     try:
         async with async_session_maker() as session, session.begin():
             deleted = await delete_events_before(session, cutoff=cutoff)
-            if deleted > 0:
-                logger.info(
-                    f"Deleted {deleted} audit records older than {retention_days} days."
-                )
 
-                await record_event(
-                    AuditRecord(
-                        action="audit.retention",
-                        decision=AUDIT_DECISION_ALLOWED,
-                        status="ok",
-                        reason=f"deleted={deleted}",
-                    ),
-                    required=False,
-                )
+        if deleted > 0:
+            logger.info(
+                f"Deleted {deleted} audit records older than {retention_days} days."
+            )
+
+            await record_event(
+                AuditRecord(
+                    action="audit.retention",
+                    decision=AUDIT_DECISION_ALLOWED,
+                    status="ok",
+                    reason=f"deleted={deleted}",
+                ),
+                required=False,
+            )
     except Exception:
         logger.exception("Failed to run retention cleanup")
 

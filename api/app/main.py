@@ -12,7 +12,7 @@ import asyncio
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp
 
@@ -40,11 +40,9 @@ from app.routes.metrics import router as metrics_router
 from app.routes.notes import router as notes_router
 from app.routes.status import router as status_router
 from app.services.api_keys import HmacApiKeyVerifier
+from app.services.retention import retention_scheduler_task
 
 install_request_id_logging()
-
-
-from app.services.retention import retention_scheduler_task
 
 
 @asynccontextmanager
@@ -97,8 +95,6 @@ def apply_http_middleware(application: FastAPI) -> None:
 docs_args = {}
 if settings.environment not in ("development", "dev", "local"):
     docs_args = {"docs_url": None, "redoc_url": None, "openapi_url": None}
-
-from fastapi import Depends
 
 app = FastAPI(
     title=settings.app_name,
