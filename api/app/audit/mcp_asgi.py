@@ -11,7 +11,12 @@ from app.audit.events import (
     STATUS_FORWARDED,
     AuditRecord,
 )
-from app.audit.redaction import args_fingerprint, current_request_id, safe_tool_name
+from app.audit.redaction import (
+    args_fingerprint,
+    current_client_ip,
+    current_request_id,
+    safe_tool_name,
+)
 from app.audit.sink import AuditUnavailableError, record_event
 from app.auth.principal import Principal
 from app.middleware import _send_error
@@ -120,6 +125,7 @@ def _tools_call_record(scope: Scope, params: dict) -> AuditRecord:
         tool_name=safe_tool_name(params.get("name")),
         args_hash=args_fingerprint(params.get("arguments")),
         request_id=current_request_id(scope),
+        client_ip=current_client_ip(scope),
         **AuditRecord.actor_fields(principal),
     )
 

@@ -1,6 +1,9 @@
+import ipaddress
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
 
-from pydantic import AliasChoices, Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Package root is api/, regardless of the process working directory.
@@ -26,6 +29,13 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ENVIRONMENT", "APP_ENV"),
     )
     cors_origins: list[str] = ["http://localhost:5173"]
+    trusted_proxies: list[str] = Field(default_factory=list)
+    auth_failure_limit: int = Field(20, gt=0)
+    auth_failure_window_s: int = Field(60, gt=0)
+    auth_failure_max_tracked_ips: int = Field(10_000, gt=0)
+    hsts_max_age_s: int = Field(
+        default=0, ge=0, description="Max-Age for Strict-Transport-Security header"
+    )
     mcp_self_url: str = "http://127.0.0.1:8000/mcp/"
     mcp_self_api_key: SecretStr | None = Field(
         default=None,
@@ -79,13 +89,66 @@ class Settings(BaseSettings):
         description="Enable automatic cleanup of old audit records via a background task.",
     )
 
+    @field_validator("environment", mode="before")
+    @classmethod
+    def strip_and_lower_environment(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+    @property
+    def is_development(self) -> bool:
+        return self.environment in {"dev", "development", "local"}
+
+    @property
+    def is_production_like(self) -> bool:
+        return self.environment not in {"dev", "development", "local", "test"}
+
     def model_post_init(self, context: object, /) -> None:
         del context
         self.notes_dir = Path(self.notes_dir).expanduser().resolve()
 
-        is_prod = self.environment not in ("dev", "development", "local", "test")
-        if is_prod and not self.api_key_pepper:
+        if self.is_production_like and not self.api_key_pepper:
             raise ValueError("API_KEY_PEPPER is required in production environment")
+
+        if self.is_production_like:
+            for origin in self.cors_origins:
+                if not _is_exact_http_origin(origin):
+                    raise ValueError(
+                        "CORS_ORIGINS must be exact http/https origins in production"
+                    )
+
+        networks = []
+        for p in self.trusted_proxies:
+            networks.append(ipaddress.ip_network(p, strict=False))
+        self.__dict__["_parsed_trusted_proxies"] = tuple(networks)
+
+    @property
+    def parsed_trusted_proxies(self) -> tuple:
+        return self.__dict__.get("_parsed_trusted_proxies", ())
+
+
+def _is_exact_http_origin(origin: str) -> bool:
+    """True for scheme://host[:port] with nothing else attached."""
+
+    if not isinstance(origin, str) or "*" in origin:
+        return False
+    try:
+        parts = urlsplit(origin)
+        # Accessing port validates it. A non-numeric or out-of-range port raises.
+        _port = parts.port
+    except ValueError:
+        return False
+    del _port
+    if parts.scheme not in {"http", "https"}:
+        return False
+    if not parts.hostname:
+        return False
+    if parts.username is not None or parts.password is not None:
+        return False
+    if parts.path or parts.query or parts.fragment:
+        return False
+    return origin == f"{parts.scheme}://{parts.netloc}"
 
 
 settings = Settings()

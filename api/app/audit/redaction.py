@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 
-from app.middleware import request_id_context
+from app.middleware import client_ip_context, request_id_context
 
 _MCPG_RE = re.compile(r"mcpg_\S+")
 _BEARER_RE = re.compile(r"(?i)bearer\s+\S+")
@@ -66,6 +66,20 @@ def current_request_id(scope: dict | None = None) -> str | None:
     if scope is None:
         return None
     stored = scope.get("mcp_guard.request_id")
+    if isinstance(stored, str) and stored:
+        return stored
+    return None
+
+
+def current_client_ip(scope: dict | None = None) -> str | None:
+    """Return the client IP from the middleware context, then the ASGI scope."""
+
+    current = client_ip_context.get()
+    if current:
+        return current
+    if scope is None:
+        return None
+    stored = scope.get("mcp_guard.client_ip")
     if isinstance(stored, str) and stored:
         return stored
     return None

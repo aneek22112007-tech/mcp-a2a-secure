@@ -2,16 +2,14 @@
 
 POLICY
 ------
-- REQUIRED (fail-closed): ``tool.call`` and ``mcp.tools_call``. No tool output
-  is returned without a persisted row. Allowlist rejection, argument
-  rejection, and tool errors are best-effort so the original HTTP error is
-  not replaced by an audit failure.
-- REST ``call_tool`` executes the tool before the required ``tool.call`` row
-  is written. A 503 ``Audit log unavailable.`` on a mutating REST call
-  (``PUT /api/notes/{name}``) means the write may already have happened
-  without an audit row.
-- MCP ``tools/call`` is audited before forwarding, so the MCP tool does not
-  run without a row.
+- REQUIRED (fail-closed): ``tool.call`` and ``mcp.tools_call``.
+- Mutating REST calls and MCP tools/call are audit-first. They write a
+  required ``tool.call`` row before forwarding to the tool. Then a best-effort
+  ``tool.result`` row is written.
+- Read tools (REST) are audited after execution: a required ``tool.call`` row
+  is written before the result is returned.
+- Allowlist rejections, argument rejections, and tool errors are recorded
+  best-effort, then the original HTTP error is re-raised.
 - BEST-EFFORT (fail-open, logged + ``on_write_failure``): ``auth.allow`` and
   ``auth.deny``. A denial must keep its real 401/403 response; never turn it
   into a 500.
@@ -68,6 +66,7 @@ class DbAuditSink:
                 status_code=record.status_code,
                 duration_ms=record.duration_ms,
                 request_id=record.request_id,
+                client_ip=record.client_ip,
                 args_hash=record.args_hash,
                 error_code=record.error_code,
             )

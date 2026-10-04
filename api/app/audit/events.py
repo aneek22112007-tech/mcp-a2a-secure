@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 ACTION_AUTH_ALLOW = "auth.allow"
 ACTION_AUTH_DENY = "auth.deny"
 ACTION_TOOL_CALL = "tool.call"
+ACTION_TOOL_RESULT = "tool.result"
 ACTION_MCP_TOOLS_CALL = "mcp.tools_call"
 
 STATUS_OK = "ok"
@@ -28,6 +29,7 @@ __all__ = [
     "ACTION_AUTH_DENY",
     "ACTION_MCP_TOOLS_CALL",
     "ACTION_TOOL_CALL",
+    "ACTION_TOOL_RESULT",
     "AUDIT_DECISION_ALLOWED",
     "AUDIT_DECISION_DENIED",
     "STATUS_DENIED",
@@ -50,6 +52,7 @@ class AuditRecord:
     api_key_id: str | None = None
     key_prefix: str | None = None
     request_id: str | None = None
+    client_ip: str | None = None
     tool_name: str | None = None
     args_hash: str | None = None
     reason: str | None = None
@@ -90,6 +93,7 @@ class AuditEventOut(BaseModel):
     args_hash: str | None = None
     duration_ms: float | None = None
     request_id: str | None = None
+    client_ip: str | None = None
     client_id: str | None = None
     api_key_id: str | None = None
     key_prefix: str | None = None

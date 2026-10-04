@@ -14,6 +14,27 @@ class AuthenticationError(Exception):
     pass
 
 
+AUTH_FAILURE_REASONS = frozenset({"missing", "duplicate", "malformed", "rejected"})
+
+
+def authentication_reason(exc: AuthenticationError) -> str:
+    if (
+        exc.args
+        and isinstance(exc.args[0], str)
+        and exc.args[0] in AUTH_FAILURE_REASONS
+    ):
+        return exc.args[0]
+    return "rejected"
+
+
+def bearer_challenge() -> str:
+    return "Bearer"
+
+
+def insufficient_scope_challenge(scope: str) -> str:
+    return f'Bearer error="insufficient_scope", scope="{scope}"'
+
+
 def extract_bearer_token(raw_headers: Iterable[tuple[bytes, bytes]]) -> str:
     auth_header = None
     for name, value in raw_headers:

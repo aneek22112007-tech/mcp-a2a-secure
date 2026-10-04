@@ -1,3 +1,10 @@
+"""Audit log data model.
+
+SQLite keeps only the ORM guard in this file; Postgres uses an append-only trigger
+to enforce immutability at the database level. A database owner or superuser can still
+disable triggers, so production should run the app as a non-owner role.
+"""
+
 import uuid
 from datetime import datetime
 
@@ -46,6 +53,8 @@ class AuditEvent(Base):
     request_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True, index=True
     )
+    # Personal data. Kept for the same retention period as the rest of the row.
+    client_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
 
     action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     tool_name: Mapped[str | None] = mapped_column(

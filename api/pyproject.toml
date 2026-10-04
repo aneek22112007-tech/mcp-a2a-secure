@@ -18,7 +18,6 @@ dev = [
     "coverage>=7.6",
     "httpx>=0.28.1",
     "pytest>=9.1.1",
-    "pytest-anyio>=0.0.0",
     "pytest-cov>=6.0",
     "ruff>=0.16.9",
 ]
