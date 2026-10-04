@@ -34,6 +34,7 @@ from app.middleware import (
 )
 from app.routes.api_keys import router as api_keys_router
 from app.routes.audit import router as audit_router
+from app.routes.metrics import router as metrics_router
 from app.routes.notes import router as notes_router
 from app.routes.status import router as status_router
 from app.services.api_keys import HmacApiKeyVerifier
@@ -93,8 +94,8 @@ app.include_router(status_router)
 app.include_router(notes_router)
 
 app.include_router(api_keys_router)
-
 app.include_router(audit_router)
+app.include_router(metrics_router)
 
 
 @app.get("/health")
