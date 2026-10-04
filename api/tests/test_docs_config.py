@@ -115,6 +115,7 @@ def test_settings_default_environment_disables_docs(monkeypatch) -> None:
 def test_settings_production_environment_disables_docs(monkeypatch) -> None:
     """ENVIRONMENT=production suppresses all documentation endpoints."""
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("API_KEY_PEPPER", "dummy-pepper")
     isolated = Settings(_env_file=None)
     assert isolated.environment == "production"
 

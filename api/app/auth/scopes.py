@@ -17,17 +17,22 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("GET", "/api/status"): None,
     ("GET", "/api/mcp/info"): None,
     ("GET", "/health"): None,
+    ("POST", "/api/keys"): ADMIN,
+    ("GET", "/api/keys"): ADMIN,
+    ("DELETE", "/api/keys/{key_id}"): ADMIN,
 }
 
 
 def check_route_scope_coverage(app: FastAPI) -> None:
-    for route in app.routes:
-        if isinstance(route, APIRoute):
-            for method in route.methods:
+    import fastapi.routing
+
+    for ctx in fastapi.routing.iter_route_contexts(app.routes):
+        if isinstance(ctx.route, APIRoute):
+            for method in ctx.route.methods:
                 check_method = "GET" if method == "HEAD" else method
-                if (check_method, route.path) not in ROUTE_SCOPES:
+                if (check_method, ctx.route.path) not in ROUTE_SCOPES:
                     raise RuntimeError(
-                        f"Unmapped route for authorization: {check_method} {route.path}"
+                        f"Unmapped route for authorization: {check_method} {ctx.route.path}"
                     )
 
     for scope in ROUTE_SCOPES.values():

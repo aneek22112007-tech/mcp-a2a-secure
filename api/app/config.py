@@ -45,9 +45,18 @@ class Settings(BaseSettings):
     max_body_bytes: int = Field(default=1_048_576, gt=0)
     tool_timeout_s: float = Field(default=5.0, gt=0)
 
+    api_key_pepper: SecretStr | None = Field(
+        default=None,
+        description="Pepper used to hash API keys.",
+    )
+
     def model_post_init(self, context: object, /) -> None:
         del context
         self.notes_dir = Path(self.notes_dir).expanduser().resolve()
+
+        is_prod = self.environment not in ("dev", "development", "local", "test")
+        if is_prod and not self.api_key_pepper:
+            raise ValueError("API_KEY_PEPPER is required in production environment")
 
 
 settings = Settings()

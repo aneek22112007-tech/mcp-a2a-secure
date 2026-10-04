@@ -15,6 +15,11 @@ from starlette.types import ASGIApp
 
 from app.auth import McpBearerAuthMiddleware
 from app.auth.scopes import check_route_scope_coverage
+from app.auth.verifier import (
+    DenyAllVerifier,
+    get_api_key_verifier,
+    set_api_key_verifier,
+)
 from app.config import settings
 from app.errors import register_error_handlers
 from app.mcp_server import ensure_notes_dir, mcp
@@ -24,8 +29,10 @@ from app.middleware import (
     SecurityHeadersMiddleware,
     install_request_id_logging,
 )
+from app.routes.api_keys import router as api_keys_router
 from app.routes.notes import router as notes_router
 from app.routes.status import router as status_router
+from app.services.api_keys import HmacApiKeyVerifier
 
 install_request_id_logging()
 
@@ -35,7 +42,8 @@ async def lifespan(app: FastAPI):
     app.state.started_at = time.monotonic()
     ensure_notes_dir()
 
-    # TODO (P2): set_api_key_verifier(HmacApiKeyVerifier()) here
+    if isinstance(get_api_key_verifier(), DenyAllVerifier):
+        set_api_key_verifier(HmacApiKeyVerifier())
 
     async with mcp.session_manager.run():
         yield
@@ -79,6 +87,8 @@ app.include_router(status_router)
 
 # Notes REST endpoints (Day 1 — gateway-backed CRUD)
 app.include_router(notes_router)
+
+app.include_router(api_keys_router)
 
 
 @app.get("/health")
