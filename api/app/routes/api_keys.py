@@ -1,16 +1,22 @@
 from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy.exc import IntegrityError
 
-from app.auth.dependencies import require_scopes
+from app.auth.dependencies import authorize_route, get_principal
 from app.auth.principal import Principal
 from app.database import async_session_maker
 from app.repos.api_keys import list_for_client, revoke
 from app.repos.errors import ApiKeyNotFoundError
 from app.services.api_keys import generate_api_key
 
-router = APIRouter(prefix="/api/keys", tags=["api_keys"])
+router = APIRouter(
+    prefix="/api/keys",
+    tags=["api_keys"],
+    dependencies=[Depends(authorize_route)],
+)
 
 
 class ApiKeyCreateRequest(BaseModel):
@@ -54,7 +60,7 @@ class ApiKeyListResponse(BaseModel):
 @router.post("", response_model=ApiKeyCreateResponse, status_code=201)
 async def create_api_key(
     request: ApiKeyCreateRequest,
-    principal: Principal = Depends(require_scopes("admin")),  # noqa: B008
+    principal: Annotated[Principal, Depends(get_principal)],
 ):
     async with async_session_maker() as session:
         try:
@@ -79,8 +85,7 @@ async def create_api_key(
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-        except Exception:  # noqa: BLE001
-            # e.g., IntegrityError if client does not exist
+        except IntegrityError:
             await session.rollback()
             raise HTTPException(
                 status_code=400,
@@ -93,7 +98,7 @@ async def list_api_keys(
     client_id: str = Query(..., description="The client ID to list keys for"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    principal: Principal = Depends(require_scopes("admin")),  # noqa: B008
+    principal: Annotated[Principal, Depends(get_principal)] = None,
 ):
     async with async_session_maker() as session:
         try:
@@ -113,7 +118,7 @@ async def list_api_keys(
 @router.delete("/{key_id}", response_model=ApiKeyResponse)
 async def revoke_api_key(
     key_id: str,
-    principal: Principal = Depends(require_scopes("admin")),  # noqa: B008
+    principal: Annotated[Principal, Depends(get_principal)] = None,
 ):
     async with async_session_maker() as session:
         try:

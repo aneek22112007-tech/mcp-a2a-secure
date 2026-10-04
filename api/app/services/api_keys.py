@@ -1,11 +1,10 @@
 import hashlib
 import hmac
+import logging
 import secrets
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.auth.bearer import API_KEY_TOKEN_PREFIX
 from app.auth.principal import Principal
@@ -13,15 +12,20 @@ from app.auth.verifier import ApiKeyVerifier
 from app.config import settings
 from app.database import async_session_maker
 from app.models.api_keys import ApiKey
-from app.repos.api_keys import create, mark_used
+from app.models.clients import Client
+from app.repos.api_keys import create, get_by_prefix, mark_used
+
+logger = logging.getLogger(__name__)
 
 
 def _get_pepper() -> bytes:
-    pepper_str = (
-        settings.api_key_pepper.get_secret_value()
-        if settings.api_key_pepper
-        else "default_dev_pepper"
-    )
+    if settings.api_key_pepper:
+        pepper_str = settings.api_key_pepper.get_secret_value()
+    else:
+        logger.warning(
+            "API_KEY_PEPPER is not set. Falling back to default insecure pepper."
+        )
+        pepper_str = "default_dev_pepper"
     return pepper_str.encode("utf-8")
 
 
@@ -46,6 +50,15 @@ async def generate_api_key(
     Returns a tuple of (ApiKey, plaintext_key).
     The plaintext key is returned exactly once and is never persisted.
     """
+    if scopes is not None:
+        from app.auth.scopes import ALL_SCOPES
+
+        invalid_scopes = [s for s in scopes if s not in ALL_SCOPES]
+        if invalid_scopes:
+            raise ValueError(f"Invalid scopes: {', '.join(invalid_scopes)}")
+        # Dedupe while preserving order (optional, but standard)
+        scopes = list(dict.fromkeys(scopes))
+
     prefix = secrets.token_hex(4)  # 8 hex chars
     secret = secrets.token_urlsafe(32)  # 43 base64 url-safe chars
 
@@ -79,20 +92,13 @@ class HmacApiKeyVerifier(ApiKeyVerifier):
         prefix, secret = parts
 
         async with async_session_maker() as session:
-            # We need to eagerly load the client to check its status
-            statement = (
-                select(ApiKey)
-                .options(selectinload(ApiKey.client))
-                .where(ApiKey.key_prefix == prefix)
-            )
-            result = await session.execute(statement)
-            api_key = result.scalar_one_or_none()
-
-            if not api_key:
+            api_key = await get_by_prefix(session, prefix)
+            if api_key is None:
                 return None
 
             # Check client is active
-            if not api_key.client or api_key.client.status != "active":
+            client = await session.get(Client, api_key.client_id)
+            if not client or client.status != "active":
                 return None
 
             # Check revoked

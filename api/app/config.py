@@ -31,10 +31,6 @@ class Settings(BaseSettings):
         default=None,
         description="API key for internal status probe",
     )
-    api_key_pepper: SecretStr | None = Field(
-        default=None,
-        description="Pepper used to hash API keys.",
-    )
 
     database_url: str = Field(
         default=_DEFAULT_DB_URL,
@@ -48,6 +44,11 @@ class Settings(BaseSettings):
 
     max_body_bytes: int = Field(default=1_048_576, gt=0)
     tool_timeout_s: float = Field(default=5.0, gt=0)
+
+    api_key_pepper: SecretStr | None = Field(
+        default=None,
+        description="Pepper used to hash API keys.",
+    )
 
     def model_post_init(self, context: object, /) -> None:
         del context
