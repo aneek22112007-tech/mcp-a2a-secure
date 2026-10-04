@@ -81,19 +81,25 @@ def apply_http_middleware(application: FastAPI) -> None:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        expose_headers=["X-Request-ID", "Retry-After"],
+        max_age=600,
     )
     original_build = application.build_middleware_stack
 
     def build_middleware_stack() -> ASGIApp:
-        return SecurityHeadersMiddleware(RequestContextMiddleware(original_build()))
+        from app.middleware import ClientIPMiddleware
+
+        return SecurityHeadersMiddleware(
+            RequestContextMiddleware(ClientIPMiddleware(original_build()))
+        )
 
     application.build_middleware_stack = build_middleware_stack  # type: ignore[method-assign]
 
 
 docs_args = {}
-if settings.environment not in ("development", "dev", "local"):
+if not settings.is_development:
     docs_args = {"docs_url": None, "redoc_url": None, "openapi_url": None}
 
 app = FastAPI(

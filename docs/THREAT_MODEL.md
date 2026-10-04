@@ -80,7 +80,7 @@
 
 | Threat | Component | Current Mitigation | Evidence | Gap |
 |--------|-----------|-------------------|----------|-----|
-| Unauthenticated note write | `PUT /api/notes/{name}` | No authentication on this endpoint | No auth middleware in `routes/notes.py` | **HIGH GAP**: Any caller can write notes. Day-3 authorization hook is documented but not implemented. |
+| Unauthenticated note write | `PUT /api/notes/{name}` | API-key auth and the `notes:write` scope | `api/app/auth/`, `api/app/auth/scopes.py` | Covered. A caller without a valid key gets 401. A key without `notes:write` gets 403. |
 | Request ID spoofing | Middleware | IDs validated against `[A-Za-z0-9._:-]{0,64}` regex; overlong IDs replaced with UUID4 | `middleware.py:_REQUEST_ID_RE`, `test_hardening.py::test_overlong_and_invalid_request_ids_are_replaced` | Low — IDs are informational, not trusted for auth. |
 | A2A agent impersonation | (planned) | **[PROPOSED]** — not implemented | No signing code present | Gap pending implementation. |
 
@@ -98,7 +98,7 @@
 
 | Threat | Component | Current Mitigation | Evidence | Gap |
 |--------|-----------|-------------------|----------|-----|
-| Unattributed tool call | Gateway, auth, `/mcp` | Every `call_tool` writes one `tool.call` row after the tool runs. Auth allow/deny is recorded best-effort. MCP `tools/call` writes `mcp.tools_call` before the tool runs. Arguments are stored only as a sha256 fingerprint. | `api/app/gateway.py`, `api/app/audit/`, `api/app/auth/dependencies.py`, `api/app/auth/mcp_asgi.py` | REST `call_tool` executes the tool before the required `tool.call` row is written. A 503 `Audit log unavailable.` on a mutating REST call (`PUT /api/notes/{name}`) means the write may already have happened without an audit row. MCP `tools/call` is audited before forwarding, so the MCP tool does not run without a row. Residual risk: REST writes during an audit outage are not attributed. Raw keys, header values, argument values, and exception text are not stored. |
+| Unattributed tool call | Gateway, auth, `/mcp` | Mutating REST calls (`PUT /api/notes/{name}`) write a required `tool.call` row with status `forwarded` before the tool runs, then a best-effort `tool.result` row. A 503 `Audit log unavailable.` means the write did not happen. Read tools are audited after execution, before the result is returned. MCP `tools/call` is audited before forwarding. Arguments are stored only as a sha256 fingerprint. `client_ip` is personal data and is kept for the same retention period as the rest of the row. | `api/app/gateway.py`, `api/app/audit/`, `api/app/auth/dependencies.py`, `api/app/auth/mcp_asgi.py` | Auth rows can be missing if a best-effort write fails. A database owner or superuser can disable triggers, so run as a non-owner role. SQLite has only the ORM guard. The SSE stream is single-process. Raw keys, header values, argument values, and exception text are not stored. |
 | Log tampering | Server logs | Logs go to stderr/stdout; no structured audit store yet | `log_config.json` | Gap: no tamper-evident log storage. |
 
 ### Information Disclosure
@@ -110,7 +110,10 @@
 | Filesystem path in OS errors | Gateway | ToolError wrapping OSError returns generic 500 | `gateway.py` lines 189–196, `test_gateway.py::test_gateway_tool_error_os_error_hides_path` | Covered. |
 | API docs in production | All documentation routes | Disabled via `docs_url=None` when `ENVIRONMENT != dev/local` | `main.py` lines 63–65, `test_docs_config.py` | Covered (this PR). |
 | Secrets in logs | All | Logger warned not to log credentials; no credential logging in current code | Code review | Guideline only — no automated enforcement. |
-| CORS wildcard | All | `allow_origins=settings.cors_origins` (no wildcard) | `main.py`, `test_hardening.py::test_cors_rejects_untrusted_origin` | Covered. |
+| CORS wildcard | All | `allow_origins=settings.cors_origins` (no wildcard). Production-like environments reject any `CORS_ORIGINS` entry that is not an exact http or https origin | `main.py`, `config.py`, `test_hardening.py::test_cors_rejects_untrusted_origin` | Covered. Dev, development, local and test do not apply the exact-origin check. |
+| Cached responses | All responses | `Cache-Control: no-store` on every response | `middleware.py` | Covered. |
+| Missing HSTS | All responses | Opt-in `Strict-Transport-Security` when `HSTS_MAX_AGE_S` is greater than zero | `middleware.py`, `config.py` | Off unless `HSTS_MAX_AGE_S` is set. |
+| Docs CSP | `/docs` | The relaxed docs CSP is used only while API docs are enabled (development). Every other route keeps the strict CSP | `middleware.py` | Covered outside development, where docs are disabled. |
 
 ### Denial of Service
 
@@ -120,7 +123,7 @@
 | Huge `Content-Length` header | Middleware | Digit length capped at 18 before `int()` conversion | `middleware.py:_MAX_CONTENT_LENGTH_DIGITS` | Covered. |
 | Slow MCP tool (tool timeout) | Gateway | `asyncio.wait_for(timeout=settings.tool_timeout_s)` (default 5 s) | `gateway.py`, `test_gateway.py::test_gateway_504_timeout` | Covered. |
 | MCP probe blocking | `/api/status` | 3-second probe timeout; failure is a status, not a 500 | `routes/status.py:PROBE_TIMEOUT_SECONDS` | Covered. |
-| Rate limiting | All routes | **Not implemented** — no rate limiter in middleware | Absence of rate-limit middleware | **GAP**: No rate limiting. Any client can flood. |
+| Rate limiting | REST and `/mcp` | Per-key token buckets, separate for REST and `/mcp` (in-process, per worker). A per-IP failed-auth throttle (`AUTH_FAILURE_LIMIT` / `AUTH_FAILURE_WINDOW_S`) returns 429 with `Retry-After` | `api/app/rate_limit.py`, `api/app/auth/throttle.py` | Limits are per process. IP-based throttling can lock out clients behind a shared NAT. `X-Forwarded-For` is trusted only from `TRUSTED_PROXIES`. |
 | Large note directory scan | `list_notes` | `NOTES_DIR.glob("*.md")` — unbounded if many files exist | `mcp_server.py:list_notes` | Gap: could be slow with thousands of notes. |
 
 ### Elevation of Privilege
@@ -167,12 +170,12 @@
 
 | Field | Detail |
 |-------|--------|
-| **Scenario** | A tool call or auth decision needs to be attributed after the fact. REST `call_tool` executes the tool before the required `tool.call` row is written, so a 503 `Audit log unavailable.` on a mutating REST call (`PUT /api/notes/{name}`) means the write may already have happened without an audit row. MCP `tools/call` is audited before forwarding, so the MCP tool does not run without a row. `auth.allow` and `auth.deny` are fail-open so a real 401/403 is not turned into a 500. |
-| **Likelihood** | Medium (a database outage drops best-effort auth rows; tool success fails closed with 503) |
-| **Impact** | Medium — a missed auth row weakens investigation; a failed tool audit blocks the call instead of hiding it |
-| **Existing mitigation** | `audit_events` is written from the gateway, REST auth, and `/mcp`. Rows store the principal ids, key prefix, route template or constant reason, tool name, and args sha256. ORM `before_update` / `before_delete` reject mutation. `GET /api/audit` and `GET /api/audit/stream` expose the rows to `audit:read`. |
-| **Residual risk** | Medium — REST writes during an audit outage are not attributed; auth rows can be missing if the write fails; the Postgres append-only trigger is not installed yet; the SSE stream is single-process |
-| **Next action** | Add the Postgres trigger that rejects UPDATE/DELETE except `repos.audit.delete_events_before` (retention) and `api_key_id` ON DELETE SET NULL. Retention itself is separate work. |
+| **Scenario** | A tool call or auth decision needs to be attributed after the fact. Mutating REST calls (`PUT /api/notes/{name}`) are audit-first: a required `tool.call` row with status `forwarded` is written before the tool runs, then a best-effort `tool.result` row. A 503 `Audit log unavailable.` means the write did not happen. Read tools are audited after execution, before the result is returned. MCP `tools/call` is audited before forwarding, so the MCP tool does not run without a row. `auth.allow` and `auth.deny` are fail-open so a real 401/403 is not turned into a 500. `client_ip` is personal data and is kept for the same retention period as the rest of the row. |
+| **Likelihood** | Medium (a database outage drops best-effort auth rows; a required audit write fails closed with 503) |
+| **Impact** | Medium — a missed auth row weakens investigation; a failed required audit blocks the call instead of hiding it |
+| **Existing mitigation** | `audit_events` is written from the gateway, REST auth, and `/mcp`. Rows store the principal ids, key prefix, route template or constant reason, tool name, args sha256, and client IP. ORM `before_update` / `before_delete` reject mutation. On Postgres, revision `cc48301ff61d` rejects UPDATE, DELETE and TRUNCATE except the retention delete and the `api_key_id` ON DELETE SET NULL update. `GET /api/audit` and `GET /api/audit/stream` expose the rows to `audit:read`. |
+| **Residual risk** | Medium — auth rows can be missing if the write fails; a database owner or superuser can disable triggers; SQLite has only the ORM guard; the SSE stream is single-process |
+| **Next action** | Run Postgres as a non-owner role so a database owner or superuser cannot disable triggers. SQLite has only the ORM guard. The SSE stream is single-process. |
 | **Source files** | `api/app/audit/sink.py`, `api/app/gateway.py`, `api/app/models/audit_events.py`, `api/app/repos/audit.py` |
 
 ---
@@ -209,19 +212,21 @@
 
 | Control | Status | Evidence |
 |---------|--------|----------|
-| CORS allowlist (no wildcard) | ✅ Implemented | `main.py`, `test_hardening.py` |
-| Security headers (CSP, X-Frame-Options, Referrer-Policy, X-Content-Type-Options) | ✅ Implemented | `middleware.py:SecurityHeadersMiddleware` |
-| Body size limit (1 MiB) | ✅ Implemented | `middleware.py:BodySizeLimitMiddleware` |
-| Request ID tracking | ✅ Implemented | `middleware.py:RequestContextMiddleware` |
-| Tool allowlist | ✅ Implemented | `gateway.py:ALLOWED_TOOLS` |
-| Path traversal guard | ✅ Implemented | `mcp_server.py:_safe()` |
-| Argument size guard (128 KiB) | ✅ Implemented | `gateway.py:MAX_ARG_BYTES` |
-| Tool timeout (5 s) | ✅ Implemented | `gateway.py:asyncio.wait_for` |
-| Error sanitisation (no stack traces) | ✅ Implemented | `errors.py`, `gateway.py` |
-| MCP probe error code stability | ✅ Implemented (this PR) | `routes/status.py:_offline()` |
-| API docs disabled in production | ✅ Implemented (verified this PR) | `main.py` lines 63–65 |
-| Authentication / authorization | ❌ Not implemented | Day-3 hook placeholder |
-| Rate limiting | ❌ Not implemented | — |
-| Audit log persistence | ✅ Implemented | `tool.call` success and `mcp.tools_call` are fail-closed. `auth.allow` and `auth.deny` are fail-open. ORM rejects update/delete. A Postgres append-only trigger is planned. |
-| A2A request signing | ❌ Not implemented | — |
-| Docker sandbox | ❌ Not implemented | — |
+| CORS allowlist (no wildcard) | Implemented | `main.py`, `test_hardening.py` |
+| Security headers (CSP, X-Frame-Options, Referrer-Policy, X-Content-Type-Options) | Implemented | `middleware.py:SecurityHeadersMiddleware` |
+| Body size limit (1 MiB) | Implemented | `middleware.py:BodySizeLimitMiddleware` |
+| Request ID tracking | Implemented | `middleware.py:RequestContextMiddleware` |
+| Tool allowlist | Implemented | `gateway.py:ALLOWED_TOOLS` |
+| Path traversal guard | Implemented | `mcp_server.py:_safe()` |
+| Argument size guard (128 KiB) | Implemented | `gateway.py:MAX_ARG_BYTES` |
+| Tool timeout (5 s) | Implemented | `gateway.py:asyncio.wait_for` |
+| Error sanitisation (no stack traces) | Implemented | `errors.py`, `gateway.py` |
+| MCP probe error code stability | Implemented | `routes/status.py:_offline()` |
+| API docs disabled in production | Implemented | `main.py` |
+| Authentication / authorization | Implemented | `api/app/auth/` |
+| Rate limiting | Implemented | `api/app/rate_limit.py`, `api/app/auth/throttle.py` |
+| Failed-auth throttle | Implemented | `api/app/auth/throttle.py` |
+| Trusted-proxy client IP | Implemented | `api/app/middleware.py` (`ClientIPMiddleware`, `TRUSTED_PROXIES`) |
+| Audit log persistence | Implemented | `tool.call` success and `mcp.tools_call` are fail-closed. `auth.allow` and `auth.deny` are fail-open. ORM rejects update/delete. The Postgres append-only trigger is installed (revision `cc48301ff61d`). |
+| A2A request signing | Not implemented | — |
+| Docker sandbox | Not implemented | — |

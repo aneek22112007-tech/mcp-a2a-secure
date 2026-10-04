@@ -43,7 +43,7 @@ flowchart LR
         GW["Gateway<br/>allowlist, arg limit, timeout"]
         SCAN["Tool-poisoning scanner<br/>(planned)"]
         AUD["Audit log + SSE"]
-        RL["Rate limit + metrics<br/>(planned)"]
+        RL["Rate limit + metrics"]
     end
 
     subgraph TOOLS["MCP server at /mcp/"]
@@ -111,23 +111,19 @@ On `main` today:
 
 - **MCP server.** Built on the official Python SDK (FastMCP) and mounted at `/mcp/` over Streamable HTTP. It exposes three notes tools, `list_notes`, `read_note` and `write_note`. Note names are checked against `[A-Za-z0-9_-]{1,64}` and the resolved path must stay inside the notes directory.
 - **Notes REST API.** `/api/notes` routes call tools only through `gateway.call_tool()`, which applies a tool allowlist, a 128 KiB argument limit, a 5 second timeout and error messages that don't leak paths or tracebacks.
-- **API-key auth and scopes.** Protected REST routes and `/mcp/` need `Authorization: Bearer mcpg_...`. Scopes are `notes:read`, `notes:write`, `audit:read`, `agent:run` and `admin`. The key verifier is pluggable and defaults to deny-all. Every route has to appear in the scope map or the app fails at startup.
+- **API-key auth and scopes.** Protected REST routes and `/mcp/` need `Authorization: Bearer mcpg_...`. Scopes are `notes:read`, `notes:write`, `audit:read`, `metrics:read`, `agent:run` and `admin`. The key verifier is pluggable and defaults to deny-all. Every route has to appear in the scope map or the app fails at startup.
 - **Consistent errors.** 401, 403 and other errors use one JSON shape and include `WWW-Authenticate` where it applies.
 - **HTTP hardening.** Request IDs on every response and log line, a request body size limit, security headers with a strict CSP, a CORS allowlist, and API docs disabled outside development.
 - **Status endpoint.** `/api/status` does a real MCP handshake against the server and reports latency, protocol version and tools.
 - **Database layer.** SQLAlchemy 2 (async) with Alembic migrations and repositories. Tables exist for clients, API keys, audit events and sandbox runs. SQLite is used in development.
-- **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Successful tool calls and MCP `tools/call` are fail-closed. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
+- **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Mutating REST calls (`PUT /api/notes/{name}`) and MCP `tools/call` are audit-first: a required row is written before the tool runs. Read tools are audited after execution, before the result is returned. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
+- **Rate limiting, metrics and retention.** Each API key has its own token bucket, with separate buckets for REST and `/mcp`. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler.
 - **Frontend.** React 19, Vite and Tailwind. The Server Status view at `/dashboard-v2` reads `/api/status`. The other dashboard panels still use mock data.
 
 ## Status
 
-In progress:
-
-- HMAC-hashed API keys with a server-side pepper, admin routes for managing keys (`/api/keys`) and a script to create the first admin key ([#84](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/84)).
-
 Planned for v1.0 (target 31 October 2026):
 
-- Rate limiting, metrics and audit retention.
 - A sandbox runner for tool execution.
 - Tool schema fingerprinting and pinning, so a changed tool definition is held until someone approves it again.
 - A rule-based tool-poisoning scanner, followed by an LLM-assisted version.
@@ -164,7 +160,10 @@ The LLM is never the final security authority. Authentication, scope checks, fin
 - **No key enumeration.** Missing, malformed and unknown keys get the same 401 body. A 403 carries `WWW-Authenticate: Bearer error="insufficient_scope"` and names the missing scope.
 - **Secrets stay out of logs.** Auth logs record a deny reason (`missing`, `malformed` or `rejected`) or the key prefix, never the key or its hash. Only key hashes are stored. `MCP_SELF_API_KEY` is held as a `SecretStr`.
 - **Strict header parsing.** Exactly one `Authorization` header, ASCII only, in the form `Bearer <token>` with no extra spaces. The token must start with `mcpg_` and be at most 128 characters. An `X-Request-ID` that doesn't match `[A-Za-z0-9._:-]` (up to 64 characters) is replaced with a UUID.
-- **Other headers and limits.** `Content-Length` is validated and the body is capped while streaming (413 when exceeded). Responses carry `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
+- **Other headers and limits.** `Content-Length` is validated and the body is capped while streaming (413 when exceeded). Responses carry `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store` on every response. `Strict-Transport-Security` is sent when `HSTS_MAX_AGE_S` is greater than zero.
+- **Postgres append-only audit log.** On Postgres, a database-level trigger prevents UPDATE, DELETE and TRUNCATE on `audit_events`. Retention is the only permitted delete (gated by `SET LOCAL mcp_guard.audit_retention = 'on'`). The `api_key_id` ON DELETE SET NULL update is allowed. SQLite uses an ORM-level guard only; a database owner can disable triggers, so production should run as a non-owner role.
+- **Reverse proxy IP handling.** When `TRUSTED_PROXIES` is set, the real client IP is extracted from a single `X-Forwarded-For` header by walking right-to-left past trusted addresses. Without `TRUSTED_PROXIES`, `X-Forwarded-For` is ignored entirely.
+- **Failed-auth throttle.** Repeated 401 outcomes from the same client IP are counted in a fixed window. After `AUTH_FAILURE_LIMIT` failures, every further request to that IP returns 429 with `Retry-After` until the window resets. Only 401 outcomes count; 403 and success never increment or reset the counter.
 
 The full threat model is in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
@@ -243,8 +242,13 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | Variable | Default | Description |
 |---|---|---|
 | `APP_NAME` | `MCP Guard` | Display name |
-| `ENVIRONMENT` (or `APP_ENV`) | `dev` | Any value other than `dev`, `development` or `local` disables `/docs`, `/redoc` and `/openapi.json` |
+| `ENVIRONMENT` (or `APP_ENV`) | `dev` | Trimmed and lowercased. `dev`, `development` and `local` enable `/docs`, `/redoc` and `/openapi.json`. Any value other than `dev`, `development`, `local` or `test` is production-like: `API_KEY_PEPPER` is required and `CORS_ORIGINS` must be exact http/https origins |
 | `CORS_ORIGINS` | `["http://localhost:5173"]` | JSON list of allowed origins |
+| `TRUSTED_PROXIES` | `[]` | JSON list of trusted proxy IPs or CIDRs. When set, the real client IP is resolved from `X-Forwarded-For` |
+| `HSTS_MAX_AGE_S` | `0` | `max-age` for `Strict-Transport-Security`. Set to a positive integer (e.g. `31536000`) to enable HSTS |
+| `AUTH_FAILURE_LIMIT` | `20` | Failed 401 attempts per IP before throttling (429) |
+| `AUTH_FAILURE_WINDOW_S` | `60` | Fixed window length in seconds for the failed-auth counter |
+| `AUTH_FAILURE_MAX_TRACKED_IPS` | `10000` | Maximum number of IPs tracked by the throttle (LRU eviction) |
 | `MCP_SELF_URL` | `http://127.0.0.1:8000/mcp/` | URL probed by `/api/status` |
 | `MCP_SELF_API_KEY` | unset | `mcpg_` key with `agent:run`, used only by the status probe |
 | `DATABASE_URL` | `sqlite+aiosqlite:///<api>/data/mcp_guard.db` | Async SQLAlchemy URL |

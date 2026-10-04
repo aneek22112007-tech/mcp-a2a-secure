@@ -10,6 +10,7 @@ from app.audit import (
     set_audit_sink,
 )
 from app.auth import ApiKeyVerifier, Principal, set_api_key_verifier
+from app.auth.throttle import auth_failure_throttle
 
 
 class DummyVerifier(ApiKeyVerifier):
@@ -63,6 +64,11 @@ def memory_audit_sink():
     set_audit_sink(sink)
     yield sink
     set_audit_sink(previous)
+
+
+@pytest.fixture(autouse=True)
+def reset_auth_throttle():
+    auth_failure_throttle.reset()
 
 
 @pytest.fixture

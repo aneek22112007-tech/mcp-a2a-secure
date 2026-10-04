@@ -14,7 +14,7 @@ from app import database
 from app.audit.events import AuditEventOut
 from app.audit.stream import AuditSubscription, StreamFullError, audit_broadcaster
 from app.auth.dependencies import authorize_route
-from app.repos.audit import list_events
+from app.repos.audit import list_events_page
 
 router = APIRouter(
     prefix="/api/audit",
@@ -47,7 +47,7 @@ async def list_audit_events(
 ) -> AuditPage:
     async with database.async_session_maker() as session:
         try:
-            rows = await list_events(
+            rows, has_more = await list_events_page(
                 session,
                 client_id=client_id,
                 api_key_id=api_key_id,
@@ -57,14 +57,13 @@ async def list_audit_events(
                 decision=decision,
                 start=start,
                 end=end,
-                limit=limit + 1,
+                limit=limit,
                 offset=offset,
                 newest_first=True,
             )
         except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail=_INVALID_QUERY) from None
-        has_more = len(rows) > limit
-        items = [AuditEventOut.model_validate(row) for row in rows[:limit]]
+        items = [AuditEventOut.model_validate(row) for row in rows]
 
     return AuditPage(
         items=items,

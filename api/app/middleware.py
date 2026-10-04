@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import ipaddress
 import json
 import logging
 import re
@@ -14,6 +15,11 @@ from app.config import settings
 
 request_id_context: contextvars.ContextVar[str] = contextvars.ContextVar(
     "request_id",
+    default="",
+)
+
+client_ip_context: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "client_ip",
     default="",
 )
 
@@ -39,6 +45,8 @@ _SECURITY_HEADER_NAMES = (
     b"x-frame-options",
     b"referrer-policy",
     b"content-security-policy",
+    b"cache-control",
+    b"strict-transport-security",
 )
 
 
@@ -134,14 +142,27 @@ class SecurityHeadersMiddleware:
         async def send_with_security_headers(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = _without(message.get("headers", []), *_SECURITY_HEADER_NAMES)
-                headers.extend(
-                    (
-                        (b"x-content-type-options", b"nosniff"),
-                        (b"x-frame-options", b"DENY"),
-                        (b"referrer-policy", b"no-referrer"),
-                        (b"content-security-policy", csp),
+
+                new_headers = [
+                    (b"x-content-type-options", b"nosniff"),
+                    (b"x-frame-options", b"DENY"),
+                    (b"referrer-policy", b"no-referrer"),
+                    (b"content-security-policy", csp),
+                    (b"cache-control", b"no-store"),
+                ]
+
+                if settings.hsts_max_age_s > 0:
+                    new_headers.append(
+                        (
+                            b"strict-transport-security",
+                            f"max-age={settings.hsts_max_age_s}; includeSubDomains".encode(
+                                "ascii"
+                            ),
+                        )
                     )
-                )
+
+                headers.extend(new_headers)
+
                 if not _has_header(headers, b"x-request-id"):
                     current = _request_id_for_scope(scope)
                     if current:
@@ -150,6 +171,61 @@ class SecurityHeadersMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_security_headers)
+
+
+class ClientIPMiddleware:
+    """Resolve the real client IP using trusted proxies and X-Forwarded-For."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        peer = ""
+        client = scope.get("client")
+        if client and isinstance(client, (list, tuple)) and len(client) > 0:
+            peer = client[0]
+
+        client_ip = peer
+        trusted_proxies = settings.parsed_trusted_proxies
+        if trusted_proxies:
+            try:
+                peer_ip = ipaddress.ip_address(peer)
+                is_trusted = any(peer_ip in net for net in trusted_proxies)
+            except ValueError:
+                is_trusted = False
+
+            if is_trusted:
+                forwarded = _header_values(scope, b"x-forwarded-for")
+                if len(forwarded) == 1:
+                    parts = [
+                        p.strip()
+                        for p in forwarded[0]
+                        .decode("ascii", errors="replace")
+                        .split(",")
+                    ]
+                    # Right to left. The first untrusted valid IP wins. An
+                    # invalid entry stops the walk so a spoofed left-hand
+                    # value cannot skip past it. If every entry is trusted,
+                    # the direct peer stays the client.
+                    for part in reversed(parts):
+                        try:
+                            part_ip = ipaddress.ip_address(part)
+                        except ValueError:
+                            break
+                        if not any(part_ip in net for net in trusted_proxies):
+                            client_ip = part
+                            break
+
+        scope["mcp_guard.client_ip"] = client_ip
+        token = client_ip_context.set(client_ip)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            client_ip_context.reset(token)
 
 
 class _ResponseGate:
@@ -294,7 +370,7 @@ def _accepted_request_id(scope: Scope) -> str | None:
 
 
 def _csp_for_path(path: str) -> str:
-    if path == "/docs" or path.startswith("/docs/"):
+    if settings.is_development and (path == "/docs" or path.startswith("/docs/")):
         return DOCS_CSP
     return STRICT_CSP
 

@@ -13,25 +13,24 @@ from app.audit.events import (
     STATUS_OK,
     AuditRecord,
 )
-from app.audit.redaction import current_request_id
+from app.audit.redaction import current_client_ip, current_request_id
 from app.audit.sink import record_event
-from app.auth.bearer import AuthenticationError, authenticate
+from app.auth.bearer import (
+    AuthenticationError,
+    authenticate,
+    authentication_reason,
+    bearer_challenge,
+    insufficient_scope_challenge,
+)
 from app.auth.principal import Principal
 from app.auth.scopes import ROUTE_SCOPES
+from app.auth.throttle import auth_failure_throttle, throttle_block
 from app.models.audit_events import AUDIT_DECISION_ALLOWED, AUDIT_DECISION_DENIED
 
 logger = logging.getLogger(__name__)
 
 # Used only so Swagger UI shows the Authorize button.
 bearer_scheme = HTTPBearer(auto_error=False)
-
-_AUTH_REASONS = frozenset({"missing", "duplicate", "malformed", "rejected"})
-
-
-def _authentication_reason(exc: AuthenticationError) -> str:
-    if exc.args and isinstance(exc.args[0], str) and exc.args[0] in _AUTH_REASONS:
-        return exc.args[0]
-    return "rejected"
 
 
 def _route_template(request: Request) -> str:
@@ -60,6 +59,7 @@ async def _record_auth_decision(
             status_code=status_code,
             error_code=error_code,
             request_id=current_request_id(request.scope),
+            client_ip=current_client_ip(request.scope),
             **AuditRecord.actor_fields(principal),
         ),
         required=False,
@@ -72,21 +72,31 @@ async def get_principal(
     if hasattr(request.state, "principal"):
         return request.state.principal
 
+    client_ip = current_client_ip(request.scope) or ""
+    wait = await throttle_block(request.scope)
+    if wait is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed authentication attempts.",
+            headers={"Retry-After": str(wait)},
+        )
+
     try:
         principal = await authenticate(request.scope["headers"])
     except AuthenticationError as exc:
+        auth_failure_throttle.record_failure(client_ip)
         await _record_auth_decision(
             request,
             allowed=False,
             status=STATUS_DENIED,
-            reason=_authentication_reason(exc),
+            reason=authentication_reason(exc),
             status_code=401,
             error_code="UNAUTHORIZED",
         )
         raise HTTPException(
             status_code=401,
             detail="Authentication required.",
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": bearer_challenge()},
         )
     except Exception:
         await _record_auth_decision(
@@ -119,11 +129,7 @@ def require_scopes(*scopes: str) -> Callable:
                 raise HTTPException(
                     status_code=403,
                     detail=f"Missing required scope: {scope}.",
-                    headers={
-                        "WWW-Authenticate": (
-                            f'Bearer error="insufficient_scope", scope="{scope}"'
-                        )
-                    },
+                    headers={"WWW-Authenticate": insufficient_scope_challenge(scope)},
                 )
         return principal
 
@@ -158,21 +164,31 @@ async def authorize_route(
     if required_scope is None:
         return None
 
+    client_ip = current_client_ip(request.scope) or ""
+    wait = await throttle_block(request.scope)
+    if wait is not None:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed authentication attempts.",
+            headers={"Retry-After": str(wait)},
+        )
+
     try:
         principal = await authenticate(request.scope["headers"])
     except AuthenticationError as exc:
+        auth_failure_throttle.record_failure(client_ip)
         await _record_auth_decision(
             request,
             allowed=False,
             status=STATUS_DENIED,
-            reason=_authentication_reason(exc),
+            reason=authentication_reason(exc),
             status_code=401,
             error_code="UNAUTHORIZED",
         )
         raise HTTPException(
             status_code=401,
             detail="Authentication required.",
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": bearer_challenge()},
         )
     except Exception:
         await _record_auth_decision(
@@ -198,11 +214,7 @@ async def authorize_route(
         raise HTTPException(
             status_code=403,
             detail=f"Missing required scope: {required_scope}.",
-            headers={
-                "WWW-Authenticate": (
-                    f'Bearer error="insufficient_scope", scope="{required_scope}"'
-                )
-            },
+            headers={"WWW-Authenticate": insufficient_scope_challenge(required_scope)},
         )
 
     await _record_auth_decision(

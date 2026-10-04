@@ -228,7 +228,7 @@ def test_migration_round_trip_preserves_audit_rows_and_matches_metadata(
     assert audit_row == ("denied", "c1")
     assert key_row == ("legacy-key", "[]")
 
-    command.downgrade(config, "-1")
+    command.downgrade(config, "7a767168a9ab")
     connection = sqlite3.connect(database)
     columns = [row[1] for row in connection.execute("PRAGMA table_info(audit_events)")]
     assert "decision" not in columns

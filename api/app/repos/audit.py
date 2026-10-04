@@ -10,7 +10,7 @@ from app.models.audit_events import (
     AUDIT_DECISION_DENIED,
     AuditEvent,
 )
-from app.repos.common import MAX_PAGE_LIMIT, as_utc, normalize_page, require_text
+from app.repos.common import as_utc, normalize_page, require_text
 
 _DECISIONS = frozenset({AUDIT_DECISION_ALLOWED, AUDIT_DECISION_DENIED})
 
@@ -29,6 +29,7 @@ async def add_event(
     status_code: int | None = None,
     duration_ms: float | None = None,
     request_id: str | None = None,
+    client_ip: str | None = None,
     args_hash: str | None = None,
     error_code: str | None = None,
     created_at: datetime | None = None,
@@ -45,6 +46,7 @@ async def add_event(
         status_code=_status_code(status_code),
         duration_ms=_duration(duration_ms),
         request_id=_optional_text(request_id, field="request_id", max_length=64),
+        client_ip=_optional_text(client_ip, field="client_ip", max_length=45),
         args_hash=_optional_text(args_hash, field="args_hash", max_length=255),
         error_code=_optional_text(error_code, field="error_code", max_length=100),
     )
@@ -72,16 +74,7 @@ async def list_events(
     key_prefix: str | None = None,
     newest_first: bool = False,
 ) -> list[AuditEvent]:
-    # The audit API asks for one extra row to detect the next page. Allow
-    # that single lookahead without raising the public page cap of 100.
-    if (
-        not isinstance(limit, bool)
-        and isinstance(limit, int)
-        and limit == MAX_PAGE_LIMIT + 1
-    ):
-        _, offset = normalize_page(1, offset)
-    else:
-        limit, offset = normalize_page(limit, offset)
+    limit, offset = normalize_page(limit, offset)
     statement = _filtered(
         select(AuditEvent),
         client_id=client_id,
@@ -102,6 +95,46 @@ async def list_events(
     statement = statement.limit(limit).offset(offset)
     result = await session.execute(statement)
     return list(result.scalars().all())
+
+
+async def list_events_page(
+    session: AsyncSession,
+    *,
+    client_id: str | None = None,
+    tool_name: str | None = None,
+    decision: str | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    action: str | None = None,
+    api_key_id: str | None = None,
+    key_prefix: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    newest_first: bool = True,
+) -> tuple[list[AuditEvent], bool]:
+    limit, offset = normalize_page(limit, offset)
+    statement = _filtered(
+        select(AuditEvent),
+        client_id=client_id,
+        tool_name=tool_name,
+        decision=decision,
+        start=start,
+        end=end,
+        action=action,
+        api_key_id=api_key_id,
+        key_prefix=key_prefix,
+    )
+    if newest_first:
+        statement = statement.order_by(
+            AuditEvent.created_at.desc(), AuditEvent.id.desc()
+        )
+    else:
+        statement = statement.order_by(AuditEvent.created_at.asc(), AuditEvent.id.asc())
+    statement = statement.limit(limit + 1).offset(offset)
+    result = await session.execute(statement)
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    return rows[:limit], has_more
 
 
 async def count_events(

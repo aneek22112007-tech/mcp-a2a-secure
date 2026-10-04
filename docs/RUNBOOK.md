@@ -185,7 +185,7 @@ When `GET /api/status` returns `"mcp": "offline"` with `"error": "mcp_unavailabl
 
 ## Docker Daemon and Sandbox Availability
 
-> ⚠️ **Docker sandbox is not yet implemented** in this codebase.
+> Note: Docker sandbox is not yet implemented in this codebase.
 > The following guidance applies once sandbox execution is added.
 
 If a sandbox execution fails with a Docker-related error:
@@ -209,16 +209,13 @@ cd api
 uv run alembic upgrade head
 ```
 
-Tool calls are fail-closed on the audit log. The database must be migrated
-(`uv run alembic upgrade head`) before use. If `audit_events` is missing,
-`call_tool` and MCP `tools/call` return HTTP 503 `SERVICE_UNAVAILABLE`
-because the audit row cannot be stored. Auth allow and deny stay fail-open:
-a failed audit write does not turn a 401 or 403 into a 500. REST `call_tool`
-executes the tool before the required `tool.call` row is written, so a 503
-`Audit log unavailable.` on a mutating REST call (`PUT /api/notes/{name}`)
-means the write may already have happened without an audit row; MCP
-`tools/call` is audited before forwarding, so the MCP tool does not run
-without a row.
+Mutating REST calls (`PUT /api/notes/{name}`) and MCP `tools/call` are
+audit-first: a required `tool.call` row is written before the tool runs.
+Then a best-effort `tool.result` row records the outcome. Read tools
+(`GET /api/notes`, `GET /api/notes/{name}`) are audited after execution:
+a required `tool.call` row is written before the result is returned.
+Auth allow and deny stay fail-open: a failed audit write does not turn
+a 401 or 403 into a 500.
 
 `GET /api/audit/stream` is an in-process SSE feed. `AUDIT_STREAM_MAX_SUBSCRIBERS`
 (default 20) caps concurrent subscribers. `AUDIT_STREAM_QUEUE_SIZE` (default 100)
@@ -274,6 +271,76 @@ If 504 Gateway Timeout responses occur frequently:
 
 - Increase `TOOL_TIMEOUT_S` in `.env` (default 5.0 seconds).
 - Investigate the tool function for slow I/O (check `api/data/notes/` for unusually large or numerous files).
+
+---
+
+## Verifying the audit trigger on Postgres
+
+After applying the append-only migration on Postgres:
+
+```bash
+# Verify INSERT works
+psql -c "INSERT INTO audit_events (id, action, decision, status, created_at) VALUES ('t1', 'tool.call', 'allowed', 'ok', now())"
+
+# Verify UPDATE is blocked
+psql -c "UPDATE audit_events SET status = 'ok' WHERE id = 't1'"  # should FAIL
+
+# Verify DELETE is blocked
+psql -c "DELETE FROM audit_events WHERE id = 't1'"  # should FAIL
+
+# Verify TRUNCATE is blocked
+psql -c "TRUNCATE audit_events CASCADE"  # should FAIL
+
+# Verify retention still works (uses SET LOCAL mcp_guard.audit_retention = 'on')
+uv run --with asyncpg python scripts/prune_audit.py --dry-run
+
+# Downgrade removes the triggers
+uv run --with asyncpg alembic downgrade bb37200ee50c
+psql -c "SELECT tgname FROM pg_trigger WHERE tgrelid = 'audit_events'::regclass"
+# expect 0 rows
+```
+
+---
+
+## Running behind a reverse proxy
+
+When uvicorn is behind a reverse proxy (nginx, Caddy, ALB, etc.) that sets
+`X-Forwarded-For`, configure `TRUSTED_PROXIES` so the real client IP is used
+for rate limiting and throttling:
+
+```bash
+# In api/.env — single proxy at 10.0.0.1
+TRUSTED_PROXIES=["10.0.0.1"]
+
+# Or a CIDR block
+TRUSTED_PROXIES=["10.0.0.0/8"]
+```
+
+Pass `--no-proxy-headers` to uvicorn so it does not apply its own
+`X-Forwarded-For` handling, letting MCP Guard control it:
+
+```bash
+uv run uvicorn app.main:app --no-proxy-headers ...
+```
+
+Without `TRUSTED_PROXIES`, all `X-Forwarded-For` headers are ignored and the
+raw peer address from the TCP connection is used as the client IP.
+
+---
+
+## Failed-auth throttling
+
+After `AUTH_FAILURE_LIMIT` (default 20) failed 401 responses from the same
+client IP within `AUTH_FAILURE_WINDOW_S` (default 60 seconds), every further
+authentication attempt from that IP returns 429 with a `Retry-After` header.
+
+- Only 401 outcomes count; a 403 (insufficient scope) or a successful auth
+  never increments or resets the counter.
+- The first time an IP is throttled in a window, a best-effort `auth.deny` row
+  with `reason=auth_throttled` and `error_code=RATE_LIMITED` is written.
+- The counter lives in process memory. Restarting the application resets it.
+- Settings: `AUTH_FAILURE_LIMIT`, `AUTH_FAILURE_WINDOW_S`,
+  `AUTH_FAILURE_MAX_TRACKED_IPS` (LRU cap, default 10 000).
 
 ---
 

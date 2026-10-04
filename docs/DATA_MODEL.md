@@ -37,7 +37,8 @@ erDiagram
         string api_key_id FK "References api_keys.id (nullable)"
         string key_prefix "Used API key prefix (nullable, max 20)"
         string request_id "Correlated request ID (nullable, max 64)"
-        string action "e.g., tool.call (max 100)"
+        string client_ip "Client IP, personal data (nullable, max 45)"
+        string action "tool.call, tool.result, auth.allow, auth.deny, mcp.tools_call (max 100)"
         string tool_name "Name of the MCP tool (nullable, max 100)"
         string args_hash "Hashed tool arguments (nullable, max 255)"
         string decision "allowed/denied (max 16)"
@@ -66,7 +67,7 @@ erDiagram
 
 - **clients**: Represents an integrated system or human actor.
 - **api_keys**: Hashed access credentials tied to a client. Uses a prefix for identification and a JSON list for `scopes`.
-- **audit_events**: Immutable ledger of access decisions and tool executions. Contains performance metrics (`duration_ms`) and failure insights. The table is append-only. The ORM rejects updates and deletes now. A Postgres trigger that rejects UPDATE/DELETE, except the retention delete and `api_key_id` ON DELETE SET NULL, is planned. The only sanctioned delete path is `app.repos.audit.delete_events_before`, used for retention.
+- **audit_events**: Immutable ledger of access decisions and tool executions. Contains performance metrics (`duration_ms`) and failure insights. The table is append-only. Mutating tools write `tool.call` (status `forwarded`) and then `tool.result`. `client_ip` is personal data and is kept for the same retention period as the rest of the row. On Postgres, the trigger rejects UPDATE, DELETE and TRUNCATE on `audit_events`. The exceptions are the retention delete (`repos.audit.delete_events_before` sets `SET LOCAL mcp_guard.audit_retention = 'on'`) and the `api_key_id` ON DELETE SET NULL update. SQLite relies on the ORM guard. A database owner can disable triggers, so production should use a non-owner role. The only sanctioned delete path is `app.repos.audit.delete_events_before`, used for retention.
 - **sandbox_runs**: Tracks the execution lifecycle of sandboxed processes initiated by a client.
 
 All `datetime` columns are stored as naive UTC in SQLite and read back as timezone-aware UTC objects via the `UTCDateTime` custom type.

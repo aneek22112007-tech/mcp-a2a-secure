@@ -7,13 +7,10 @@ intentionally avoided so that cross-cutting concerns stay in one place.
 Authentication runs at the route layer and on ``/mcp``. ``actor`` is the
 authenticated principal and is copied onto the audit row.
 
-``call_tool`` writes exactly one ``tool.call`` audit row. The success path
-is fail-closed: the tool result is returned only after that row is stored.
-REST ``call_tool`` executes the tool before the required ``tool.call`` row
-is written, so a 503 ``Audit log unavailable.`` on a mutating REST call
-(``PUT /api/notes/{name}``) means the write may already have happened
-without an audit row. MCP ``tools/call`` is audited before forwarding, so
-the MCP tool does not run without a row.
+Mutating REST calls and MCP tools/call are audit-first. They write a
+required ``tool.call`` row before forwarding to the tool. Then a best-effort
+``tool.result`` row is written. Read tools (REST) are audited after execution:
+a required ``tool.call`` row is written before the result is returned.
 Allowlist rejections, argument rejections, and tool errors are recorded
 best-effort, then the original HTTP error is re-raised.
 """
@@ -31,12 +28,19 @@ from fastapi import HTTPException
 
 from app.audit.events import (
     ACTION_TOOL_CALL,
+    ACTION_TOOL_RESULT,
     STATUS_DENIED,
     STATUS_ERROR,
+    STATUS_FORWARDED,
     STATUS_OK,
     AuditRecord,
 )
-from app.audit.redaction import args_fingerprint, current_request_id, safe_tool_name
+from app.audit.redaction import (
+    args_fingerprint,
+    current_client_ip,
+    current_request_id,
+    safe_tool_name,
+)
 from app.audit.sink import AuditUnavailableError, record_event
 from app.config import settings
 from app.errors import _ERROR_CODES
@@ -80,6 +84,9 @@ ALLOWED_TOOLS: frozenset[str] = frozenset(
         "write_note",
     }
 )
+
+# Every new state-changing tool must be listed here.
+MUTATING_TOOLS: frozenset[str] = frozenset({"write_note"})
 
 
 # ---------------------------------------------------------------------------
@@ -143,11 +150,13 @@ async def call_tool(
         "tool_name": safe_tool_name(name),
         "args_hash": args_fingerprint(args),
         "request_id": current_request_id(),
+        "client_ip": current_client_ip(),
         **AuditRecord.actor_fields(actor),
     }
     denial_reason: str | None = None
     result_raw: Any = None
     duration_ms = 0.0
+    dispatch_started = False
 
     try:
         # ------------------------------------------------------------------
@@ -174,9 +183,10 @@ async def call_tool(
             )
         except (TypeError, ValueError) as exc:
             denial_reason = "args_unserialisable"
+            logger.warning("Gateway args unserialisable: %s", type(exc).__name__)
             raise HTTPException(
                 status_code=400,
-                detail=f"Arguments cannot be serialised: {exc}",
+                detail="Arguments cannot be serialised.",
             ) from exc
 
         payload_bytes = serialised.encode()
@@ -192,12 +202,23 @@ async def call_tool(
 
         denial_reason = None
 
+        if name in MUTATING_TOOLS:
+            await _write_tool_audit(
+                audit_base,
+                decision=AUDIT_DECISION_ALLOWED,
+                status=STATUS_FORWARDED,
+                started=started,
+                required=True,
+                no_duration=True,
+            )
+
         # ------------------------------------------------------------------
         # 3. Execute with timeout
         # ------------------------------------------------------------------
         # Read on each call so tests can monkeypatch settings.tool_timeout_s.
         timeout_s = settings.tool_timeout_s
         t0 = time.monotonic()
+        dispatch_started = True
         try:
             result_raw = await asyncio.wait_for(
                 _dispatch(name, args),
@@ -234,12 +255,16 @@ async def call_tool(
                 ) from exc
 
             if isinstance(cause, ValueError):
-                raise HTTPException(status_code=400, detail=str(cause)) from exc
+                match = re.search(r"invalid note name: [^\n\r]+", str(cause))
+                detail = match.group(0) if match else "Invalid tool arguments."
+                logger.warning("Gateway tool value error: %s", type(cause).__name__)
+                raise HTTPException(status_code=400, detail=detail) from exc
 
             # Other ToolError that looks like validation.
             if "invalid note name" in msg:
                 match = re.search(r"invalid note name: [^\n\r]+", msg)
                 detail = match.group(0) if match else "invalid note name"
+                logger.warning("Gateway tool validation error")
                 raise HTTPException(status_code=400, detail=detail) from exc
 
             logger.exception("[gateway] Unhandled tool error in tool %r", name)
@@ -247,7 +272,10 @@ async def call_tool(
 
         except (ValueError, TypeError, KeyError) as exc:
             # Tool-level validation errors that escape ToolError wrapping.
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            match = re.search(r"invalid note name: [^\n\r]+", str(exc))
+            detail = match.group(0) if match else "Invalid tool arguments."
+            logger.warning("Gateway unhandled validation error: %s", type(exc).__name__)
+            raise HTTPException(status_code=400, detail=detail) from exc
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Note not found.") from exc
         except OSError as exc:
@@ -266,8 +294,14 @@ async def call_tool(
         duration_ms = round((time.monotonic() - t0) * 1000, 2)
         result_raw = _normalise(result_raw)
     except HTTPException as exc:
+        is_mutating = name in MUTATING_TOOLS
+        if is_mutating and denial_reason is None and not dispatch_started:
+            raise
         await _write_tool_audit(
             audit_base,
+            action=ACTION_TOOL_RESULT
+            if (is_mutating and dispatch_started)
+            else ACTION_TOOL_CALL,
             decision=(
                 AUDIT_DECISION_DENIED
                 if denial_reason is not None
@@ -282,12 +316,14 @@ async def call_tool(
         )
         raise
 
+    is_mutating = name in MUTATING_TOOLS
     await _write_tool_audit(
         audit_base,
+        action=ACTION_TOOL_RESULT if is_mutating else ACTION_TOOL_CALL,
         decision=AUDIT_DECISION_ALLOWED,
         status=STATUS_OK,
         started=started,
-        required=True,
+        required=not is_mutating,
         status_code=200,
     )
     return {"ok": True, "result": result_raw, "duration_ms": duration_ms}
@@ -303,10 +339,19 @@ async def _write_tool_audit(
     reason: str | None = None,
     status_code: int | None = None,
     error_code: str | None = None,
+    action: str | None = None,
+    no_duration: bool = False,
 ) -> None:
-    """Write the single tool.call row for this invocation."""
+    """Write the tool.call row or the tool.result row for this invocation.
 
-    duration_ms = round((time.monotonic() - started) * 1000, 2)
+    ``action`` chooses which one is stored. When it is omitted, the action
+    already on ``audit_base`` is kept.
+    """
+
+    duration_ms = 0.0 if no_duration else round((time.monotonic() - started) * 1000, 2)
+    record_kwargs = {**audit_base}
+    if action:
+        record_kwargs["action"] = action
     record = AuditRecord(
         decision=decision,
         status=status,
@@ -314,7 +359,7 @@ async def _write_tool_audit(
         status_code=status_code,
         error_code=error_code,
         duration_ms=duration_ms if duration_ms >= 0 else 0.0,
-        **audit_base,
+        **record_kwargs,
     )
     if not required:
         await record_event(record, required=False)
