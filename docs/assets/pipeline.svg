@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" width="960" height="300" role="img" aria-labelledby="t d">
+<title id="t">MCP Guard request pipeline</title>
+<desc id="d">Animated diagram: a request packet flows from an agent through Auth, Scope check, Scanner, Audit and finally the MCP tool. Three scenarios loop: a valid scoped key reaches the tool (200), a request with no key is stopped at Auth (401), and a key without the needed scope is stopped at the scope check (403). Scanner and Audit are planned stages.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1224"/><stop offset="1" stop-color="#131a33"/></linearGradient>
+<linearGradient id="wire" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+<radialGradient id="pg-34d399"><stop offset="0" stop-color="#34d399" stop-opacity=".85"/><stop offset="1" stop-color="#34d399" stop-opacity="0"/></radialGradient>
+<radialGradient id="pg-f87171"><stop offset="0" stop-color="#f87171" stop-opacity=".85"/><stop offset="1" stop-color="#f87171" stop-opacity="0"/></radialGradient>
+<radialGradient id="pg-fbbf24"><stop offset="0" stop-color="#fbbf24" stop-opacity=".85"/><stop offset="1" stop-color="#fbbf24" stop-opacity="0"/></radialGradient>
+</defs>
+<style>
+text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;fill:#e2e8f0}
+.lbl{font-size:15px;font-weight:700;letter-spacing:1.5px}
+.sub{font-size:11px;fill:#94a3b8}
+.cap{font-size:12px;fill:#94a3b8}
+.res{font-size:15px;font-weight:700}
+.tag{font-size:9px;font-weight:700;letter-spacing:1px;fill:#0b1224}
+.dash{stroke-dasharray:6 8;animation:flow 1.2s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-28}}
+@media (prefers-reduced-motion:reduce){.dash{animation:none}}
+</style>
+<rect width="960" height="300" rx="18" fill="url(#bg)"/>
+<rect x="1" y="1" width="958" height="298" rx="17" fill="none" stroke="#1e293b"/>
+<text x="28" y="38" class="lbl" style="fill:#22d3ee">MCP GUARD · REQUEST PIPELINE</text>
+<text x="932" y="38" text-anchor="end" class="cap" style="fill:#34d399" opacity="1">① valid key · scope agent:run<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="1;1;0;0;1" keyTimes="0;0.3233;0.3333;0.999;1"/></text>
+<text x="932" y="38" text-anchor="end" class="cap" style="fill:#f87171" opacity="0">② no Authorization header<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.3323;0.3333;0.6567;0.6667;1"/></text>
+<text x="932" y="38" text-anchor="end" class="cap" style="fill:#fbbf24" opacity="0">③ key without the needed scope<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1" keyTimes="0;0.6657;0.6667;1"/></text>
+<rect x="20" y="104" width="64" height="48" rx="12" fill="#0f172a" stroke="#334155"/>
+<text x="52" y="133" text-anchor="middle" class="lbl" style="font-size:12px">AGENT</text>
+<line x1="84" y1="128" x2="772.0" y2="128" stroke="#1e293b" stroke-width="6" stroke-linecap="round"/>
+<line x1="84" y1="128" x2="772.0" y2="128" stroke="url(#wire)" stroke-width="2" class="dash" opacity=".7"/>
+<rect x="124.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#2dd4bf" stroke-width="1.5"/>
+<text x="190" y="134" text-anchor="middle" class="lbl">AUTH</text>
+<text x="190" y="187.0" text-anchor="middle" class="sub">Bearer mcpg_ key</text>
+<rect x="286.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#2dd4bf" stroke-width="1.5"/>
+<text x="352" y="134" text-anchor="middle" class="lbl">SCOPES</text>
+<text x="352" y="187.0" text-anchor="middle" class="sub">route → scope map</text>
+<rect x="448.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 5"/>
+<text x="514" y="134" text-anchor="middle" class="lbl" style="fill:#94a3b8">SCANNER</text>
+<text x="514" y="187.0" text-anchor="middle" class="sub">tool-poisoning rules</text>
+<rect x="484" y="82.0" width="60" height="16" rx="8" fill="#a78bfa"/>
+<text x="514" y="94.0" text-anchor="middle" class="tag">PLANNED</text>
+<rect x="610.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 5"/>
+<text x="676" y="134" text-anchor="middle" class="lbl" style="fill:#94a3b8">AUDIT</text>
+<text x="676" y="187.0" text-anchor="middle" class="sub">audit_events + SSE</text>
+<rect x="646" y="82.0" width="60" height="16" rx="8" fill="#a78bfa"/>
+<text x="676" y="94.0" text-anchor="middle" class="tag">PLANNED</text>
+<rect x="772.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#2dd4bf" stroke-width="1.5"/>
+<text x="838" y="134" text-anchor="middle" class="lbl">TOOL</text>
+<text x="838" y="187.0" text-anchor="middle" class="sub">MCP notes tools</text>
+<rect class="glow" x="124.0" y="91.0" width="132" height="74" rx="14" fill="none" stroke="#34d399" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.0268;0.0388;0.0688;0.0888;1"/></rect>
+<rect class="glow" x="124.0" y="91.0" width="132" height="74" rx="14" fill="none" stroke="#f87171" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.388;0.4;0.6367;0.6567;1"/></rect>
+<rect class="glow" x="124.0" y="91.0" width="132" height="74" rx="14" fill="none" stroke="#34d399" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.6986;0.7106;0.7406;0.7606;1"/></rect>
+<rect class="glow" x="286.0" y="91.0" width="132" height="74" rx="14" fill="none" stroke="#34d399" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.0909;0.1029;0.1329;0.1529;1"/></rect>
+<rect class="glow" x="286.0" y="91.0" width="132" height="74" rx="14" fill="none" stroke="#fbbf24" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.7713;0.7833;0.97;0.99;1"/></rect>
+<rect class="glow" x="448.0" y="91.0" width="132" height="74" rx="14" fill="none" stroke="#34d399" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.155;0.167;0.197;0.217;1"/></rect>
+<rect class="glow" x="610.0" y="91.0" width="132" height="74" rx="14" fill="none" stroke="#34d399" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.2191;0.2311;0.2611;0.2811;1"/></rect>
+<rect class="glow" x="772.0" y="91.0" width="132" height="74" rx="14" fill="none" stroke="#34d399" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.2547;0.2667;0.3233;0.3433;1"/></rect>
+<g opacity="1"><circle r="15" fill="url(#pg-34d399)"/><circle r="5" fill="#34d399"/><circle r="2" fill="#fff"/><animateMotion dur="12s" repeatCount="indefinite" path="M 92 128 L 766.0 128" calcMode="linear" keyPoints="0;1;1" keyTimes="0;0.2667;1"/><animate attributeName="opacity" dur="12s" repeatCount="indefinite" keyTimes="0;0.3133;0.3333;1" values="1;1;0;0"/></g>
+<g opacity="0"><circle r="15" fill="url(#pg-f87171)"/><circle r="5" fill="#f87171"/><circle r="2" fill="#fff"/><animateMotion dur="12s" repeatCount="indefinite" path="M 92 128 L 118.0 128" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.3333;0.4;1"/><animate attributeName="opacity" dur="12s" repeatCount="indefinite" keyTimes="0;0.3329;0.3333;0.6367;0.6567;1" values="0;0;1;1;0;0"/></g>
+<g opacity="0"><circle r="15" fill="url(#pg-fbbf24)"/><circle r="5" fill="#fbbf24"/><circle r="2" fill="#fff"/><animateMotion dur="12s" repeatCount="indefinite" path="M 92 128 L 280.0 128" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.6667;0.7833;1"/><animate attributeName="opacity" dur="12s" repeatCount="indefinite" keyTimes="0;0.6663;0.6667;0.975;0.995;1" values="0;0;1;1;0;0"/></g>
+<text x="480.0" y="264" text-anchor="middle" class="res" style="fill:#34d399" opacity="0">200 OK · tool result returned<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.2617;0.2767;0.3233;0.3383;1"/></text>
+<text x="480.0" y="264" text-anchor="middle" class="res" style="fill:#f87171" opacity="0">401 UNAUTHORIZED · WWW-Authenticate: Bearer<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.395;0.41;0.6467;0.6617;1"/></text>
+<text x="480.0" y="264" text-anchor="middle" class="res" style="fill:#fbbf24" opacity="0">403 FORBIDDEN · insufficient_scope<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.7783;0.7933;0.98;0.995;1"/></text>
+<text x="28" y="286" class="cap" style="font-size:10px">solid = built today · dashed = planned</text>
+<text x="932" y="286" text-anchor="end" class="cap" style="font-size:10px">uniform JSON error envelope + X-Request-ID on every response</text>
+</svg>
