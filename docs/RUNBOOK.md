@@ -255,11 +255,14 @@ uv run alembic check       # verify the DB matches the latest head
 
 ---
 
-## Rate-limit Troubleshooting
+## Rate Limiting
 
-> ⚠️ **Rate limiting is not implemented** in the current codebase.
-> Request body size limiting (1 MiB default, `MAX_BODY_BYTES`) and MCP tool
-> timeout (`TOOL_TIMEOUT_S`) are the only resource guards present.
+The application uses an in-memory token bucket rate limiter to protect both REST routes and the MCP stream. By default, the capacity is `100` and the refill rate is `10.0` tokens per second.
+
+If 429 Too Many Requests responses are frequent:
+
+- Adjust `RATE_LIMIT_CAPACITY` and `RATE_LIMIT_REFILL_RATE_PER_SEC` in `.env`.
+- Note that rate limit rejections are audited as `rate_limit.deny` rows, but throttled to at most one per window.
 
 If body-size 413 responses are frequent:
 
@@ -270,8 +273,18 @@ If body-size 413 responses are frequent:
 If 504 Gateway Timeout responses occur frequently:
 
 - Increase `TOOL_TIMEOUT_S` in `.env` (default 5.0 seconds).
-- Investigate the tool function for slow I/O (check `api/data/notes/` for
-  unusually large or numerous files).
+- Investigate the tool function for slow I/O (check `api/data/notes/` for unusually large or numerous files).
+
+---
+
+## Audit Retention
+
+Audit events are retained for 90 days by default.
+
+- To change the retention period, update `AUDIT_RETENTION_DAYS` in `.env`.
+- To enable the background cleanup task, set `ENABLE_RETENTION_SCHEDULER=True`.
+- You can manually preview or execute cleanup using `uv run python scripts/prune_audit.py [--dry-run]`.
+- Manual or scheduled cleanup will write an `audit.retention` audit record detailing how many events were deleted.
 
 ---
 

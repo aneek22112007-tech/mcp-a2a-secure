@@ -74,6 +74,10 @@ class Settings(BaseSettings):
         gt=0,
         description="Number of days to retain audit log events.",
     )
+    enable_retention_scheduler: bool = Field(
+        default=False,
+        description="Enable automatic cleanup of old audit records via a background task.",
+    )
 
     def model_post_init(self, context: object, /) -> None:
         del context

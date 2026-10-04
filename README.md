@@ -214,6 +214,7 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `POST`, `GET`, `DELETE` | `/mcp/` | `agent:run` | MCP Streamable HTTP (`initialize`, `tools/list`, `tools/call`) |
 | `GET` | `/api/audit` | `audit:read` | Audit events, newest first |
 | `GET` | `/api/audit/stream` | `audit:read` | Live SSE stream of audit events. The key is sent only in the `Authorization` header |
+| `GET` | `/api/metrics` | `metrics:read` | Returns database totals and in-process rate limit counters |
 | `POST` | `/api/keys` | `admin` | Create an API key. The raw key is returned once |
 | `GET` | `/api/keys` | `admin` | List keys for a client (`client_id` query parameter) |
 | `DELETE` | `/api/keys/{key_id}` | `admin` | Revoke a key |
@@ -229,6 +230,7 @@ Gateway errors map to 400 (bad arguments), 404 (unknown tool or note), 413 (too 
 | `notes:write` | Creating and overwriting notes |
 | `agent:run` | Everything under `/mcp/` |
 | `audit:read` | `GET /api/audit` and `GET /api/audit/stream` |
+| `metrics:read` | `GET /api/metrics` |
 | `admin` | Passes every scope check |
 
 The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.py).
@@ -251,6 +253,10 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `TOOL_TIMEOUT_S` | `5` | Gateway tool timeout in seconds |
 | `AUDIT_STREAM_MAX_SUBSCRIBERS` | `20` | Concurrent subscribers on `GET /api/audit/stream` |
 | `AUDIT_STREAM_QUEUE_SIZE` | `100` | Per-subscriber SSE queue. A full queue drops events for that subscriber |
+| `RATE_LIMIT_CAPACITY` | `100` | Token bucket capacity for rate limiting |
+| `RATE_LIMIT_REFILL_RATE_PER_SEC` | `10.0` | Token bucket refill rate per second for rate limiting |
+| `AUDIT_RETENTION_DAYS` | `90` | Number of days to retain audit log events |
+| `ENABLE_RETENTION_SCHEDULER` | `False` | Enable automatic cleanup of old audit records via a background task |
 
 The frontend reads `VITE_MCP_GUARD_API_URL` (default `http://localhost:8000`). Don't commit `.env` files or real keys; `.env` is in `.gitignore`.
 

@@ -10,19 +10,18 @@ def test_rate_limiter_basics(monkeypatch):
 
     limiter = TokenBucketRateLimiter()
 
-    # Should allow 2 requests immediately
-    allowed, retry = limiter.acquire("key1")
+    allowed, retry, _ = limiter.acquire("rest", "key1")
     assert allowed is True
     assert retry == 0.0
 
-    allowed, retry = limiter.acquire("key1")
+    allowed, retry, _ = limiter.acquire("rest", "key1")
     assert allowed is True
     assert retry == 0.0
 
-    # Third request should be blocked
-    allowed, retry = limiter.acquire("key1")
+    allowed, retry, should_audit = limiter.acquire("rest", "key1")
     assert allowed is False
     assert retry > 0.0
+    assert should_audit is True
 
 
 def test_rate_limiter_independent_buckets(monkeypatch):
@@ -31,36 +30,38 @@ def test_rate_limiter_independent_buckets(monkeypatch):
 
     limiter = TokenBucketRateLimiter()
 
-    allowed, _ = limiter.acquire("key1")
+    allowed, _, _ = limiter.acquire("rest", "key1")
     assert allowed is True
 
-    allowed, _ = limiter.acquire("key1")
+    allowed, _, _ = limiter.acquire("rest", "key1")
     assert allowed is False
 
-    # key2 should have its own bucket
-    allowed, _ = limiter.acquire("key2")
+    allowed, _, _ = limiter.acquire("rest", "key2")
+    assert allowed is True
+
+    allowed, _, _ = limiter.acquire("mcp", "key1")
     assert allowed is True
 
 
 def test_rate_limiter_refill(monkeypatch):
     monkeypatch.setattr(settings, "rate_limit_capacity", 1)
-    # Refill 10 tokens per second (0.1s per token)
     monkeypatch.setattr(settings, "rate_limit_refill_rate_per_sec", 10.0)
 
     limiter = TokenBucketRateLimiter()
 
-    # Consume the only token
-    allowed, _ = limiter.acquire("key1")
+    allowed, _, _ = limiter.acquire("rest", "key1")
     assert allowed is True
 
-    # Should be denied immediately
-    allowed, retry = limiter.acquire("key1")
+    allowed, retry, should_audit = limiter.acquire("rest", "key1")
     assert allowed is False
     assert retry > 0
+    assert should_audit is True
 
-    # Wait for refill
+    allowed, retry, should_audit = limiter.acquire("rest", "key1")
+    assert allowed is False
+    assert should_audit is False  # Throttled
+
     time.sleep(retry + 0.01)
 
-    # Should be allowed now
-    allowed, _ = limiter.acquire("key1")
+    allowed, _, _ = limiter.acquire("rest", "key1")
     assert allowed is True

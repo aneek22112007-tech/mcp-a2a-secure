@@ -3,15 +3,25 @@ import asyncio
 import logging
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
-from sqlalchemy import func, select
 
-logger = logging.getLogger(__name__)
+def _prepare_import_path() -> None:
+    api_dir = Path(__file__).resolve().parent.parent
+    if str(api_dir) not in sys.path:
+        sys.path.insert(0, str(api_dir))
 
+
+_prepare_import_path()
+
+from app.audit.events import AuditRecord
+from app.audit.sink import record_event
 from app.config import settings
 from app.database import async_session_maker, engine
-from app.models.audit_events import AuditEvent
-from app.repos.audit import delete_events_before
+from app.models.audit_events import AUDIT_DECISION_ALLOWED
+from app.repos.audit import count_events, delete_events_before
+
+logger = logging.getLogger(__name__)
 
 
 async def async_main(dry_run: bool) -> int:
@@ -21,13 +31,7 @@ async def async_main(dry_run: bool) -> int:
     try:
         async with async_session_maker() as session:
             # First calculate how many records will be deleted
-            count_stmt = (
-                select(func.count())
-                .select_from(AuditEvent)
-                .where(AuditEvent.created_at < cutoff)
-            )
-            count_res = await session.execute(count_stmt)
-            eligible_count = int(count_res.scalar_one())
+            eligible_count = await count_events(session, end=cutoff)
 
             if eligible_count == 0:
                 print(
@@ -45,8 +49,19 @@ async def async_main(dry_run: bool) -> int:
             print(
                 f"Deleting up to {eligible_count} audit records older than {retention_days} days..."
             )
-            async with session.begin():
-                deleted = await delete_events_before(session, cutoff=cutoff)
+
+            deleted = await delete_events_before(session, cutoff=cutoff)
+            await session.commit()
+
+            await record_event(
+                AuditRecord(
+                    action="audit.retention",
+                    decision=AUDIT_DECISION_ALLOWED,
+                    status="ok",
+                    reason=f"deleted={deleted}",
+                ),
+                required=False,
+            )
 
             print(f"Successfully deleted {deleted} audit records.")
             return 0

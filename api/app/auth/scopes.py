@@ -4,10 +4,13 @@ from fastapi.routing import APIRoute
 NOTES_READ = "notes:read"
 NOTES_WRITE = "notes:write"
 AUDIT_READ = "audit:read"
+METRICS_READ = "metrics:read"
 AGENT_RUN = "agent:run"
 ADMIN = "admin"
 
-ALL_SCOPES = frozenset({NOTES_READ, NOTES_WRITE, AUDIT_READ, AGENT_RUN, ADMIN})
+ALL_SCOPES = frozenset(
+    {NOTES_READ, NOTES_WRITE, AUDIT_READ, METRICS_READ, AGENT_RUN, ADMIN}
+)
 MCP_REQUIRED_SCOPE = AGENT_RUN
 
 ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
@@ -16,7 +19,7 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("PUT", "/api/notes/{name}"): NOTES_WRITE,
     ("GET", "/api/audit"): AUDIT_READ,
     ("GET", "/api/audit/stream"): AUDIT_READ,
-    ("GET", "/api/metrics/summary"): AUDIT_READ,
+    ("GET", "/api/metrics"): METRICS_READ,
     ("GET", "/api/status"): None,
     ("GET", "/api/mcp/info"): None,
     ("GET", "/health"): None,

@@ -8,6 +8,7 @@ Mounts:
   - MCP streamable-HTTP transport at /mcp/
 """
 
+import asyncio
 import time
 from contextlib import asynccontextmanager
 
@@ -32,6 +33,7 @@ from app.middleware import (
     SecurityHeadersMiddleware,
     install_request_id_logging,
 )
+from app.rate_limit import McpRateLimitMiddleware, rate_limit_dependency
 from app.routes.api_keys import router as api_keys_router
 from app.routes.audit import router as audit_router
 from app.routes.metrics import router as metrics_router
@@ -42,6 +44,9 @@ from app.services.api_keys import HmacApiKeyVerifier
 install_request_id_logging()
 
 
+from app.services.retention import retention_scheduler_task
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.started_at = time.monotonic()
@@ -50,8 +55,19 @@ async def lifespan(app: FastAPI):
     if isinstance(get_api_key_verifier(), DenyAllVerifier):
         set_api_key_verifier(HmacApiKeyVerifier())
 
+    scheduler_task = None
+    if settings.enable_retention_scheduler:
+        scheduler_task = asyncio.create_task(retention_scheduler_task())
+
     async with mcp.session_manager.run():
         yield
+
+    if scheduler_task:
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
 
 
 def apply_http_middleware(application: FastAPI) -> None:
@@ -82,7 +98,14 @@ docs_args = {}
 if settings.environment not in ("development", "dev", "local"):
     docs_args = {"docs_url": None, "redoc_url": None, "openapi_url": None}
 
-app = FastAPI(title=settings.app_name, lifespan=lifespan, **docs_args)
+from fastapi import Depends
+
+app = FastAPI(
+    title=settings.app_name,
+    lifespan=lifespan,
+    dependencies=[Depends(rate_limit_dependency)],
+    **docs_args,
+)
 
 register_error_handlers(app)
 apply_http_middleware(app)
@@ -106,7 +129,9 @@ def health():
 # MCP streamable-HTTP transport — Inspector and A2A workers connect here
 app.mount(
     "/mcp",
-    McpBearerAuthMiddleware(McpToolAuditMiddleware(mcp.streamable_http_app())),
+    McpBearerAuthMiddleware(
+        McpRateLimitMiddleware(McpToolAuditMiddleware(mcp.streamable_http_app()))
+    ),
 )
 
 # Must be called after every route and mount is registered so the allowlist
