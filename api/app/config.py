@@ -59,6 +59,21 @@ class Settings(BaseSettings):
         gt=0,
         description="Per-subscriber audit stream queue size. Full queues drop events.",
     )
+    rate_limit_capacity: int = Field(
+        default=100,
+        gt=0,
+        description="Maximum tokens available in the token bucket rate limiter.",
+    )
+    rate_limit_refill_rate_per_sec: float = Field(
+        default=10.0,
+        gt=0,
+        description="Tokens refilled per second in the token bucket rate limiter.",
+    )
+    audit_retention_days: int = Field(
+        default=90,
+        gt=0,
+        description="Number of days to retain audit log events.",
+    )
 
     def model_post_init(self, context: object, /) -> None:
         del context
