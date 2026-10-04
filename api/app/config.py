@@ -49,6 +49,16 @@ class Settings(BaseSettings):
         default=None,
         description="Pepper used to hash API keys.",
     )
+    audit_stream_max_subscribers: int = Field(
+        default=20,
+        gt=0,
+        description="Maximum concurrent GET /api/audit/stream subscribers.",
+    )
+    audit_stream_queue_size: int = Field(
+        default=100,
+        gt=0,
+        description="Per-subscriber audit stream queue size. Full queues drop events.",
+    )
 
     def model_post_init(self, context: object, /) -> None:
         del context

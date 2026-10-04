@@ -18,6 +18,7 @@ _ERROR_CODES = {
     413: "PAYLOAD_TOO_LARGE",
     422: "VALIDATION_ERROR",
     500: "INTERNAL_SERVER_ERROR",
+    503: "SERVICE_UNAVAILABLE",
     504: "GATEWAY_TIMEOUT",
 }
 
@@ -91,7 +92,7 @@ def _public_validation_errors(exc: RequestValidationError) -> list[dict[str, obj
 
 
 def _public_http_message(exc: StarletteHTTPException) -> str:
-    if exc.status_code >= 500 and exc.status_code != 504:
+    if exc.status_code >= 500 and exc.status_code not in (503, 504):
         return "An unexpected error occurred."
     if isinstance(exc.detail, str) and exc.detail:
         return exc.detail

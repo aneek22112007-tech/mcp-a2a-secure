@@ -209,6 +209,22 @@ cd api
 uv run alembic upgrade head
 ```
 
+Tool calls are fail-closed on the audit log. The database must be migrated
+(`uv run alembic upgrade head`) before use. If `audit_events` is missing,
+`call_tool` and MCP `tools/call` return HTTP 503 `SERVICE_UNAVAILABLE`
+because the audit row cannot be stored. Auth allow and deny stay fail-open:
+a failed audit write does not turn a 401 or 403 into a 500. REST `call_tool`
+executes the tool before the required `tool.call` row is written, so a 503
+`Audit log unavailable.` on a mutating REST call (`PUT /api/notes/{name}`)
+means the write may already have happened without an audit row; MCP
+`tools/call` is audited before forwarding, so the MCP tool does not run
+without a row.
+
+`GET /api/audit/stream` is an in-process SSE feed. `AUDIT_STREAM_MAX_SUBSCRIBERS`
+(default 20) caps concurrent subscribers. `AUDIT_STREAM_QUEUE_SIZE` (default 100)
+is the per-subscriber queue; a full queue drops that subscriber's newest
+events and logs a warning once.
+
 ### Checking migration status
 
 ```bash
