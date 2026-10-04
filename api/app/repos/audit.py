@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit_events import (
@@ -10,7 +10,7 @@ from app.models.audit_events import (
     AUDIT_DECISION_DENIED,
     AuditEvent,
 )
-from app.repos.common import as_utc, normalize_page, require_text
+from app.repos.common import MAX_PAGE_LIMIT, as_utc, normalize_page, require_text
 
 _DECISIONS = frozenset({AUDIT_DECISION_ALLOWED, AUDIT_DECISION_DENIED})
 
@@ -67,31 +67,111 @@ async def list_events(
     end: datetime | None = None,
     limit: int = 50,
     offset: int = 0,
+    action: str | None = None,
+    api_key_id: str | None = None,
+    key_prefix: str | None = None,
+    newest_first: bool = False,
 ) -> list[AuditEvent]:
-    limit, offset = normalize_page(limit, offset)
-    start_at = _bound(start, field="start")
-    end_at = _bound(end, field="end")
-    if start_at is not None and end_at is not None and start_at > end_at:
-        raise ValueError("start must be earlier than or equal to end")
-
-    statement = select(AuditEvent)
-    if client_id is not None:
-        statement = statement.where(AuditEvent.client_id == client_id)
-    if tool_name is not None:
-        statement = statement.where(AuditEvent.tool_name == tool_name)
-    if decision is not None:
-        statement = statement.where(AuditEvent.decision == _decision(decision))
-    if start_at is not None:
-        statement = statement.where(AuditEvent.created_at >= start_at)
-    if end_at is not None:
-        statement = statement.where(AuditEvent.created_at <= end_at)
-    statement = (
-        statement.order_by(AuditEvent.created_at.asc(), AuditEvent.id.asc())
-        .limit(limit)
-        .offset(offset)
+    # The audit API asks for one extra row to detect the next page. Allow
+    # that single lookahead without raising the public page cap of 100.
+    if (
+        not isinstance(limit, bool)
+        and isinstance(limit, int)
+        and limit == MAX_PAGE_LIMIT + 1
+    ):
+        _, offset = normalize_page(1, offset)
+    else:
+        limit, offset = normalize_page(limit, offset)
+    statement = _filtered(
+        select(AuditEvent),
+        client_id=client_id,
+        tool_name=tool_name,
+        decision=decision,
+        start=start,
+        end=end,
+        action=action,
+        api_key_id=api_key_id,
+        key_prefix=key_prefix,
     )
+    if newest_first:
+        statement = statement.order_by(
+            AuditEvent.created_at.desc(), AuditEvent.id.desc()
+        )
+    else:
+        statement = statement.order_by(AuditEvent.created_at.asc(), AuditEvent.id.asc())
+    statement = statement.limit(limit).offset(offset)
     result = await session.execute(statement)
     return list(result.scalars().all())
+
+
+async def count_events(
+    session: AsyncSession,
+    *,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    decision: str | None = None,
+    action: str | None = None,
+    client_id: str | None = None,
+) -> int:
+    statement = _filtered(
+        select(func.count()).select_from(AuditEvent),
+        client_id=client_id,
+        decision=decision,
+        start=start,
+        end=end,
+        action=action,
+    )
+    result = await session.execute(statement)
+    return int(result.scalar_one())
+
+
+async def delete_events_before(
+    session: AsyncSession,
+    *,
+    cutoff: datetime,
+    batch_size: int = 1000,
+) -> int:
+    """Delete audit rows with ``created_at`` earlier than ``cutoff``.
+
+    This is the only sanctioned delete path (retention). A future Postgres
+    trigger will reject UPDATE/DELETE on audit_events except this flagged
+    DELETE and the FK ON DELETE SET NULL of api_key_id.
+
+    On Postgres the statement runs with ``mcp_guard.audit_retention`` set
+    locally so that trigger can recognize this path. The caller commits.
+    There is no update helper: rows are append-only.
+    """
+
+    if not isinstance(cutoff, datetime):
+        raise TypeError("cutoff must be a datetime")
+    if (
+        isinstance(batch_size, bool)
+        or not isinstance(batch_size, int)
+        or batch_size < 1
+    ):
+        raise ValueError("batch_size must be a positive integer")
+    cutoff_at = as_utc(cutoff)
+
+    bind = session.bind
+    if bind is not None and bind.dialect.name == "postgresql":
+        await session.execute(text("SET LOCAL mcp_guard.audit_retention = 'on'"))
+
+    deleted = 0
+    while True:
+        id_query = (
+            select(AuditEvent.id)
+            .where(AuditEvent.created_at < cutoff_at)
+            .order_by(AuditEvent.id.asc())
+            .limit(batch_size)
+        )
+        id_result = await session.execute(id_query)
+        ids = list(id_result.scalars().all())
+        if not ids:
+            return deleted
+        await session.execute(delete(AuditEvent).where(AuditEvent.id.in_(ids)))
+        deleted += len(ids)
+        if len(ids) < batch_size:
+            return deleted
 
 
 def _decision(decision: str) -> str:
@@ -128,3 +208,43 @@ def _bound(value: datetime | None, *, field: str) -> datetime | None:
     if not isinstance(value, datetime):
         raise TypeError(f"{field} must be a datetime")
     return as_utc(value)
+
+
+def _filtered(
+    statement,
+    *,
+    client_id: str | None = None,
+    tool_name: str | None = None,
+    decision: str | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    action: str | None = None,
+    api_key_id: str | None = None,
+    key_prefix: str | None = None,
+):
+    start_at = _bound(start, field="start")
+    end_at = _bound(end, field="end")
+    if start_at is not None and end_at is not None and start_at > end_at:
+        raise ValueError("start must be earlier than or equal to end")
+
+    action_text = _optional_text(action, field="action", max_length=100)
+    key_id = _optional_text(api_key_id, field="api_key_id", max_length=36)
+    prefix = _optional_text(key_prefix, field="key_prefix", max_length=20)
+
+    if client_id is not None:
+        statement = statement.where(AuditEvent.client_id == client_id)
+    if tool_name is not None:
+        statement = statement.where(AuditEvent.tool_name == tool_name)
+    if decision is not None:
+        statement = statement.where(AuditEvent.decision == _decision(decision))
+    if action_text is not None:
+        statement = statement.where(AuditEvent.action == action_text)
+    if key_id is not None:
+        statement = statement.where(AuditEvent.api_key_id == key_id)
+    if prefix is not None:
+        statement = statement.where(AuditEvent.key_prefix == prefix)
+    if start_at is not None:
+        statement = statement.where(AuditEvent.created_at >= start_at)
+    if end_at is not None:
+        statement = statement.where(AuditEvent.created_at <= end_at)
+    return statement

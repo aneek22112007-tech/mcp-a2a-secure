@@ -18,10 +18,10 @@ Most MCP servers trust whoever can reach them. We wanted a place to enforce who 
 ## How a request flows
 
 <p align="center">
-  <img src="docs/assets/pipeline.svg" alt="Animated diagram of a request moving from an agent through Auth, Scopes, Scanner, Audit and the tool. A valid scoped key reaches the tool (200), a request with no key stops at Auth (401), and a key without the scope stops at Scopes (403). Scanner and Audit are planned." width="100%">
+  <img src="docs/assets/pipeline.svg" alt="Animated diagram of a request moving from an agent through Auth, Scopes, Scanner, Audit and the tool. A valid scoped key reaches the tool (200), a request with no key stops at Auth (401), and a key without the scope stops at Scopes (403). The scanner is planned. Audit records tool calls and auth decisions." width="100%">
 </p>
 
-The diagram loops through three cases. A key with the right scope reaches the tool. A request with no key is stopped at the auth step with a 401. A valid key without the needed scope is stopped at the scope check with a 403. The scanner and audit steps are dashed because they are not built yet.
+The diagram loops through three cases. A key with the right scope reaches the tool. A request with no key is stopped at the auth step with a 401. A valid key without the needed scope is stopped at the scope check with a 403. The scanner step is dashed because it is not built yet. Audit logging is implemented.
 
 ## Architecture
 
@@ -42,7 +42,7 @@ flowchart LR
         SC["Scope check<br/>route-to-scope map"]
         GW["Gateway<br/>allowlist, arg limit, timeout"]
         SCAN["Tool-poisoning scanner<br/>(planned)"]
-        AUD["Audit log + SSE<br/>(planned)"]
+        AUD["Audit log + SSE"]
         RL["Rate limit + metrics<br/>(planned)"]
     end
 
@@ -63,18 +63,18 @@ flowchart LR
     SC -->|"/mcp/ (agent:run)"| MCP
     MCP --> T1
     SC -.-> SCAN
-    SC -.-> AUD
+    SC --> AUD
     SC -.-> RL
     AUTH -.->|"key lookup (#84)"| DB
-    AUD -.-> DB
+    AUD --> DB
 
     classDef built fill:#0f2a2e,stroke:#2dd4bf,color:#e2e8f0
     classDef planned fill:#1e1b3a,stroke:#a78bfa,color:#c4b5fd,stroke-dasharray:5 5
-    class MW,AUTH,SC,GW,MCP,T1,UI,INS,DB built
-    class SCAN,AUD,RL,AG,A2A planned
+    class MW,AUTH,SC,GW,MCP,T1,UI,INS,DB,AUD built
+    class SCAN,RL,AG,A2A planned
 ```
 
-Dashed nodes and edges are planned. REST calls to `/api/notes` go through the gateway. MCP clients talk to the MCP server directly once they pass auth and the `agent:run` scope check.
+Dashed nodes and edges are planned. REST calls to `/api/notes` go through the gateway. MCP clients talk to the MCP server directly once they pass auth and the `agent:run` scope check. Audit rows are written for auth decisions and tool calls.
 
 ### Request sequence
 
@@ -116,6 +116,7 @@ On `main` today:
 - **HTTP hardening.** Request IDs on every response and log line, a request body size limit, security headers with a strict CSP, a CORS allowlist, and API docs disabled outside development.
 - **Status endpoint.** `/api/status` does a real MCP handshake against the server and reports latency, protocol version and tools.
 - **Database layer.** SQLAlchemy 2 (async) with Alembic migrations and repositories. Tables exist for clients, API keys, audit events and sandbox runs. SQLite is used in development.
+- **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Successful tool calls and MCP `tools/call` are fail-closed. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
 - **Frontend.** React 19, Vite and Tailwind. The Server Status view at `/dashboard-v2` reads `/api/status`. The other dashboard panels still use mock data.
 
 ## Status
@@ -126,7 +127,6 @@ In progress:
 
 Planned for v1.0 (target 31 October 2026):
 
-- Audit log for every allow and deny decision, an audit API, and server-sent events for the dashboard.
 - Rate limiting, metrics and audit retention.
 - A sandbox runner for tool execution.
 - Tool schema fingerprinting and pinning, so a changed tool definition is held until someone approves it again.
@@ -212,6 +212,8 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `GET` | `/api/notes/{name}` | `notes:read` | Read a note |
 | `PUT` | `/api/notes/{name}` | `notes:write` | Create or overwrite a note. Body `{"content": "..."}`, up to 100 KiB |
 | `POST`, `GET`, `DELETE` | `/mcp/` | `agent:run` | MCP Streamable HTTP (`initialize`, `tools/list`, `tools/call`) |
+| `GET` | `/api/audit` | `audit:read` | Audit events, newest first |
+| `GET` | `/api/audit/stream` | `audit:read` | Live SSE stream of audit events. The key is sent only in the `Authorization` header |
 | `GET` | `/docs`, `/redoc`, `/openapi.json` | public, dev only | Disabled outside development |
 
 `/api/keys` (admin only) comes with [#84](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/84). Gateway errors map to 400 (bad arguments), 404 (unknown tool or note), 413 (too large) and 504 (tool timeout).
@@ -223,7 +225,7 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `notes:read` | Listing and reading notes |
 | `notes:write` | Creating and overwriting notes |
 | `agent:run` | Everything under `/mcp/` |
-| `audit:read` | Reserved for the planned audit API |
+| `audit:read` | `GET /api/audit` and `GET /api/audit/stream` |
 | `admin` | Passes every scope check |
 
 The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.py).
@@ -244,6 +246,8 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `NOTES_DIR` | `api/data/notes` | Where notes are stored as `.md` files |
 | `MAX_BODY_BYTES` | `1048576` | Request body limit (1 MiB) |
 | `TOOL_TIMEOUT_S` | `5` | Gateway tool timeout in seconds |
+| `AUDIT_STREAM_MAX_SUBSCRIBERS` | `20` | Concurrent subscribers on `GET /api/audit/stream` |
+| `AUDIT_STREAM_QUEUE_SIZE` | `100` | Per-subscriber SSE queue. A full queue drops events for that subscriber |
 
 The frontend reads `VITE_MCP_GUARD_API_URL` (default `http://localhost:8000`). Don't commit `.env` files or real keys; `.env` is in `.gitignore`.
 

@@ -14,6 +14,8 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("GET", "/api/notes"): NOTES_READ,
     ("GET", "/api/notes/{name}"): NOTES_READ,
     ("PUT", "/api/notes/{name}"): NOTES_WRITE,
+    ("GET", "/api/audit"): AUDIT_READ,
+    ("GET", "/api/audit/stream"): AUDIT_READ,
     ("GET", "/api/status"): None,
     ("GET", "/api/mcp/info"): None,
     ("GET", "/health"): None,

@@ -2,13 +2,15 @@
 
 Every REST route that invokes an MCP tool must call ``call_tool`` here.
 Direct access to the underlying tool functions from route handlers is
-intentionally avoided so that future cross-cutting concerns can be inserted
-in a single place without modifying individual routes.
+intentionally avoided so that cross-cutting concerns stay in one place.
 
-Day-3 hook:  Authorization is enforced at the route layer. The ``actor``
-             parameter carries the authenticated identity for A3 audit attribution.
-Day-4 hook:  Add audit persistence inside ``call_tool`` after ``_dispatch``
-             returns (both allowed and denied attempts should be recorded).
+Authentication runs at the route layer and on ``/mcp``. ``actor`` is the
+authenticated principal and is copied onto the audit row.
+
+``call_tool`` writes exactly one ``tool.call`` audit row. The success path
+is fail-closed: the tool result is returned only after that row is stored.
+Allowlist rejections, argument rejections, and tool errors are recorded
+best-effort, then the original HTTP error is re-raised.
 """
 
 from __future__ import annotations
@@ -22,7 +24,18 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
+from app.audit.events import (
+    ACTION_TOOL_CALL,
+    STATUS_DENIED,
+    STATUS_ERROR,
+    STATUS_OK,
+    AuditRecord,
+)
+from app.audit.redaction import args_fingerprint, current_request_id, safe_tool_name
+from app.audit.sink import AuditUnavailableError, record_event
 from app.config import settings
+from app.errors import _ERROR_CODES
+from app.models.audit_events import AUDIT_DECISION_ALLOWED, AUDIT_DECISION_DENIED
 
 if TYPE_CHECKING:
     from app.auth import Principal
@@ -88,8 +101,7 @@ async def call_tool(
     name: str,
     args: dict[str, Any],
     *,
-    actor: Principal
-    | None = None,  # Day-3 hook: authorization is enforced at the route layer. Carries identity for A3 audit attribution.
+    actor: Principal | None = None,
 ) -> dict[str, Any]:
     """Invoke an MCP tool through the centralized gateway.
 
@@ -100,8 +112,8 @@ async def call_tool(
     args:
         Keyword arguments forwarded to the tool.
     actor:
-        Reserved for Day-3 authentication.  Pass the authenticated user or
-        agent identity so that authorization and audit hooks can use it.
+        Authenticated principal. Authorization is enforced at the route
+        layer; this value is copied onto the audit row.
 
     Returns
     -------
@@ -118,131 +130,194 @@ async def call_tool(
     HTTPException 400  – invalid arguments rejected by the tool
     HTTPException 500  – unexpected internal failure (detail is generic;
                          original exception is logged to stderr, not leaked)
+    HTTPException 503  – the success audit row could not be stored
     """
-    # ------------------------------------------------------------------
-    # 1. Tool allowlist check
-    # ------------------------------------------------------------------
-    if name not in ALLOWED_TOOLS:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Tool '{name}' is not registered in the gateway.",
-        )
+    started = time.monotonic()
+    audit_base = {
+        "action": ACTION_TOOL_CALL,
+        "tool_name": safe_tool_name(name),
+        "args_hash": args_fingerprint(args),
+        "request_id": current_request_id(),
+        **AuditRecord.actor_fields(actor),
+    }
+    denial_reason: str | None = None
+    result_raw: Any = None
+    duration_ms = 0.0
 
-    # ------------------------------------------------------------------
-    # 2. Argument size guard
-    #    Use deterministic JSON serialisation (sorted keys, no trailing
-    #    whitespace) so the byte count is stable and reproducible.
-    # ------------------------------------------------------------------
     try:
-        # ensure_ascii=False: non-ASCII chars must not be escape-expanded
-        # before byte-counting, or a 24 KiB Cyrillic note would be counted
-        # as ~72 KiB of \uXXXX sequences and rejected incorrectly.
-        serialised = json.dumps(
-            args, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        )
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Arguments cannot be serialised: {exc}",
-        ) from exc
+        # ------------------------------------------------------------------
+        # 1. Tool allowlist check
+        # ------------------------------------------------------------------
+        if name not in ALLOWED_TOOLS:
+            denial_reason = "tool_not_allowed"
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tool '{name}' is not registered in the gateway.",
+            )
 
-    payload_bytes = serialised.encode()
-    if len(payload_bytes) > MAX_ARG_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=(
-                f"Arguments exceed the {MAX_ARG_BYTES // 1024} KiB gateway limit "
-                f"({len(payload_bytes)} bytes received)."
-            ),
-        )
+        # ------------------------------------------------------------------
+        # 2. Argument size guard
+        #    Use deterministic JSON serialisation (sorted keys, no trailing
+        #    whitespace) so the byte count is stable and reproducible.
+        # ------------------------------------------------------------------
+        try:
+            # ensure_ascii=False: non-ASCII chars must not be escape-expanded
+            # before byte-counting, or a 24 KiB Cyrillic note would be counted
+            # as ~72 KiB of \uXXXX sequences and rejected incorrectly.
+            serialised = json.dumps(
+                args, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            )
+        except (TypeError, ValueError) as exc:
+            denial_reason = "args_unserialisable"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Arguments cannot be serialised: {exc}",
+            ) from exc
 
-    # ------------------------------------------------------------------
-    # Day-3 hook: authorization / scope check
-    # ------------------------------------------------------------------
-    # Example: await _authorize(actor=actor, tool=name)
-    # A denied authorization should raise HTTPException(403).
+        payload_bytes = serialised.encode()
+        if len(payload_bytes) > MAX_ARG_BYTES:
+            denial_reason = "args_too_large"
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Arguments exceed the {MAX_ARG_BYTES // 1024} KiB gateway limit "
+                    f"({len(payload_bytes)} bytes received)."
+                ),
+            )
 
-    # ------------------------------------------------------------------
-    # 3. Execute with timeout
-    # ------------------------------------------------------------------
-    # Read on each call so tests can monkeypatch settings.tool_timeout_s.
-    timeout_s = settings.tool_timeout_s
-    t0 = time.monotonic()
-    try:
-        result_raw = await asyncio.wait_for(
-            _dispatch(name, args),
-            timeout=timeout_s,
-        )
-    except TimeoutError:
-        raise HTTPException(
-            status_code=504,
-            detail=(f"Tool '{name}' did not complete within {timeout_s:g} seconds."),
-        )
-    except ToolError as exc:
-        # The MCP SDK wraps tool-raised exceptions in ToolError.
-        # Inspect the original cause to map to the right HTTP status.
-        cause = exc.__cause__
-        msg = str(exc)
+        denial_reason = None
 
-        if isinstance(cause, FileNotFoundError) or "No such file" in msg:
-            raise HTTPException(status_code=404, detail="Note not found.") from exc
+        # ------------------------------------------------------------------
+        # 3. Execute with timeout
+        # ------------------------------------------------------------------
+        # Read on each call so tests can monkeypatch settings.tool_timeout_s.
+        timeout_s = settings.tool_timeout_s
+        t0 = time.monotonic()
+        try:
+            result_raw = await asyncio.wait_for(
+                _dispatch(name, args),
+                timeout=timeout_s,
+            )
+        except TimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail=(
+                    f"Tool '{name}' did not complete within {timeout_s:g} seconds."
+                ),
+            )
+        except ToolError as exc:
+            # The MCP SDK wraps tool-raised exceptions in ToolError.
+            # Inspect the original cause to map to the right HTTP status.
+            cause = exc.__cause__
+            msg = str(exc)
 
-        # OS-level errors (PermissionError, IsADirectoryError, etc.) must
-        # never leak filesystem paths to the client.  Log the details and
-        # return a generic 500.
-        if (
-            isinstance(cause, OSError)
-            or "Errno" in msg
-            or "Permission denied" in msg
-            or "Is a directory" in msg
-        ):
-            logger.exception("[gateway] OS error in tool %r", name)
+            if isinstance(cause, FileNotFoundError) or "No such file" in msg:
+                raise HTTPException(status_code=404, detail="Note not found.") from exc
+
+            # OS-level errors (PermissionError, IsADirectoryError, etc.) must
+            # never leak filesystem paths to the client.  Log the details and
+            # return a generic 500.
+            if (
+                isinstance(cause, OSError)
+                or "Errno" in msg
+                or "Permission denied" in msg
+                or "Is a directory" in msg
+            ):
+                logger.exception("[gateway] OS error in tool %r", name)
+                raise HTTPException(
+                    status_code=500, detail="Internal tool error."
+                ) from exc
+
+            if isinstance(cause, ValueError):
+                raise HTTPException(status_code=400, detail=str(cause)) from exc
+
+            # Other ToolError that looks like validation.
+            if "invalid note name" in msg:
+                match = re.search(r"invalid note name: [^\n\r]+", msg)
+                detail = match.group(0) if match else "invalid note name"
+                raise HTTPException(status_code=400, detail=detail) from exc
+
+            logger.exception("[gateway] Unhandled tool error in tool %r", name)
             raise HTTPException(status_code=500, detail="Internal tool error.") from exc
 
-        if isinstance(cause, ValueError):
-            raise HTTPException(status_code=400, detail=str(cause)) from exc
+        except (ValueError, TypeError, KeyError) as exc:
+            # Tool-level validation errors that escape ToolError wrapping.
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Note not found.") from exc
+        except OSError as exc:
+            # Filesystem errors outside ToolError (e.g. bare read_text failures).
+            logger.exception("[gateway] OS error in tool %r", name)
+            raise HTTPException(status_code=500, detail="Internal tool error.") from exc
+        except Exception as exc:
+            # Unexpected failures: log internally, return a generic 500 so that
+            # tracebacks, filesystem paths, and internal details are never leaked.
+            logger.exception("[gateway] unhandled error in tool %r", name)
+            raise HTTPException(
+                status_code=500,
+                detail="An internal error occurred.",
+            ) from exc
 
-        # Other ToolError that looks like validation.
-        if "invalid note name" in msg:
-            match = re.search(r"invalid note name: [^\n\r]+", msg)
-            detail = match.group(0) if match else "invalid note name"
-            raise HTTPException(status_code=400, detail=detail) from exc
+        duration_ms = round((time.monotonic() - t0) * 1000, 2)
+        result_raw = _normalise(result_raw)
+    except HTTPException as exc:
+        await _write_tool_audit(
+            audit_base,
+            decision=(
+                AUDIT_DECISION_DENIED
+                if denial_reason is not None
+                else AUDIT_DECISION_ALLOWED
+            ),
+            status=STATUS_DENIED if denial_reason is not None else STATUS_ERROR,
+            started=started,
+            required=False,
+            reason=denial_reason,
+            status_code=exc.status_code,
+            error_code=_ERROR_CODES.get(exc.status_code, "HTTP_ERROR"),
+        )
+        raise
 
-        logger.exception("[gateway] Unhandled tool error in tool %r", name)
-        raise HTTPException(status_code=500, detail="Internal tool error.") from exc
+    await _write_tool_audit(
+        audit_base,
+        decision=AUDIT_DECISION_ALLOWED,
+        status=STATUS_OK,
+        started=started,
+        required=True,
+        status_code=200,
+    )
+    return {"ok": True, "result": result_raw, "duration_ms": duration_ms}
 
-    except (ValueError, TypeError, KeyError) as exc:
-        # Tool-level validation errors that escape ToolError wrapping.
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Note not found.") from exc
-    except OSError as exc:
-        # Filesystem errors outside ToolError (e.g. bare read_text failures).
-        logger.exception("[gateway] OS error in tool %r", name)
-        raise HTTPException(status_code=500, detail="Internal tool error.") from exc
-    except Exception as exc:
-        # Unexpected failures: log internally, return a generic 500 so that
-        # tracebacks, filesystem paths, and internal details are never leaked.
-        logger.exception("[gateway] unhandled error in tool %r", name)
-        raise HTTPException(
-            status_code=500,
-            detail="An internal error occurred.",
-        ) from exc
 
-    duration_ms = round((time.monotonic() - t0) * 1000, 2)
+async def _write_tool_audit(
+    audit_base: dict[str, Any],
+    *,
+    decision: str,
+    status: str,
+    started: float,
+    required: bool,
+    reason: str | None = None,
+    status_code: int | None = None,
+    error_code: str | None = None,
+) -> None:
+    """Write the single tool.call row for this invocation."""
 
-    # ------------------------------------------------------------------
-    # Day-4 hook: audit logging
-    # ------------------------------------------------------------------
-    # Example: await _audit(actor=actor, tool=name, args=args,
-    #                        result=result_raw, duration_ms=duration_ms)
-
-    # ------------------------------------------------------------------
-    # 4. Normalise result to a JSON-serialisable plain type
-    # ------------------------------------------------------------------
-    result = _normalise(result_raw)
-
-    return {"ok": True, "result": result, "duration_ms": duration_ms}
+    duration_ms = round((time.monotonic() - started) * 1000, 2)
+    record = AuditRecord(
+        decision=decision,
+        status=status,
+        reason=reason,
+        status_code=status_code,
+        error_code=error_code,
+        duration_ms=duration_ms if duration_ms >= 0 else 0.0,
+        **audit_base,
+    )
+    if not required:
+        await record_event(record, required=False)
+        return
+    try:
+        await record_event(record, required=True)
+    except AuditUnavailableError:
+        raise HTTPException(status_code=503, detail="Audit log unavailable.") from None
 
 
 # ---------------------------------------------------------------------------

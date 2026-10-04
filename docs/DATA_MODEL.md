@@ -66,7 +66,7 @@ erDiagram
 
 - **clients**: Represents an integrated system or human actor.
 - **api_keys**: Hashed access credentials tied to a client. Uses a prefix for identification and a JSON list for `scopes`.
-- **audit_events**: Immutable ledger of access decisions and tool executions. Contains performance metrics (`duration_ms`) and failure insights.
+- **audit_events**: Immutable ledger of access decisions and tool executions. Contains performance metrics (`duration_ms`) and failure insights. The table is append-only. The ORM rejects updates and deletes now. A Postgres trigger that rejects UPDATE/DELETE, except the retention delete and `api_key_id` ON DELETE SET NULL, is planned. The only sanctioned delete path is `app.repos.audit.delete_events_before`, used for retention.
 - **sandbox_runs**: Tracks the execution lifecycle of sandboxed processes initiated by a client.
 
 All `datetime` columns are stored as naive UTC in SQLite and read back as timezone-aware UTC objects via the `UTCDateTime` custom type.

@@ -1,9 +1,11 @@
 """MCP Guard — FastAPI application entry point.
 
 Mounts:
-  - REST router: status endpoints (from PR #76)
-  - REST router: notes endpoints (Day 1)
-  - MCP streamable-HTTP transport at /mcp/ (Day 2 Auth)
+  - REST router: status endpoints
+  - REST router: notes endpoints
+  - REST router: API keys
+  - REST router: audit log and live SSE stream
+  - MCP streamable-HTTP transport at /mcp/
 """
 
 import time
@@ -13,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp
 
+from app.audit.mcp_asgi import McpToolAuditMiddleware
 from app.auth import McpBearerAuthMiddleware
 from app.auth.scopes import check_route_scope_coverage
 from app.auth.verifier import (
@@ -30,6 +33,7 @@ from app.middleware import (
     install_request_id_logging,
 )
 from app.routes.api_keys import router as api_keys_router
+from app.routes.audit import router as audit_router
 from app.routes.notes import router as notes_router
 from app.routes.status import router as status_router
 from app.services.api_keys import HmacApiKeyVerifier
@@ -90,6 +94,8 @@ app.include_router(notes_router)
 
 app.include_router(api_keys_router)
 
+app.include_router(audit_router)
+
 
 @app.get("/health")
 def health():
@@ -97,7 +103,10 @@ def health():
 
 
 # MCP streamable-HTTP transport — Inspector and A2A workers connect here
-app.mount("/mcp", McpBearerAuthMiddleware(mcp.streamable_http_app()))
+app.mount(
+    "/mcp",
+    McpBearerAuthMiddleware(McpToolAuditMiddleware(mcp.streamable_http_app())),
+)
 
 # Must be called after every route and mount is registered so the allowlist
 # check catches unmapped routes at import time, not at first request.

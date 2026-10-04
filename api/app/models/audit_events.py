@@ -1,7 +1,16 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    CheckConstraint,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    event,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, utc_now
@@ -54,3 +63,14 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, nullable=False, index=True
     )
+
+
+def _reject_audit_mutation(mapper, connection, target) -> None:
+    # ORM sessions cannot update or delete rows. Core deletes used by
+    # repos.audit.delete_events_before do not fire these events.
+    del mapper, connection, target
+    raise RuntimeError("audit_events is append-only")
+
+
+event.listen(AuditEvent, "before_update", _reject_audit_mutation)
+event.listen(AuditEvent, "before_delete", _reject_audit_mutation)
