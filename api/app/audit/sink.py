@@ -3,11 +3,15 @@
 POLICY
 ------
 - REQUIRED (fail-closed): ``tool.call`` and ``mcp.tools_call``. No tool output
-  is returned and no MCP tool executes without a persisted row. For
-  ``tool.call``, that requirement applies to the success path: the result is
-  returned only after the row commits. Allowlist rejection, argument
+  is returned without a persisted row. Allowlist rejection, argument
   rejection, and tool errors are best-effort so the original HTTP error is
   not replaced by an audit failure.
+- REST ``call_tool`` executes the tool before the required ``tool.call`` row
+  is written. A 503 ``Audit log unavailable.`` on a mutating REST call
+  (``PUT /api/notes/{name}``) means the write may already have happened
+  without an audit row.
+- MCP ``tools/call`` is audited before forwarding, so the MCP tool does not
+  run without a row.
 - BEST-EFFORT (fail-open, logged + ``on_write_failure``): ``auth.allow`` and
   ``auth.deny``. A denial must keep its real 401/403 response; never turn it
   into a 500.

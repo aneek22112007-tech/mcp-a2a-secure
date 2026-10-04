@@ -98,7 +98,7 @@
 
 | Threat | Component | Current Mitigation | Evidence | Gap |
 |--------|-----------|-------------------|----------|-----|
-| Unattributed tool call | Gateway, auth, `/mcp` | Every `call_tool` writes one `tool.call` row. Auth allow/deny is recorded best-effort. MCP `tools/call` writes `mcp.tools_call` before the tool runs. Arguments are stored only as a sha256 fingerprint. | `api/app/gateway.py`, `api/app/audit/`, `api/app/auth/dependencies.py`, `api/app/auth/mcp_asgi.py` | Covered for attribution. Raw keys, header values, argument values, and exception text are not stored. |
+| Unattributed tool call | Gateway, auth, `/mcp` | Every `call_tool` writes one `tool.call` row after the tool runs. Auth allow/deny is recorded best-effort. MCP `tools/call` writes `mcp.tools_call` before the tool runs. Arguments are stored only as a sha256 fingerprint. | `api/app/gateway.py`, `api/app/audit/`, `api/app/auth/dependencies.py`, `api/app/auth/mcp_asgi.py` | REST `call_tool` executes the tool before the required `tool.call` row is written. A 503 `Audit log unavailable.` on a mutating REST call (`PUT /api/notes/{name}`) means the write may already have happened without an audit row. MCP `tools/call` is audited before forwarding, so the MCP tool does not run without a row. Residual risk: REST writes during an audit outage are not attributed. Raw keys, header values, argument values, and exception text are not stored. |
 | Log tampering | Server logs | Logs go to stderr/stdout; no structured audit store yet | `log_config.json` | Gap: no tamper-evident log storage. |
 
 ### Information Disclosure
@@ -167,11 +167,11 @@
 
 | Field | Detail |
 |-------|--------|
-| **Scenario** | A tool call or auth decision needs to be attributed after the fact. Successful `tool.call` and every MCP `tools/call` are fail-closed: the result is not returned, and the MCP tool does not run, unless the audit row is stored. `auth.allow` and `auth.deny` are fail-open so a real 401/403 is not turned into a 500. |
+| **Scenario** | A tool call or auth decision needs to be attributed after the fact. REST `call_tool` executes the tool before the required `tool.call` row is written, so a 503 `Audit log unavailable.` on a mutating REST call (`PUT /api/notes/{name}`) means the write may already have happened without an audit row. MCP `tools/call` is audited before forwarding, so the MCP tool does not run without a row. `auth.allow` and `auth.deny` are fail-open so a real 401/403 is not turned into a 500. |
 | **Likelihood** | Medium (a database outage drops best-effort auth rows; tool success fails closed with 503) |
 | **Impact** | Medium — a missed auth row weakens investigation; a failed tool audit blocks the call instead of hiding it |
 | **Existing mitigation** | `audit_events` is written from the gateway, REST auth, and `/mcp`. Rows store the principal ids, key prefix, route template or constant reason, tool name, and args sha256. ORM `before_update` / `before_delete` reject mutation. `GET /api/audit` and `GET /api/audit/stream` expose the rows to `audit:read`. |
-| **Residual risk** | Medium — auth rows can be missing if the write fails; the Postgres append-only trigger is not installed yet; the SSE stream is single-process |
+| **Residual risk** | Medium — REST writes during an audit outage are not attributed; auth rows can be missing if the write fails; the Postgres append-only trigger is not installed yet; the SSE stream is single-process |
 | **Next action** | Add the Postgres trigger that rejects UPDATE/DELETE except `repos.audit.delete_events_before` (retention) and `api_key_id` ON DELETE SET NULL. Retention itself is separate work. |
 | **Source files** | `api/app/audit/sink.py`, `api/app/gateway.py`, `api/app/models/audit_events.py`, `api/app/repos/audit.py` |
 

@@ -9,6 +9,11 @@ authenticated principal and is copied onto the audit row.
 
 ``call_tool`` writes exactly one ``tool.call`` audit row. The success path
 is fail-closed: the tool result is returned only after that row is stored.
+REST ``call_tool`` executes the tool before the required ``tool.call`` row
+is written, so a 503 ``Audit log unavailable.`` on a mutating REST call
+(``PUT /api/notes/{name}``) means the write may already have happened
+without an audit row. MCP ``tools/call`` is audited before forwarding, so
+the MCP tool does not run without a row.
 Allowlist rejections, argument rejections, and tool errors are recorded
 best-effort, then the original HTTP error is re-raised.
 """

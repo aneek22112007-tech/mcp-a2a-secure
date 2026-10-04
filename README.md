@@ -214,9 +214,12 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `POST`, `GET`, `DELETE` | `/mcp/` | `agent:run` | MCP Streamable HTTP (`initialize`, `tools/list`, `tools/call`) |
 | `GET` | `/api/audit` | `audit:read` | Audit events, newest first |
 | `GET` | `/api/audit/stream` | `audit:read` | Live SSE stream of audit events. The key is sent only in the `Authorization` header |
+| `POST` | `/api/keys` | `admin` | Create an API key. The raw key is returned once |
+| `GET` | `/api/keys` | `admin` | List keys for a client (`client_id` query parameter) |
+| `DELETE` | `/api/keys/{key_id}` | `admin` | Revoke a key |
 | `GET` | `/docs`, `/redoc`, `/openapi.json` | public, dev only | Disabled outside development |
 
-`/api/keys` (admin only) comes with [#84](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/84). Gateway errors map to 400 (bad arguments), 404 (unknown tool or note), 413 (too large) and 504 (tool timeout).
+Gateway errors map to 400 (bad arguments), 404 (unknown tool or note), 413 (too large) and 504 (tool timeout).
 
 ### Scopes
 
