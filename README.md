@@ -606,20 +606,24 @@ mcp-a2a-secure/
 
 ## 🗺️ Roadmap
 
-**October 2026 · 12 blocks · v1.0 target: 31 Oct 2026**  ✅ done · 🚧 in progress · ⏳ planned
+**3–31 October 2026 · 12 blocks · v1.0 on 31 Oct 2026**  ✅ done · 🚧 in progress · ⏳ planned
 
-- [x] ✅ **Block 1 · MCP server.** Notes MCP server on the official SDK with a path-traversal guard ([#74](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/74))
-- [x] ✅ **Block 2 · MCP over HTTP.** `/mcp/` Streamable HTTP mount, MCP client and live status handshake ([#75](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/75), [#76](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/76))
-- [x] ✅ **Block 3 · Gateway.** Central gateway, notes REST API, HTTP hardening ([#77](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/77), [#78](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/78))
-- [x] ✅ **Block 4 · Data layer.** SQLAlchemy async models, Alembic migrations, repositories, integrity fixes ([#79](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/79), [#80](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/80), [#82](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/82))
-- [x] ✅ **Block 5 · Errors & docs.** Error envelope, request-ID logging, threat model and runbook ([#81](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/81))
-- [x] ✅ **Block 6 · Auth enforcement.** Bearer keys, scopes, fail-closed verifier, uniform 401/403 ([#83](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/83))
-- [ ] 🚧 **Block 7 · API keys.** HMAC-hashed keys, admin key routes, bootstrap admin key ([#84](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/84))
-- [ ] ⏳ **Block 8 · Audit.** Audit log on every allow/deny, plus SSE live events in the dashboard
-- [ ] ⏳ **Block 9 · Operations.** Rate limiting, metrics and audit retention
-- [ ] ⏳ **Block 10 · Tool integrity.** Sandbox runner, tool fingerprinting and pinning, rule-based + AI tool-poisoning scanner
-- [ ] ⏳ **Block 11 · GenAI agent.** LangChain + LangGraph agent (`LLMBackend`: ChatOllama → ChatGroq), tools via `langchain-mcp-adapters` through `/mcp/`, prompt-injection guard, AI explanations, AI security analyst
-- [ ] ⏳ **Block 12 · A2A & ship.** A2A manager/worker LangGraph agents, Docker Compose with Postgres 16, **v1.0**
+<sub>Most blocks run two tasks in parallel, separated by <b>·</b>.</sub>
+
+- [x] ✅ **Block 1 · 3–4 Oct · Foundations.** A1 quality fixes, docs and threat model ([#81](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/81)) · P1 database foundation ([#82](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/82))
+- [ ] 🚧 **Block 2 · 5–7 Oct · Auth & API keys.**
+  - [x] ✅ A2 auth enforcement: principal, scope map, `/mcp/` ASGI auth ([#83](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/83), merged)
+  - [ ] 🚧 P2 `mcpg_` API keys with HMAC + pepper, key service, admin key script, `/api/keys` ([#84](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/84))
+- [ ] ⏳ **Block 3 · 8–10 Oct · Audit & operations.** Audit log, `/api/audit`, server-sent events · rate limiting, metrics, retention
+- [ ] ⏳ **Block 4 · 11–12 Oct · Hardening.** Hardening and attack-resistance pass
+- [ ] ⏳ **Block 5 · 13–15 Oct · Sandbox.** `SandboxRunner` / sandbox worker and wiring
+- [ ] ⏳ **Block 6 · 16–17 Oct · Tool integrity.** Tool fingerprinting and pinning · rule-based tool-poisoning scanner
+- [ ] ⏳ **Block 7 · 18–20 Oct · GenAI starts.** `LLMBackend` (ChatOllama primary, ChatGroq fallback) + LangGraph agent, `/api/agent/chat` · `llm_calls` table, prompt-injection guard, GenAI design doc
+- [ ] ⏳ **Block 8 · 21–22 Oct · AI security.** AI explanations of schema tampering + AI security analyst · AI tool-poisoning scanner
+- [ ] ⏳ **Block 9 · 23–24 Oct · A2A.** A2A manager agent · A2A worker agents and endpoints
+- [ ] ⏳ **Block 10 · 25–27 Oct · Live dashboard.** Shared block: the live dashboard, built by both tracks together
+- [ ] ⏳ **Block 11 · 28–29 Oct · Full stack.** Docker Compose with PostgreSQL 16 · end-to-end run, Groq fallback check
+- [ ] ⏳ **Block 12 · 30–31 Oct · Release.** Docs, slides, demo video, tag **v1.0** 🎉
 
 ---
 
