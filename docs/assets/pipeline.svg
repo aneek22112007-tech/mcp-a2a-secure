@@ -22,9 +22,9 @@ text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",mo
 <rect width="960" height="300" rx="18" fill="url(#bg)"/>
 <rect x="1" y="1" width="958" height="298" rx="17" fill="none" stroke="#1e293b"/>
 <text x="28" y="38" class="lbl" style="fill:#22d3ee">MCP GUARD · REQUEST PIPELINE</text>
-<text x="932" y="38" text-anchor="end" class="cap" style="fill:#34d399" opacity="1">① valid key · scope agent:run<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="1;1;0;0;1" keyTimes="0;0.3233;0.3333;0.999;1"/></text>
-<text x="932" y="38" text-anchor="end" class="cap" style="fill:#f87171" opacity="0">② no Authorization header<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.3323;0.3333;0.6567;0.6667;1"/></text>
-<text x="932" y="38" text-anchor="end" class="cap" style="fill:#fbbf24" opacity="0">③ key without the needed scope<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1" keyTimes="0;0.6657;0.6667;1"/></text>
+<text x="932" y="38" text-anchor="end" class="cap" style="fill:#34d399" opacity="1">case 1: valid key with agent:run<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="1;1;0;0;1" keyTimes="0;0.3233;0.3333;0.999;1"/></text>
+<text x="932" y="38" text-anchor="end" class="cap" style="fill:#f87171" opacity="0">case 2: no Authorization header<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.3323;0.3333;0.6567;0.6667;1"/></text>
+<text x="932" y="38" text-anchor="end" class="cap" style="fill:#fbbf24" opacity="0">case 3: key without the needed scope<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1" keyTimes="0;0.6657;0.6667;1"/></text>
 <rect x="20" y="104" width="64" height="48" rx="12" fill="#0f172a" stroke="#334155"/>
 <text x="52" y="133" text-anchor="middle" class="lbl" style="font-size:12px">AGENT</text>
 <line x1="84" y1="128" x2="772.0" y2="128" stroke="#1e293b" stroke-width="6" stroke-linecap="round"/>
@@ -34,7 +34,7 @@ text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",mo
 <text x="190" y="187.0" text-anchor="middle" class="sub">Bearer mcpg_ key</text>
 <rect x="286.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#2dd4bf" stroke-width="1.5"/>
 <text x="352" y="134" text-anchor="middle" class="lbl">SCOPES</text>
-<text x="352" y="187.0" text-anchor="middle" class="sub">route → scope map</text>
+<text x="352" y="187.0" text-anchor="middle" class="sub">route-to-scope map</text>
 <rect x="448.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 5"/>
 <text x="514" y="134" text-anchor="middle" class="lbl" style="fill:#94a3b8">SCANNER</text>
 <text x="514" y="187.0" text-anchor="middle" class="sub">tool-poisoning rules</text>
