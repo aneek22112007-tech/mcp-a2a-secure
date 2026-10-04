@@ -397,7 +397,7 @@ Also built: a `Content-Length` sanity check and streaming body cap (`413`), CSP 
 
 <br>
 
-**Prerequisites:** Python 3.11+, [uv](https://docs.astral.sh/uv/), Node 20+.
+**Prerequisites:** Python 3.11+, [uv](https://docs.astral.sh/uv/), Node 20.19+ or 22.12+ (required by Vite 8).
 
 ```bash
 git clone https://github.com/aneek22112007-tech/mcp-a2a-secure.git
