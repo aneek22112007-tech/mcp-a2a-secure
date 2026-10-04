@@ -15,7 +15,8 @@ from app.audit.redaction import args_fingerprint, current_request_id, safe_tool_
 from app.audit.sink import AuditUnavailableError, record_event
 from app.auth.principal import Principal
 from app.middleware import _send_error
-from app.models.audit_events import AUDIT_DECISION_ALLOWED
+from app.models.audit_events import AUDIT_DECISION_ALLOWED, AUDIT_DECISION_DENIED
+from app.rate_limit import limiter
 
 
 class McpToolAuditMiddleware:
@@ -68,7 +69,64 @@ class McpToolAuditMiddleware:
 async def _audit_tools_calls(scope: Scope, buffered: list[Message], send: Send) -> bool:
     """Record tools/call rows. Return False when the response was already sent."""
 
-    for call in _tools_calls(scope, buffered):
+    calls = _tools_calls(scope, buffered)
+    if not calls:
+        return True
+
+    principal = scope.get("mcp_guard.principal")
+    key_id = (
+        principal.api_key_id
+        if isinstance(principal, Principal) and principal.api_key_id
+        else "anonymous"
+    )
+
+    for call in calls:
+        allowed, retry_after = limiter.acquire(key_id)
+        if not allowed:
+            params = call.get("params")
+            if not isinstance(params, dict):
+                params = {}
+            record = _tools_call_record(scope, params)
+            record = AuditRecord(
+                action=record.action,
+                decision=AUDIT_DECISION_DENIED,
+                status="denied",
+                reason="rate_limit_exceeded",
+                status_code=429,
+                error_code="TOO_MANY_REQUESTS",
+                client_id=record.client_id,
+                api_key_id=record.api_key_id,
+                key_prefix=record.key_prefix,
+                request_id=record.request_id,
+                tool_name=record.tool_name,
+                args_hash=record.args_hash,
+            )
+            try:
+                await record_event(record, required=True)
+            except AuditUnavailableError:
+                # The 503 is skipped to send the 429, or we send 503 if required?
+                # Let's send 503 if audit fails, since it is required.
+                await _send_error(
+                    send,
+                    None,
+                    503,
+                    "SERVICE_UNAVAILABLE",
+                    "Audit log unavailable.",
+                )
+                return False
+
+            await _send_error(
+                send,
+                None,
+                429,
+                "TOO_MANY_REQUESTS",
+                "Too Many Requests",
+                extra_headers=[
+                    (b"retry-after", str(int(retry_after) + 1).encode("ascii"))
+                ],
+            )
+            return False
+
         params = call.get("params")
         if not isinstance(params, dict):
             params = {}

@@ -41,6 +41,7 @@ from app.audit.sink import AuditUnavailableError, record_event
 from app.config import settings
 from app.errors import _ERROR_CODES
 from app.models.audit_events import AUDIT_DECISION_ALLOWED, AUDIT_DECISION_DENIED
+from app.rate_limit import limiter
 
 if TYPE_CHECKING:
     from app.auth import Principal
@@ -151,7 +152,20 @@ async def call_tool(
 
     try:
         # ------------------------------------------------------------------
-        # 1. Tool allowlist check
+        # 1. Rate Limit check
+        # ------------------------------------------------------------------
+        key_id = actor.api_key_id if actor and actor.api_key_id else "anonymous"
+        allowed, retry_after = limiter.acquire(key_id)
+        if not allowed:
+            denial_reason = "rate_limit_exceeded"
+            raise HTTPException(
+                status_code=429,
+                detail="Too Many Requests",
+                headers={"Retry-After": str(int(retry_after) + 1)},
+            )
+
+        # ------------------------------------------------------------------
+        # 2. Tool allowlist check
         # ------------------------------------------------------------------
         if name not in ALLOWED_TOOLS:
             denial_reason = "tool_not_allowed"
