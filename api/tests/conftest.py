@@ -71,6 +71,19 @@ def reset_auth_throttle():
     auth_failure_throttle.reset()
 
 
+@pytest.fixture(autouse=True)
+def sandbox_inprocess(monkeypatch):
+    """Tests stay in-process. The executor cache is cleared with the mode."""
+
+    from app.config import settings
+    from app.sandbox.executor import clear_executor_cache
+
+    monkeypatch.setattr(settings, "sandbox_mode", "inprocess")
+    clear_executor_cache()
+    yield
+    clear_executor_cache()
+
+
 @pytest.fixture
 def anyio_backend():
     return "asyncio"

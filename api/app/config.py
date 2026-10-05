@@ -1,6 +1,7 @@
 import ipaddress
+import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
@@ -54,6 +55,22 @@ class Settings(BaseSettings):
 
     max_body_bytes: int = Field(default=1_048_576, gt=0)
     tool_timeout_s: float = Field(default=5.0, gt=0)
+    sandbox_mode: Literal["docker", "inprocess"] = "docker"
+    sandbox_image: str = Field(default="mcp-guard-tool-runner:local", min_length=1)
+    sandbox_timeout_s: float = Field(default=4.0, gt=0)
+    sandbox_memory: str = Field(default="128m", pattern=r"^[1-9]\d*([kKmMgG])?$")
+    sandbox_cpus: float = Field(default=0.5, gt=0)
+    sandbox_pids_limit: int = Field(default=64, gt=0)
+    sandbox_max_file_bytes: int = Field(default=1_048_576, gt=0)
+    sandbox_max_output_bytes: int = Field(default=1_048_576, gt=0)
+    sandbox_max_concurrent: int = Field(default=4, gt=0)
+    sandbox_network: str = Field(
+        default="none",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+    )
+    sandbox_run_as: str = "65534:65534"
+    sandbox_notes_source: str | None = None
+    sandbox_docker_bin: str = Field(default="docker", min_length=1, pattern=r"^[^\s]+$")
 
     api_key_pepper: SecretStr | None = Field(
         default=None,
@@ -96,6 +113,13 @@ class Settings(BaseSettings):
             return v.strip().lower()
         return v
 
+    @field_validator("sandbox_notes_source", mode="before")
+    @classmethod
+    def blank_notes_source(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
     @property
     def is_development(self) -> bool:
         return self.environment in {"dev", "development", "local"}
@@ -122,6 +146,37 @@ class Settings(BaseSettings):
         for p in self.trusted_proxies:
             networks.append(ipaddress.ip_network(p, strict=False))
         self.__dict__["_parsed_trusted_proxies"] = tuple(networks)
+        self._validate_sandbox()
+
+    def _validate_sandbox(self) -> None:
+        if self.sandbox_network.casefold() == "host":
+            raise ValueError("SANDBOX_NETWORK=host is not allowed")
+        if not re.fullmatch(r"\d+:\d+", self.sandbox_run_as):
+            raise ValueError("SANDBOX_RUN_AS must be uid:gid")
+        source = self.sandbox_notes_source
+        if source is not None and not (
+            Path(source).is_absolute()
+            or re.fullmatch(r"volume:[A-Za-z0-9_.-]+", source)
+        ):
+            raise ValueError(
+                "SANDBOX_NOTES_SOURCE must be an absolute path or volume:<name>"
+            )
+        if self.tool_timeout_s <= self.sandbox_timeout_s:
+            # A shortened gateway timeout with the default sandbox budget still
+            # has to load. An explicit sandbox timeout that does not fit is rejected.
+            if "sandbox_timeout_s" in self.model_fields_set:
+                raise ValueError(
+                    "TOOL_TIMEOUT_S must be greater than SANDBOX_TIMEOUT_S"
+                )
+            self.sandbox_timeout_s = self.tool_timeout_s / 2
+        if not self.is_production_like:
+            return
+        if self.sandbox_mode == "inprocess":
+            raise ValueError("SANDBOX_MODE=inprocess is not allowed in production")
+        if self.sandbox_network != "none":
+            raise ValueError("SANDBOX_NETWORK must be none in production")
+        if self.sandbox_run_as.startswith("0"):
+            raise ValueError("SANDBOX_RUN_AS must not start with 0 in production")
 
     @property
     def parsed_trusted_proxies(self) -> tuple:

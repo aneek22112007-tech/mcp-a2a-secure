@@ -78,7 +78,7 @@ async def _audit_tools_calls(scope: Scope, buffered: list[Message], send: Send) 
         if not isinstance(params, dict):
             params = {}
         try:
-            await record_event(
+            event = await record_event(
                 _tools_call_record(scope, params),
                 required=True,
             )
@@ -91,6 +91,8 @@ async def _audit_tools_calls(scope: Scope, buffered: list[Message], send: Send) 
                 "Audit log unavailable.",
             )
             return False
+        audit_ids = scope.setdefault("mcp_guard.tools_call_audit_ids", {})
+        audit_ids[str(call.get("id"))] = None if event is None else event.id
     return True
 
 

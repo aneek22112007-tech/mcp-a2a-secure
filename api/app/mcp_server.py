@@ -9,13 +9,13 @@ Run with:
     uv run python -m app.mcp_server
 """
 
-import re
 from pathlib import Path
 
-import anyio
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 
 from app.config import settings
+from app.sandbox.executor import run_tool
+from app.tools.notes import resolve_note_path
 
 # ---------------------------------------------------------------------------
 # Storage directory
@@ -54,13 +54,7 @@ def _safe(name: str) -> Path:
     path still lives inside NOTES_DIR.  A simple ``"..\" in name`` test is
     **not** used because it can be bypassed with encoded or alternate forms.
     """
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
-        raise ValueError(f"invalid note name: {name!r}")
-
-    candidate = (NOTES_DIR / f"{name}.md").resolve()
-    if NOTES_DIR.resolve() not in candidate.parents:
-        raise ValueError(f"invalid note name: {name!r}")
-    return candidate
+    return resolve_note_path(NOTES_DIR, name)
 
 
 # ---------------------------------------------------------------------------
@@ -69,21 +63,17 @@ def _safe(name: str) -> Path:
 
 
 @mcp.tool()
-async def list_notes() -> list[str]:
+async def list_notes(ctx: Context | None = None) -> list[str]:
     """List saved notes.
 
     Returns the note names (without the ``.md`` suffix) sorted
     lexicographically.
     """
-
-    def _read() -> list[str]:
-        return sorted(p.stem for p in NOTES_DIR.glob("*.md") if p.is_file())
-
-    return await anyio.to_thread.run_sync(_read)
+    return await run_tool("list_notes", {}, mcp_context=ctx)
 
 
 @mcp.tool()
-async def read_note(name: str) -> str:
+async def read_note(name: str, ctx: Context | None = None) -> str:
     """Read one note.
 
     Args:
@@ -96,12 +86,11 @@ async def read_note(name: str) -> str:
         ValueError: If *name* attempts a path-traversal attack.
         FileNotFoundError: If the note does not exist.
     """
-    path = _safe(name)  # raises ValueError synchronously — fine before I/O
-    return await anyio.to_thread.run_sync(path.read_text)
+    return await run_tool("read_note", {"name": name}, mcp_context=ctx)
 
 
 @mcp.tool()
-async def write_note(name: str, content: str) -> str:
+async def write_note(name: str, content: str, ctx: Context | None = None) -> str:
     """Create or overwrite a note.
 
     Args:
@@ -114,14 +103,11 @@ async def write_note(name: str, content: str) -> str:
     Raises:
         ValueError: If *name* attempts a path-traversal attack.
     """
-    path = _safe(name)  # raises ValueError synchronously — fine before I/O
-    ensure_notes_dir()
-
-    def _write() -> None:
-        path.write_text(content)
-
-    await anyio.to_thread.run_sync(_write)
-    return f"saved {name}"
+    return await run_tool(
+        "write_note",
+        {"name": name, "content": content},
+        mcp_context=ctx,
+    )
 
 
 # ---------------------------------------------------------------------------
