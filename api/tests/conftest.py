@@ -128,3 +128,13 @@ def memory_run_recorder():
     set_run_recorder(recorder)
     yield recorder
     set_run_recorder(previous)
+
+
+@pytest.fixture(autouse=True)
+def safe_scan_gate():
+    from app.pins.gate import NullScanGate, get_scan_gate, set_scan_gate
+
+    previous = get_scan_gate()
+    set_scan_gate(NullScanGate())
+    yield
+    set_scan_gate(previous)

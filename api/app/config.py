@@ -131,12 +131,34 @@ class Settings(BaseSettings):
             "Seconds to cache tool pin rows. Approve and revoke clear the cache."
         ),
     )
+    scanner_enabled: bool = Field(
+        default=True,
+        description="Enable the rule-based tool-poisoning scanner.",
+    )
+    scanner_block_severities: str = Field(
+        default="high,critical",
+        description="Comma-separated list of severities that block execution.",
+    )
+    scanner_run_on_startup: bool = Field(
+        default=True,
+        description="Run scanner on all tools during startup.",
+    )
 
     @field_validator("environment", mode="before")
     @classmethod
     def strip_and_lower_environment(cls, v: Any) -> Any:
         if isinstance(v, str):
             return v.strip().lower()
+        return v
+
+    @field_validator("scanner_block_severities")
+    @classmethod
+    def validate_scanner_severities(cls, v: str) -> str:
+        valid = {"critical", "high", "medium", "low"}
+        for s in v.split(","):
+            s = s.strip().lower()
+            if s and s not in valid:
+                raise ValueError(f"Invalid severity '{s}' in SCANNER_BLOCK_SEVERITIES")
         return v
 
     @field_validator("sandbox_notes_source", mode="before")

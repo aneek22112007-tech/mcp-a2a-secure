@@ -8,6 +8,7 @@ METRICS_READ = "metrics:read"
 AGENT_RUN = "agent:run"
 SANDBOX_READ = "sandbox:read"
 TOOLS_READ = "tools:read"
+SCANNER_READ = "scanner:read"
 ADMIN = "admin"
 
 ALL_SCOPES = frozenset(
@@ -18,6 +19,7 @@ ALL_SCOPES = frozenset(
         METRICS_READ,
         SANDBOX_READ,
         TOOLS_READ,
+        SCANNER_READ,
         AGENT_RUN,
         ADMIN,
     }
@@ -39,6 +41,11 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("POST", "/api/pins/sync"): ADMIN,
     ("POST", "/api/pins/{tool_name}/approve"): ADMIN,
     ("POST", "/api/pins/{tool_name}/revoke"): ADMIN,
+    ("GET", "/api/scanner/findings"): SCANNER_READ,
+    ("GET", "/api/scanner/findings/{finding_id}"): SCANNER_READ,
+    ("POST", "/api/scanner/run"): ADMIN,
+    ("POST", "/api/scanner/run/{tool_name}"): ADMIN,
+    ("POST", "/api/scanner/findings/{finding_id}/resolve"): ADMIN,
     ("GET", "/api/status"): None,
     ("GET", "/api/mcp/info"): None,
     ("GET", "/health"): None,
