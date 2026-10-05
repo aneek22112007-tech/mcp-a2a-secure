@@ -131,6 +131,18 @@ class Settings(BaseSettings):
             "Seconds to cache tool pin rows. Approve and revoke clear the cache."
         ),
     )
+    scanner_enabled: bool = Field(
+        default=True,
+        description="Enable the rule-based tool-poisoning scanner.",
+    )
+    scanner_block_severities: str = Field(
+        default="high,critical",
+        description="Comma-separated list of severities that block execution.",
+    )
+    scanner_run_on_startup: bool = Field(
+        default=True,
+        description="Run scanner on all tools during startup.",
+    )
 
     @field_validator("environment", mode="before")
     @classmethod

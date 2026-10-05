@@ -33,6 +33,7 @@ from app.middleware import (
     SecurityHeadersMiddleware,
     install_request_id_logging,
 )
+from app.pins.gate import NullScanGate, get_scan_gate, set_scan_gate
 from app.pins.listing import install_pinned_tool_list
 from app.pins.mcp_asgi import McpToolPinMiddleware
 from app.rate_limit import McpRateLimitMiddleware, rate_limit_dependency
@@ -42,11 +43,14 @@ from app.routes.metrics import router as metrics_router
 from app.routes.notes import router as notes_router
 from app.routes.pins import router as pins_router
 from app.routes.sandbox import router as sandbox_router
+from app.routes.scanner import router as scanner_router
 from app.routes.status import router as status_router
 from app.sandbox.recorder import NullRunRecorder, get_run_recorder, set_run_recorder
+from app.scanner.gate import DbScanGate
 from app.services.api_keys import HmacApiKeyVerifier
 from app.services.retention import retention_scheduler_task
 from app.services.sandbox_runs import DbRunRecorder, sweep_stale_runs
+from app.services.scanner import run_scan_all
 
 install_request_id_logging()
 
@@ -62,6 +66,9 @@ async def lifespan(app: FastAPI):
     if isinstance(get_run_recorder(), NullRunRecorder):
         set_run_recorder(DbRunRecorder())
 
+    if isinstance(get_scan_gate(), NullScanGate):
+        set_scan_gate(DbScanGate())
+
     install_pinned_tool_list()
     if settings.tool_pinning_bootstrap_approve:
         from app.services.pins import bootstrap_approve_current_tools
@@ -76,6 +83,16 @@ async def lifespan(app: FastAPI):
         logging.getLogger(__name__).exception(
             "Failed to sweep stale sandbox runs at startup"
         )
+
+    if settings.scanner_run_on_startup and settings.scanner_enabled:
+        try:
+            await run_scan_all()
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "Failed to run tool poisoning scanner at startup"
+            )
 
     scheduler_task = None
     if settings.enable_retention_scheduler:
@@ -147,6 +164,7 @@ app.include_router(audit_router)
 app.include_router(metrics_router)
 app.include_router(sandbox_router)
 app.include_router(pins_router)
+app.include_router(scanner_router)
 
 
 @app.get("/health")

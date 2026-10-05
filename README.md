@@ -41,7 +41,7 @@ flowchart LR
         AUTH["Bearer auth<br/>mcpg_ keys, deny by default"]
         SC["Scope check<br/>route-to-scope map"]
         GW["Gateway<br/>allowlist, arg limit, timeout"]
-        SCAN["Tool-poisoning scanner<br/>(planned)"]
+        SCAN["Tool-poisoning scanner"]
         AUD["Audit log + SSE"]
         RL["Rate limit + metrics"]
     end
@@ -62,7 +62,7 @@ flowchart LR
     SC -->|"/api/notes"| GW --> MCP
     SC -->|"/mcp/ (agent:run)"| MCP
     MCP --> T1
-    SC -.-> SCAN
+    SC --> SCAN
     SC --> AUD
     SC -.-> RL
     AUTH -.->|"key lookup (#84)"| DB
@@ -70,8 +70,8 @@ flowchart LR
 
     classDef built fill:#0f2a2e,stroke:#2dd4bf,color:#e2e8f0
     classDef planned fill:#1e1b3a,stroke:#a78bfa,color:#c4b5fd,stroke-dasharray:5 5
-    class MW,AUTH,SC,GW,MCP,T1,UI,INS,DB,AUD built
-    class SCAN,RL,AG,A2A planned
+    class MW,AUTH,SC,GW,MCP,T1,UI,INS,DB,AUD,SCAN built
+    class RL,AG,A2A planned
 ```
 
 Dashed nodes and edges are planned. REST calls to `/api/notes` go through the gateway. MCP clients talk to the MCP server directly once they pass auth and the `agent:run` scope check. Audit rows are written for auth decisions and tool calls.
@@ -119,14 +119,15 @@ On `main` today:
 - **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Mutating REST calls (`PUT /api/notes/{name}`) and MCP `tools/call` are audit-first: a required row is written before the tool runs. Read tools are audited after execution, before the result is returned. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
 - **Rate limiting, metrics and retention.** Each API key has its own token bucket, with separate buckets for REST and `/mcp`. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler. Sandbox run records are pruned on the same retention cycle.
 - **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
-- **Tool pinning.** Each tool's name, description, and JSON schema are hashed. `TOOL_PINNING_MODE=enforce` returns 403 `Tool is not approved.` until an admin approves that hash, and `tools/list` plus `GET /api/mcp/info` omit tools that are not approved. `warn` writes an audit row and still runs the tool. `off` (the default) skips the check. A schema or description change is drift and has to be approved again. The hash does not cover the function body. An optional source digest is stored for operators and is not an allow or deny input. A scan hook runs only after a pin would otherwise allow the call. The default gate does not block. A production-like environment rejects `TOOL_PINNING_BOOTSTRAP_APPROVE`.
+- **Tool pinning.** Each tool's name, description, and JSON schema are hashed. `TOOL_PINNING_MODE=enforce` returns 403 `Tool is not approved.` until an admin approves that hash, and `tools/list` plus `GET /api/mcp/info` omit tools that are not approved. `warn` writes an audit row and still runs the tool. `off` (the default) skips the check. A schema or description change is drift and has to be approved again. The hash does not cover the function body. An optional source digest is stored for operators and is not an allow or deny input.
+- **Rule-based Scanner.** A static tool-poisoning scanner evaluates tools against regular expression rules for command execution, path traversal, and sensitive argument names. Unsafe patterns generate `ToolScanFinding` records. The `DbScanGate` hooks into the pinning flow to block tools with `high` or `critical` severity findings before they can run.
 - **Frontend.** React 19, Vite and Tailwind. The Server Status view at `/dashboard-v2` reads `/api/status`. The other dashboard panels still use mock data.
 
 ## Status
 
 Planned for v1.0 (target 31 October 2026):
 
-- A rule-based tool-poisoning scanner, followed by an LLM-assisted version. The scan hook is in place. The default gate does not block.
+- An LLM-assisted scanner to catch complex semantic poisoning.
 - The GenAI work described below.
 - Docker Compose with PostgreSQL 16.
 
@@ -222,12 +223,14 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `POST` | `/api/pins/sync` | `admin` | Store a pending pin when the live fingerprint is not already stored |
 | `POST` | `/api/pins/{tool_name}/approve` | `admin` | Approve the live fingerprint. Required audit row, then the pin write |
 | `POST` | `/api/pins/{tool_name}/revoke` | `admin` | Revoke a stored pin. Required audit row, then the pin write |
+| `GET` | `/api/scanner/findings` | `scanner:read` | List scanner findings |
+| `POST` | `/api/scanner/scan` | `admin` | Force a re-scan of a specific tool |
 | `POST` | `/api/keys` | `admin` | Create an API key. The raw key is returned once |
 | `GET` | `/api/keys` | `admin` | List keys for a client (`client_id` query parameter) |
 | `DELETE` | `/api/keys/{key_id}` | `admin` | Revoke a key |
 | `GET` | `/docs`, `/redoc`, `/openapi.json` | public, dev only | Disabled outside development |
 
-Gateway errors map to 400 (bad arguments), 403 (tool not approved when pinning is enforced), 404 (unknown tool or note), 413 (too large), 503 (sandbox unavailable) and 504 (tool timeout).
+Gateway errors map to 400 (bad arguments), 403 (tool not approved when pinning is enforced or scan finds it risky), 404 (unknown tool or note), 413 (too large), 503 (sandbox unavailable) and 504 (tool timeout).
 
 ### Scopes
 
@@ -240,7 +243,8 @@ Gateway errors map to 400 (bad arguments), 403 (tool not approved when pinning i
 | `metrics:read` | `GET /api/metrics` |
 | `sandbox:read` | `GET /api/sandbox/runs` and `GET /api/sandbox/health` |
 | `tools:read` | `GET /api/pins` and `GET /api/pins/{tool_name}` |
-| `admin` | Passes every scope check. Also required to sync, approve, and revoke pins |
+| `scanner:read` | `GET /api/scanner/findings` |
+| `admin` | Passes every scope check. Also required to sync, approve, and revoke pins, and scan tools |
 
 The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.py).
 
@@ -288,6 +292,8 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `TOOL_PINNING_MODE` | `off` | `off` skips pinning. `warn` audits a mismatch and still runs the tool. `enforce` returns 403 `Tool is not approved.` and hides unapproved tools from `tools/list` and `GET /api/mcp/info` |
 | `TOOL_PINNING_BOOTSTRAP_APPROVE` | `false` | Approve every current tool when the process starts. Rejected when the environment is production-like |
 | `TOOL_PINNING_CACHE_TTL_S` | `5` | Seconds to cache pin rows. Approve, revoke, and sync clear the cache |
+| `SCANNER_ENABLED` | `True` | Run the static scanner at startup. `DbScanGate` blocks unapproved tools |
+| `SCANNER_BLOCK_SEVERITIES` | `critical,high` | Comma-separated severities that block a tool from running |
 
 The frontend reads `VITE_MCP_GUARD_API_URL` (default `http://localhost:8000`). Don't commit `.env` files or real keys; `.env` is in `.gitignore`.
 
@@ -377,14 +383,16 @@ mcp-a2a-secure/
 │   │   ├── errors.py           # JSON error format
 │   │   ├── config.py           # settings (pydantic-settings)
 │   │   ├── database.py         # async engine and sessions
-│   │   ├── models/             # clients, api_keys, audit_events, sandbox_runs, tool_pins
+│   │   ├── models/             # clients, api_keys, audit_events, sandbox_runs, tool_pins, tool_scan_findings
 │   │   ├── pins/               # scan hook, MCP pin middleware, tools/list filter
+│   │   ├── scanner/            # rule-based tool-poisoning scanner engine and gate
 │   │   ├── repos/              # repository layer
-│   │   └── routes/             # notes, status, pins, sandbox
+│   │   └── routes/             # notes, status, pins, sandbox, scanner
 │   ├── alembic/                # migrations
 │   ├── scripts/seed_dev.py     # dev clients (no credentials)
 │   ├── scripts/approve_current_tools.py
 │   ├── scripts/demo_tool_pinning.sh
+│   ├── scripts/demo_scanner.sh
 │   ├── tests/
 │   ├── .env.example
 │   ├── log_config.json

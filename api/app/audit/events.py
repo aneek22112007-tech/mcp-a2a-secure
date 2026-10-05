@@ -23,6 +23,8 @@ ACTION_TOOL_PIN_DENY = "tool.pin.deny"
 ACTION_TOOL_PIN_DRIFT = "tool.pin.drift"
 ACTION_TOOL_PIN_UNAPPROVED = "tool.pin.unapproved"
 ACTION_MCP_TOOLS_CALL = "mcp.tools_call"
+ACTION_TOOL_SCAN_COMPLETED = "tool.scan.completed"
+ACTION_TOOL_SCAN_FINDING = "tool.scan.finding"
 
 STATUS_OK = "ok"
 STATUS_ERROR = "error"
@@ -40,6 +42,8 @@ __all__ = [
     "ACTION_TOOL_PIN_REVOKE",
     "ACTION_TOOL_PIN_UNAPPROVED",
     "ACTION_TOOL_RESULT",
+    "ACTION_TOOL_SCAN_COMPLETED",
+    "ACTION_TOOL_SCAN_FINDING",
     "AUDIT_DECISION_ALLOWED",
     "AUDIT_DECISION_DENIED",
     "STATUS_DENIED",

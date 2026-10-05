@@ -54,6 +54,8 @@ All API variables are loaded from `api/.env` (copy `api/.env.example`).
 | `TOOL_PINNING_MODE` | `off` | `off`, `warn`, or `enforce`. `enforce` denies a tool until its schema hash is approved |
 | `TOOL_PINNING_BOOTSTRAP_APPROVE` | `false` | Approve the current catalog at startup. Refused when `ENVIRONMENT` is production-like |
 | `TOOL_PINNING_CACHE_TTL_S` | `5` | Seconds pin rows stay cached. Approve, revoke, and sync clear the cache |
+| `SCANNER_ENABLED` | `True` | Scan tools for poisoning risks at startup |
+| `SCANNER_BLOCK_SEVERITIES` | `critical,high` | Comma-separated severities that block tool runs |
 
 > **Production requirement**: Set `ENVIRONMENT=production` to disable API documentation endpoints. The default `dev` keeps docs enabled and is suitable only for local development.
 
@@ -276,6 +278,19 @@ curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
 `scripts/demo_tool_pinning.sh` starts the API in enforce mode, shows the 403, syncs, approves `write_note`, shows the write succeed, revokes it, and shows the 403 again.
 
 Changing a tool's description or schema after approval makes the next call drift. Sync moves that tool back to pending. It has to be approved again. A revoked tool stays revoked until someone approves the live fingerprint.
+
+---
+
+## Rule-based Tool Scanner
+
+The scanner evaluates tool definitions against static rules (e.g. system command injection, arbitrary file read patterns) when the API process starts.
+
+- If `SCANNER_ENABLED` is `True`, a full scan of the tool catalog happens before accepting traffic.
+- Findings are persisted in `tool_scan_findings` and exposed via `GET /api/scanner/findings`.
+- The `DbScanGate` integrates with the tool pinning flow. When `TOOL_PINNING_MODE` is `enforce`, the gate rejects tool invocations if the tool has an open finding whose severity is included in `SCANNER_BLOCK_SEVERITIES`.
+- You can manually scan a tool using `POST /api/scanner/scan` (requires `admin` scope).
+
+`scripts/demo_scanner.sh` demonstrates generating safe and poisoned tools, evaluating them, blocking poisoned tools, and fetching findings.
 
 ---
 

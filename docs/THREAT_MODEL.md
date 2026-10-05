@@ -32,6 +32,7 @@
 │  ┌──────────────────────▼───────────────────────────────────────┐   │
 │  │ gateway.py — call_tool()                                       │   │
 │  │  • allowlist check  • size guard  • timeout  • error sanitize │   │
+│  │  • scanner gate (DbScanGate) check                             │   │
 │  └──────────────────────┬───────────────────────────────────────┘   │
 │                          │                                           │
 │  ┌──────────────────────▼───────────────────────────────────────┐   │
@@ -43,6 +44,7 @@
 │  ┌──────────────────────▼───────────────────────────────────────┐   │
 │  │ SQLite database (aiosqlite)                    api/data/       │   │
 │  │ Alembic migrations                             mcp_guard.db   │   │
+│  │ (includes tool_scan_findings)                                  │   │
 │  └──────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
                               │ HTTP (same-process probe)
@@ -93,7 +95,8 @@
 | Request body overflow | All routes | `BodySizeLimitMiddleware` enforces `MAX_BODY_BYTES` (default 1 MiB) | `middleware.py`, `test_hardening.py::test_content_length_over_limit_is_413` | Covered. |
 | Database schema tampering | SQLite | Only Alembic migrations modify schema; no raw DDL from routes | `alembic/versions/` | Gap: no integrity checksums on migration files. |
 | Tool allowlist bypass | Gateway | `ALLOWED_TOOLS` frozenset checked before dispatch | `gateway.py:ALLOWED_TOOLS`, `test_gateway.py::test_gateway_404_unknown_tool` | Covered. |
-| Tool schema tampering | MCP `tools/list`, REST gateway, `/mcp` `tools/call` | Pinning stores a sha256 of the canonical name, description, input schema, and output schema when present. `enforce` returns 403 `Tool is not approved.` and omits unapproved tools from `tools/list` and `GET /api/mcp/info`. `warn` audits and continues. `off` skips the check. Approve and revoke require `admin` and a required audit row before the pin changes. A changed schema is drift and must be approved again. | `api/app/tools/catalog.py`, `api/app/services/pins.py`, `api/app/pins/`, `api/app/gateway.py`, `api/app/routes/pins.py` | The fingerprint does not cover the function body. `implementation_digest` is stored and is not an allow or deny input. A database owner can change `tool_pins`. The default scan gate never blocks. The rule-based scanner is not built. |
+| Tool schema tampering | MCP `tools/list`, REST gateway, `/mcp` `tools/call` | Pinning stores a sha256 of the canonical schema. `enforce` returns 403 `Tool is not approved.` and omits unapproved tools. `warn` audits and continues. Approve and revoke require `admin`. A changed schema is drift. | `api/app/tools/catalog.py`, `api/app/services/pins.py`, `api/app/pins/` | The fingerprint does not cover the function body. `implementation_digest` is not an allow or deny input. A database owner can change `tool_pins`. |
+| Tool poisoning | Scanner | `DbScanGate` blocks tools if static scanner rules identify dangerous patterns (e.g., cmd injection). Evaluated at startup and explicitly. | `api/app/scanner/`, `test_scanner.py` | Static rules cannot catch complex LLM-assisted semantic poisoning; LLM-assisted scanner is planned. |
 
 ### Repudiation
 
