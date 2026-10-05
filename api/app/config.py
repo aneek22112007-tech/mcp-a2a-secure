@@ -161,6 +161,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SANDBOX_NOTES_SOURCE must be an absolute path or volume:<name>"
             )
+        _reject_unsafe_bind_source(source, self.notes_dir)
         if self.tool_timeout_s <= self.sandbox_timeout_s:
             # A shortened gateway timeout with the default sandbox budget still
             # has to load. An explicit sandbox timeout that does not fit is rejected.
@@ -175,12 +176,40 @@ class Settings(BaseSettings):
             raise ValueError("SANDBOX_MODE=inprocess is not allowed in production")
         if self.sandbox_network != "none":
             raise ValueError("SANDBOX_NETWORK must be none in production")
-        if self.sandbox_run_as.startswith("0"):
-            raise ValueError("SANDBOX_RUN_AS must not start with 0 in production")
+        uid_text, gid_text = self.sandbox_run_as.split(":", 1)
+        if int(uid_text) <= 0 or int(gid_text) <= 0:
+            raise ValueError(
+                "SANDBOX_RUN_AS uid and gid must be greater than 0 in production"
+            )
 
     @property
     def parsed_trusted_proxies(self) -> tuple:
         return self.__dict__.get("_parsed_trusted_proxies", ())
+
+
+def _path_breaks_mount(path: str) -> bool:
+    """True when a path would inject extra ``docker --mount`` options."""
+
+    return any(char in path for char in (",", "=", "\n", "\r"))
+
+
+def _reject_unsafe_bind_source(source: str | None, notes_dir: Path) -> None:
+    """Reject bind paths that contain mount-option separators.
+
+    A named volume is not a bind source. ``NOTES_DIR`` is checked only when
+    the sandbox mounts it.
+    """
+
+    if source is not None and re.fullmatch(r"volume:[A-Za-z0-9_.-]+", source):
+        return
+    if source is not None:
+        texts = (source, str(Path(source).expanduser().resolve()))
+        label = "SANDBOX_NOTES_SOURCE"
+    else:
+        texts = (str(notes_dir),)
+        label = "NOTES_DIR"
+    if any(_path_breaks_mount(text) for text in texts):
+        raise ValueError(f"{label} path must not contain commas or equals signs")
 
 
 def _is_exact_http_origin(origin: str) -> bool:

@@ -215,6 +215,8 @@ On Linux, a bind-mounted notes directory keeps the host ownership. Set the conta
 SANDBOX_RUN_AS=$(id -u):$(id -g)
 ```
 
+Bind sources may not contain commas or equals signs.
+
 Compose can mount a named volume instead of a host path:
 
 ```bash

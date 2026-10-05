@@ -299,6 +299,10 @@ def _run_argv(run_id: str, notes_mount: str, timeout_s: float) -> list[str]:
     ]
 
 
+def _bind_source_is_unsafe(path: str) -> bool:
+    return any(char in path for char in (",", "=", "\n", "\r"))
+
+
 def _mount_spec(notes_mount: str) -> str:
     from app.mcp_server import ensure_notes_dir
 
@@ -306,12 +310,20 @@ def _mount_spec(notes_mount: str) -> str:
     source = settings.sandbox_notes_source
     if source is not None and source.startswith("volume:"):
         volume = source.split(":", 1)[1]
+        # Volume names stay on volume:[A-Za-z0-9_.-]+. Anything else can
+        # inject mount options, so it never reaches the Docker CLI.
+        if re.fullmatch(r"[A-Za-z0-9_.-]+", volume) is None:
+            raise SandboxUnavailableError()
         spec = f"type=volume,source={volume},target=/notes"
     else:
         if source is None:
             path = ensure_notes_dir()
         else:
             path = Path(source)
+        resolved = path.resolve()
+        if _bind_source_is_unsafe(str(path)) or _bind_source_is_unsafe(str(resolved)):
+            raise SandboxUnavailableError()
+        if source is not None:
             path.mkdir(parents=True, exist_ok=True)
         spec = f"type=bind,source={path},target=/notes"
     if notes_mount != "rw":
