@@ -283,12 +283,13 @@ Changing a tool's description or schema after approval makes the next call drift
 
 ## Rule-based Tool Scanner
 
-The scanner evaluates tool definitions against static rules (e.g. system command injection, arbitrary file read patterns) when the API process starts.
+The scanner evaluates tool definitions against phrase rules (e.g. prompt injection, data exfiltration, size anomalies) when the API process starts.
 
 - If `SCANNER_ENABLED` is `True`, a full scan of the tool catalog happens before accepting traffic.
 - Findings are persisted in `tool_scan_findings` and exposed via `GET /api/scanner/findings`.
 - The `DbScanGate` integrates with the tool pinning flow. When `TOOL_PINNING_MODE` is `enforce`, the gate rejects tool invocations if the tool has an open finding whose severity is included in `SCANNER_BLOCK_SEVERITIES`.
-- You can manually scan a tool using `POST /api/scanner/scan` (requires `admin` scope).
+- You can manually scan tools using `POST /api/scanner/run` or `POST /api/scanner/run/{tool_name}` (requires `admin` scope).
+- A blocked tool can be unblocked by resolving the finding via `POST /api/scanner/findings/{finding_id}/resolve`.
 
 `scripts/demo_scanner.sh` demonstrates generating safe and poisoned tools, evaluating them, blocking poisoned tools, and fetching findings.
 

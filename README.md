@@ -120,7 +120,7 @@ On `main` today:
 - **Rate limiting, metrics and retention.** Each API key has its own token bucket, with separate buckets for REST and `/mcp`. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler. Sandbox run records are pruned on the same retention cycle.
 - **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
 - **Tool pinning.** Each tool's name, description, and JSON schema are hashed. `TOOL_PINNING_MODE=enforce` returns 403 `Tool is not approved.` until an admin approves that hash, and `tools/list` plus `GET /api/mcp/info` omit tools that are not approved. `warn` writes an audit row and still runs the tool. `off` (the default) skips the check. A schema or description change is drift and has to be approved again. The hash does not cover the function body. An optional source digest is stored for operators and is not an allow or deny input.
-- **Rule-based Scanner.** A static tool-poisoning scanner evaluates tools against regular expression rules for command execution, path traversal, and sensitive argument names. Unsafe patterns generate `ToolScanFinding` records. The `DbScanGate` hooks into the pinning flow to block tools with `high` or `critical` severity findings before they can run.
+- **Rule-based Scanner.** A static tool-poisoning scanner evaluates tools against phrase rules for prompt injection, data exfiltration, overbroad parameters, and size anomalies. Unsafe patterns generate `ToolScanFinding` records. The `DbScanGate` hooks into the pinning flow to block tools with `high` or `critical` severity findings before they can run, but only if `TOOL_PINNING_MODE=enforce`.
 - **Frontend.** React 19, Vite and Tailwind. The Server Status view at `/dashboard-v2` reads `/api/status`. The other dashboard panels still use mock data.
 
 ## Status
@@ -223,8 +223,11 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `POST` | `/api/pins/sync` | `admin` | Store a pending pin when the live fingerprint is not already stored |
 | `POST` | `/api/pins/{tool_name}/approve` | `admin` | Approve the live fingerprint. Required audit row, then the pin write |
 | `POST` | `/api/pins/{tool_name}/revoke` | `admin` | Revoke a stored pin. Required audit row, then the pin write |
-| `GET` | `/api/scanner/findings` | `scanner:read` | List scanner findings |
-| `POST` | `/api/scanner/scan` | `admin` | Force a re-scan of a specific tool |
+| `GET` | `/api/scanner/findings` | `scanner:read` | List paginated findings |
+| `GET` | `/api/scanner/findings/{finding_id}` | `scanner:read` | Retrieve a finding |
+| `POST` | `/api/scanner/run` | `admin` | Force a re-scan of all tools |
+| `POST` | `/api/scanner/run/{tool_name}` | `admin` | Force a re-scan of a specific tool |
+| `POST` | `/api/scanner/findings/{finding_id}/resolve` | `admin` | Manually resolve a finding |
 | `POST` | `/api/keys` | `admin` | Create an API key. The raw key is returned once |
 | `GET` | `/api/keys` | `admin` | List keys for a client (`client_id` query parameter) |
 | `DELETE` | `/api/keys/{key_id}` | `admin` | Revoke a key |

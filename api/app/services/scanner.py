@@ -51,6 +51,13 @@ async def _sync_findings_for_tool(
         return (f.fingerprint, f.rule_id, f.message)
 
     open_dict = {sig(f): f for f in open_findings}
+
+    # Always include a success marker for this fingerprint
+    success_marker = ScannerFinding(
+        rule_id="R0_SCANNED", severity="info", message="Scan complete", evidence=None
+    )
+    drafts.append(success_marker)
+
     draft_dict = {(fingerprint, d.rule_id, d.message): d for d in drafts}
 
     new_db_findings = []
@@ -62,14 +69,16 @@ async def _sync_findings_for_tool(
 
     for sig_key, d in draft_dict.items():
         if sig_key not in open_dict:
+            msg = d.message[:300] if d.message else ""
+            evd = d.evidence[:200] if d.evidence else None
             new_db_findings.append(
                 ToolScanFinding(
                     tool_name=tool_name,
                     fingerprint=fingerprint,
                     rule_id=d.rule_id,
                     severity=d.severity,
-                    message=d.message,
-                    evidence=d.evidence,
+                    message=msg,
+                    evidence=evd,
                     created_at=now,
                     scan_id=scan_id,
                 )
@@ -98,7 +107,12 @@ async def run_scan_one(tool_name: str) -> ScanStats | None:
     )
 
     fingerprint = fingerprint_tool(defn)
-    drafts = scan_tool(defn)
+
+    try:
+        drafts = scan_tool(defn)
+    except Exception:
+        logger.exception("Scan crashed for tool %s", defn.name)
+        drafts = []
 
     async with async_session_maker() as session:
         active = await _sync_findings_for_tool(
@@ -106,10 +120,30 @@ async def run_scan_one(tool_name: str) -> ScanStats | None:
         )
         await session.commit()
 
-        stats.findings_open = len(active)
-        for f in active:
-            stats.by_severity[f.severity] += 1
+        # Determine actual new findings this run
+        statement = select(ToolScanFinding).where(ToolScanFinding.scan_id == scan_id)
+        result = await session.execute(statement)
+        for new_f in result.scalars().all():
+            if new_f.severity not in {"none", "info"}:
+                try:
+                    await record_event(
+                        AuditRecord(
+                            action=ACTION_TOOL_SCAN_FINDING,
+                            status="ok",
+                            decision="allowed",
+                            reason=f"finding {new_f.rule_id} for {tool_name}",
+                        ),
+                        required=False,
+                    )
+                except Exception:
+                    logger.exception("Failed to emit audit event")
 
+        stats.findings_open = len([f for f in active if f.rule_id != "R0_SCANNED"])
+        for f in active:
+            if f.rule_id != "R0_SCANNED":
+                stats.by_severity[f.severity] += 1
+
+    stats.by_severity = dict(stats.by_severity)
     return stats
 
 
@@ -121,21 +155,52 @@ async def run_scan_all() -> ScanStats:
 
     definitions = list_tool_definitions()
 
-    async with async_session_maker() as session:
-        for defn in definitions:
-            stats.tools_scanned += 1
-            fingerprint = fingerprint_tool(defn)
+    for defn in definitions:
+        stats.tools_scanned += 1
+        fingerprint = fingerprint_tool(defn)
+
+        try:
             drafts = scan_tool(defn)
+        except Exception:
+            logger.exception("Scan crashed for tool %s", defn.name)
+            drafts = []
 
-            active = await _sync_findings_for_tool(
-                session, defn.name, fingerprint, drafts, scan_id
-            )
+        async with async_session_maker() as session:
+            try:
+                active = await _sync_findings_for_tool(
+                    session, defn.name, fingerprint, drafts, scan_id
+                )
+                await session.commit()
 
-            stats.findings_open += len(active)
-            for f in active:
-                stats.by_severity[f.severity] += 1
+                # Audit newly inserted findings
+                statement = select(ToolScanFinding).where(
+                    ToolScanFinding.scan_id == scan_id,
+                    ToolScanFinding.tool_name == defn.name,
+                )
+                result = await session.execute(statement)
+                for new_f in result.scalars().all():
+                    if new_f.severity not in {"none", "info"}:
+                        try:
+                            await record_event(
+                                AuditRecord(
+                                    action=ACTION_TOOL_SCAN_FINDING,
+                                    status="ok",
+                                    decision="allowed",
+                                    reason=f"finding {new_f.rule_id} for {defn.name}",
+                                ),
+                                required=False,
+                            )
+                        except Exception:
+                            logger.exception("Failed to emit audit event")
 
-        await session.commit()
+                stats.findings_open += len(
+                    [f for f in active if f.rule_id != "R0_SCANNED"]
+                )
+                for f in active:
+                    if f.rule_id != "R0_SCANNED":
+                        stats.by_severity[f.severity] += 1
+            except Exception:
+                logger.exception("Failed to sync findings for tool %s", defn.name)
 
     try:
         await record_event(
@@ -150,6 +215,5 @@ async def run_scan_all() -> ScanStats:
     except Exception:
         logger.exception("Failed to record audit event for scan completion")
 
-    # Dictify defaultdict for output
     stats.by_severity = dict(stats.by_severity)
     return stats

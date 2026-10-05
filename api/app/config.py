@@ -151,6 +151,16 @@ class Settings(BaseSettings):
             return v.strip().lower()
         return v
 
+    @field_validator("scanner_block_severities")
+    @classmethod
+    def validate_scanner_severities(cls, v: str) -> str:
+        valid = {"critical", "high", "medium", "low"}
+        for s in v.split(","):
+            s = s.strip().lower()
+            if s and s not in valid:
+                raise ValueError(f"Invalid severity '{s}' in SCANNER_BLOCK_SEVERITIES")
+        return v
+
     @field_validator("sandbox_notes_source", mode="before")
     @classmethod
     def blank_notes_source(cls, v: Any) -> Any:

@@ -30,4 +30,22 @@ class DbScanGate(ScanGate):
             if count > 0:
                 return "pin_scan_blocked"
 
+            # Block if no scan records exist for this fingerprint (failsafe)
+            if settings.tool_pinning_mode == "enforce":
+                from sqlalchemy import select
+
+                from app.models.tool_scan_findings import ToolScanFinding
+
+                stmt = (
+                    select(ToolScanFinding.id)
+                    .where(
+                        ToolScanFinding.tool_name == tool_name,
+                        ToolScanFinding.fingerprint == fingerprint,
+                    )
+                    .limit(1)
+                )
+                result = await session.execute(stmt)
+                if not result.scalar_one_or_none():
+                    return "pin_scan_blocked"
+
         return None

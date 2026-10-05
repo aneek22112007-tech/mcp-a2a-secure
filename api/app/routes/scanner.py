@@ -119,6 +119,23 @@ async def get_finding_by_id(
 async def scan_all():
     check_scanner_enabled()
     stats = await run_scan_all()
+    from app.audit.events import AuditRecord
+    from app.audit.sink import record_event
+
+    try:
+        await record_event(
+            AuditRecord(
+                action="tool.scan.manual",
+                status="ok",
+                decision="allowed",
+                reason="Admin initiated full scan",
+            ),
+            required=False,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("Failed to emit audit event")
     return ScanStatsResponse(
         scan_id=stats.scan_id,
         tools_scanned=stats.tools_scanned,
@@ -133,9 +150,74 @@ async def scan_tool_endpoint(tool_name: str):
     stats = await run_scan_one(tool_name)
     if not stats:
         raise HTTPException(status_code=404, detail="Tool not found.")
+    from app.audit.events import AuditRecord
+    from app.audit.sink import record_event
+
+    try:
+        await record_event(
+            AuditRecord(
+                action="tool.scan.manual",
+                status="ok",
+                decision="allowed",
+                reason=f"Admin initiated scan for {tool_name}",
+            ),
+            required=False,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("Failed to emit audit event")
     return ScanStatsResponse(
         scan_id=stats.scan_id,
         tools_scanned=stats.tools_scanned,
         findings_open=stats.findings_open,
         by_severity=stats.by_severity,
+    )
+
+
+@router.post("/findings/{finding_id}/resolve", response_model=FindingResponse)
+async def resolve_finding_endpoint(
+    finding_id: str,
+    session: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    finding = await get_finding(session, finding_id)
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found.")
+
+    if finding.resolved_at is None:
+        from datetime import UTC, datetime
+
+        finding.resolved_at = datetime.now(UTC)
+        await session.commit()
+        await session.refresh(finding)
+
+        from app.audit.events import AuditRecord
+        from app.audit.sink import record_event
+
+        try:
+            await record_event(
+                AuditRecord(
+                    action="tool.scan.finding.resolved",
+                    status="ok",
+                    decision="allowed",
+                    reason=f"Admin resolved finding {finding.id} for {finding.tool_name}",
+                ),
+                required=False,
+            )
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("Failed to emit audit event")
+
+    return FindingResponse(
+        id=finding.id,
+        tool_name=finding.tool_name,
+        fingerprint=finding.fingerprint,
+        rule_id=finding.rule_id,
+        severity=finding.severity,
+        message=finding.message,
+        evidence=finding.evidence,
+        created_at=finding.created_at,
+        resolved_at=finding.resolved_at,
+        scan_id=finding.scan_id,
     )
