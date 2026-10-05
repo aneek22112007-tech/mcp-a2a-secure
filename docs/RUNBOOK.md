@@ -2,8 +2,9 @@
 
 > **Scope**: This runbook covers the MCP Guard FastAPI backend (`api/`), the
 > React/Vite frontend (`frontend/`), and the Express authentication proxy
-> (`backend/`). Docker sandbox and A2A signing key rotation are documented
-> as architectural placeholders pending full implementation.
+> (`backend/`). Tool execution runs in a Docker sandbox. A2A signing key
+> rotation is documented as an architectural placeholder pending full
+> implementation.
 
 ---
 
@@ -16,7 +17,7 @@
 | Node.js | ≥ 22 LTS | Frontend build and dev server |
 | npm | ≥ 10 | Frontend package manager |
 | SQLite | bundled (`aiosqlite`) | Application database |
-| Docker (optional) | ≥ 24 | Sandbox execution (future) |
+| Docker | ≥ 24 | Required for sandbox execution unless `SANDBOX_MODE=inprocess` |
 
 ---
 
@@ -36,7 +37,20 @@ All API variables are loaded from `api/.env` (copy `api/.env.example`).
 | `DATABASE_URL` | `sqlite+aiosqlite:///data/mcp_guard.db` | Async SQLAlchemy connection URL |
 | `NOTES_DIR` | `api/data/notes` | Directory for note `.md` files |
 | `MAX_BODY_BYTES` | `1048576` (1 MiB) | HTTP request body size limit |
-| `TOOL_TIMEOUT_S` | `5.0` | MCP tool invocation timeout (seconds) |
+| `TOOL_TIMEOUT_S` | `5.0` | MCP tool invocation timeout (seconds). Must be greater than `SANDBOX_TIMEOUT_S` |
+| `SANDBOX_MODE` | `docker` | `docker` or `inprocess`. Production refuses `inprocess` |
+| `SANDBOX_IMAGE` | `mcp-guard-tool-runner:local` | Image built by `api/scripts/build_sandbox_image.sh` |
+| `SANDBOX_TIMEOUT_S` | `4` | Seconds for one sandbox run |
+| `SANDBOX_MEMORY` | `128m` | Container memory and memory-swap limit |
+| `SANDBOX_CPUS` | `0.5` | Container CPU limit |
+| `SANDBOX_PIDS_LIMIT` | `64` | Process limit inside the container |
+| `SANDBOX_MAX_FILE_BYTES` | `1048576` | Largest file the container may write |
+| `SANDBOX_MAX_OUTPUT_BYTES` | `1048576` | Largest tool result accepted |
+| `SANDBOX_MAX_CONCURRENT` | `4` | Active sandbox runs. A full queue returns 503 |
+| `SANDBOX_NETWORK` | `none` | Docker network. `host` is rejected. Production requires `none` |
+| `SANDBOX_RUN_AS` | `65534:65534` | `uid:gid` inside the container |
+| `SANDBOX_NOTES_SOURCE` | unset | Absolute host path or `volume:<name>` mounted at `/notes` |
+| `SANDBOX_DOCKER_BIN` | `docker` | Docker CLI binary |
 
 > **Production requirement**: Set `ENVIRONMENT=production` to disable API documentation endpoints. The default `dev` keeps docs enabled and is suitable only for local development.
 
@@ -183,20 +197,33 @@ When `GET /api/status` returns `"mcp": "offline"` with `"error": "mcp_unavailabl
 
 ---
 
-## Docker Daemon and Sandbox Availability
+## Docker sandbox
 
-> Note: Docker sandbox is not yet implemented in this codebase.
-> The following guidance applies once sandbox execution is added.
+Build the runner image from `api/`:
 
-If a sandbox execution fails with a Docker-related error:
+```bash
+./scripts/build_sandbox_image.sh
+```
 
-1. Verify Docker daemon is running: `docker info`
-2. Verify the process user has socket access: `docker ps`
-3. Check for resource limits: `docker system df`
-4. Review sandbox-specific logs for container exit codes.
+The image tag defaults to `mcp-guard-tool-runner:local`. Set `SANDBOX_IMAGE` when the tag is different.
 
-Do not modify sandbox code to work around Docker availability issues;
-instead, surface the error through the existing error handling infrastructure.
+On a Mac, Docker Desktop shares `/Users` into the Linux VM, so a `NOTES_DIR` under the home directory can be bind-mounted. Colima uses the same `docker` CLI. Point the CLI at the Colima context and leave `SANDBOX_DOCKER_BIN` as `docker`.
+
+On Linux, a bind-mounted notes directory keeps the host ownership. Set the container user to the owner of that directory so `write_note` can create files:
+
+```bash
+SANDBOX_RUN_AS=$(id -u):$(id -g)
+```
+
+Bind sources may not contain commas or equals signs.
+
+Compose can mount a named volume instead of a host path:
+
+```bash
+SANDBOX_NOTES_SOURCE=volume:<name>
+```
+
+`503` with the message `Sandbox unavailable.` means the Docker daemon is not reachable, the runner image is missing, or every sandbox slot is busy. The tool is not run in the API process. Check the daemon with `docker info` and the image with `docker image inspect mcp-guard-tool-runner:local`. A finished run is removed. `docker ps -a --filter label=mcp_guard.sandbox=1` should be empty after the call returns.
 
 ---
 

@@ -13,6 +13,11 @@ required ``tool.call`` row before forwarding to the tool. Then a best-effort
 a required ``tool.call`` row is written before the result is returned.
 Allowlist rejections, argument rejections, and tool errors are recorded
 best-effort, then the original HTTP error is re-raised.
+
+The tool body runs in the sandbox. Docker is the default and is fail closed:
+if the daemon or the runner image is unavailable, the call returns 503 and
+is not retried in-process. A sandbox timeout returns 504. Output and
+protocol failures return 500 with a generic message.
 """
 
 from __future__ import annotations
@@ -45,6 +50,20 @@ from app.audit.sink import AuditUnavailableError, record_event
 from app.config import settings
 from app.errors import _ERROR_CODES
 from app.models.audit_events import AUDIT_DECISION_ALLOWED, AUDIT_DECISION_DENIED
+from app.sandbox.context import (
+    ExecutionContext,
+    bind_execution_context,
+    reset_execution_context,
+)
+from app.sandbox.errors import (
+    SandboxBusyError,
+    SandboxOutputError,
+    SandboxTimeoutError,
+    SandboxToolError,
+    SandboxUnavailableError,
+)
+from app.sandbox.policy import TOOL_POLICIES
+from app.sandbox.types import TRANSPORT_REST
 
 if TYPE_CHECKING:
     from app.auth import Principal
@@ -87,6 +106,14 @@ ALLOWED_TOOLS: frozenset[str] = frozenset(
 
 # Every new state-changing tool must be listed here.
 MUTATING_TOOLS: frozenset[str] = frozenset({"write_note"})
+
+_RW_TOOLS = frozenset(
+    name for name, policy in TOOL_POLICIES.items() if policy.notes_mount == "rw"
+)
+if not ALLOWED_TOOLS <= frozenset(TOOL_POLICIES):
+    raise RuntimeError("ALLOWED_TOOLS must be a subset of sandbox TOOL_POLICIES.")
+if MUTATING_TOOLS != _RW_TOOLS:
+    raise RuntimeError("MUTATING_TOOLS must match the sandbox read-write tools.")
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +169,8 @@ async def call_tool(
     HTTPException 400  – invalid arguments rejected by the tool
     HTTPException 500  – unexpected internal failure (detail is generic;
                          original exception is logged to stderr, not leaked)
-    HTTPException 503  – the success audit row could not be stored
+    HTTPException 503  – the success audit row could not be stored, or the
+                         sandbox is unavailable or busy
     """
     started = time.monotonic()
     audit_base = {
@@ -202,8 +230,9 @@ async def call_tool(
 
         denial_reason = None
 
+        forwarded_event_id: str | None = None
         if name in MUTATING_TOOLS:
-            await _write_tool_audit(
+            forwarded_event_id = await _write_tool_audit(
                 audit_base,
                 decision=AUDIT_DECISION_ALLOWED,
                 status=STATUS_FORWARDED,
@@ -219,80 +248,108 @@ async def call_tool(
         timeout_s = settings.tool_timeout_s
         t0 = time.monotonic()
         dispatch_started = True
+        execution = ExecutionContext(
+            transport=TRANSPORT_REST,
+            request_id=_optional_str(audit_base.get("request_id")),
+            client_id=_optional_str(audit_base.get("client_id")),
+            api_key_id=_optional_str(audit_base.get("api_key_id")),
+            key_prefix=_optional_str(audit_base.get("key_prefix")),
+            audit_event_id=forwarded_event_id,
+        )
+        token = bind_execution_context(execution)
         try:
-            result_raw = await asyncio.wait_for(
-                _dispatch(name, args),
-                timeout=timeout_s,
-            )
-        except TimeoutError:
-            raise HTTPException(
-                status_code=504,
-                detail=(
-                    f"Tool '{name}' did not complete within {timeout_s:g} seconds."
-                ),
-            )
-        except ToolError as exc:
-            # The MCP SDK wraps tool-raised exceptions in ToolError.
-            # Inspect the original cause to map to the right HTTP status.
-            cause = exc.__cause__
-            msg = str(exc)
+            try:
+                result_raw = await asyncio.wait_for(
+                    _dispatch(name, args),
+                    timeout=timeout_s,
+                )
+            except TimeoutError:
+                raise HTTPException(
+                    status_code=504,
+                    detail=(
+                        f"Tool '{name}' did not complete within {timeout_s:g} seconds."
+                    ),
+                )
+            except ToolError as exc:
+                # The MCP SDK wraps tool-raised exceptions in ToolError.
+                # Inspect the original cause to map to the right HTTP status.
+                cause = exc.__cause__
+                msg = str(exc)
+                sandbox_http = _sandbox_http(cause, name=name, timeout_s=timeout_s)
+                if sandbox_http is not None:
+                    raise sandbox_http from exc
 
-            if isinstance(cause, FileNotFoundError) or "No such file" in msg:
+                if isinstance(cause, FileNotFoundError) or "No such file" in msg:
+                    raise HTTPException(
+                        status_code=404, detail="Note not found."
+                    ) from exc
+
+                # OS-level errors (PermissionError, IsADirectoryError, etc.) must
+                # never leak filesystem paths to the client.  Log the details and
+                # return a generic 500.
+                if (
+                    isinstance(cause, OSError)
+                    or "Errno" in msg
+                    or "Permission denied" in msg
+                    or "Is a directory" in msg
+                ):
+                    logger.exception("[gateway] OS error in tool %r", name)
+                    raise HTTPException(
+                        status_code=500, detail="Internal tool error."
+                    ) from exc
+
+                if isinstance(cause, ValueError):
+                    match = re.search(r"invalid note name: [^\n\r]+", str(cause))
+                    detail = match.group(0) if match else "Invalid tool arguments."
+                    logger.warning("Gateway tool value error: %s", type(cause).__name__)
+                    raise HTTPException(status_code=400, detail=detail) from exc
+
+                # Other ToolError that looks like validation.
+                if "invalid note name" in msg:
+                    match = re.search(r"invalid note name: [^\n\r]+", msg)
+                    detail = match.group(0) if match else "invalid note name"
+                    logger.warning("Gateway tool validation error")
+                    raise HTTPException(status_code=400, detail=detail) from exc
+
+                logger.exception("[gateway] Unhandled tool error in tool %r", name)
+                raise HTTPException(
+                    status_code=500, detail="Internal tool error."
+                ) from exc
+            except SandboxTimeoutError as exc:
+                raise _sandbox_http(exc, name=name, timeout_s=timeout_s) from exc
+            except (SandboxUnavailableError, SandboxBusyError) as exc:
+                raise _sandbox_http(exc, name=name, timeout_s=timeout_s) from exc
+            except (SandboxOutputError, SandboxToolError) as exc:
+                raise _sandbox_http(exc, name=name, timeout_s=timeout_s) from exc
+            except (ValueError, TypeError, KeyError) as exc:
+                # Tool-level validation errors that escape ToolError wrapping.
+                match = re.search(r"invalid note name: [^\n\r]+", str(exc))
+                detail = match.group(0) if match else "Invalid tool arguments."
+                logger.warning(
+                    "Gateway unhandled validation error: %s", type(exc).__name__
+                )
+                raise HTTPException(status_code=400, detail=detail) from exc
+            except FileNotFoundError as exc:
                 raise HTTPException(status_code=404, detail="Note not found.") from exc
-
-            # OS-level errors (PermissionError, IsADirectoryError, etc.) must
-            # never leak filesystem paths to the client.  Log the details and
-            # return a generic 500.
-            if (
-                isinstance(cause, OSError)
-                or "Errno" in msg
-                or "Permission denied" in msg
-                or "Is a directory" in msg
-            ):
+            except OSError as exc:
+                # Filesystem errors outside ToolError (e.g. bare read_text failures).
                 logger.exception("[gateway] OS error in tool %r", name)
                 raise HTTPException(
                     status_code=500, detail="Internal tool error."
                 ) from exc
+            except Exception as exc:
+                # Unexpected failures: log internally, return a generic 500 so that
+                # tracebacks, filesystem paths, and internal details are never leaked.
+                logger.exception("[gateway] unhandled error in tool %r", name)
+                raise HTTPException(
+                    status_code=500,
+                    detail="An internal error occurred.",
+                ) from exc
 
-            if isinstance(cause, ValueError):
-                match = re.search(r"invalid note name: [^\n\r]+", str(cause))
-                detail = match.group(0) if match else "Invalid tool arguments."
-                logger.warning("Gateway tool value error: %s", type(cause).__name__)
-                raise HTTPException(status_code=400, detail=detail) from exc
-
-            # Other ToolError that looks like validation.
-            if "invalid note name" in msg:
-                match = re.search(r"invalid note name: [^\n\r]+", msg)
-                detail = match.group(0) if match else "invalid note name"
-                logger.warning("Gateway tool validation error")
-                raise HTTPException(status_code=400, detail=detail) from exc
-
-            logger.exception("[gateway] Unhandled tool error in tool %r", name)
-            raise HTTPException(status_code=500, detail="Internal tool error.") from exc
-
-        except (ValueError, TypeError, KeyError) as exc:
-            # Tool-level validation errors that escape ToolError wrapping.
-            match = re.search(r"invalid note name: [^\n\r]+", str(exc))
-            detail = match.group(0) if match else "Invalid tool arguments."
-            logger.warning("Gateway unhandled validation error: %s", type(exc).__name__)
-            raise HTTPException(status_code=400, detail=detail) from exc
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="Note not found.") from exc
-        except OSError as exc:
-            # Filesystem errors outside ToolError (e.g. bare read_text failures).
-            logger.exception("[gateway] OS error in tool %r", name)
-            raise HTTPException(status_code=500, detail="Internal tool error.") from exc
-        except Exception as exc:
-            # Unexpected failures: log internally, return a generic 500 so that
-            # tracebacks, filesystem paths, and internal details are never leaked.
-            logger.exception("[gateway] unhandled error in tool %r", name)
-            raise HTTPException(
-                status_code=500,
-                detail="An internal error occurred.",
-            ) from exc
-
-        duration_ms = round((time.monotonic() - t0) * 1000, 2)
-        result_raw = _normalise(result_raw)
+            duration_ms = round((time.monotonic() - t0) * 1000, 2)
+            result_raw = _normalise(result_raw)
+        finally:
+            reset_execution_context(token)
     except HTTPException as exc:
         is_mutating = name in MUTATING_TOOLS
         if is_mutating and denial_reason is None and not dispatch_started:
@@ -312,7 +369,8 @@ async def call_tool(
             required=False,
             reason=denial_reason,
             status_code=exc.status_code,
-            error_code=_ERROR_CODES.get(exc.status_code, "HTTP_ERROR"),
+            error_code=getattr(exc, "_mcp_error_code", None)
+            or _ERROR_CODES.get(exc.status_code, "HTTP_ERROR"),
         )
         raise
 
@@ -341,11 +399,12 @@ async def _write_tool_audit(
     error_code: str | None = None,
     action: str | None = None,
     no_duration: bool = False,
-) -> None:
+) -> str | None:
     """Write the tool.call row or the tool.result row for this invocation.
 
     ``action`` chooses which one is stored. When it is omitted, the action
-    already on ``audit_base`` is kept.
+    already on ``audit_base`` is kept. Returns the stored event id, or None
+    when a best-effort write does not produce a row.
     """
 
     duration_ms = 0.0 if no_duration else round((time.monotonic() - started) * 1000, 2)
@@ -362,12 +421,47 @@ async def _write_tool_audit(
         **record_kwargs,
     )
     if not required:
-        await record_event(record, required=False)
-        return
+        event = await record_event(record, required=False)
+        return None if event is None else event.id
     try:
-        await record_event(record, required=True)
+        event = await record_event(record, required=True)
     except AuditUnavailableError:
         raise HTTPException(status_code=503, detail="Audit log unavailable.") from None
+    return None if event is None else event.id
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _sandbox_http(
+    exc: BaseException | None,
+    *,
+    name: str,
+    timeout_s: float,
+) -> HTTPException | None:
+    """Map a sandbox failure to a fixed HTTP error.
+
+    Returns None for any other exception so the existing tool-error mapping
+    still runs. The audit row reads ``_mcp_error_code`` from the exception.
+    """
+
+    if isinstance(exc, SandboxTimeoutError):
+        http = HTTPException(
+            status_code=504,
+            detail=f"Tool '{name}' did not complete within {timeout_s:g} seconds.",
+        )
+        http._mcp_error_code = "SANDBOX_TIMEOUT"  # type: ignore[attr-defined]
+        return http
+    if isinstance(exc, (SandboxUnavailableError, SandboxBusyError)):
+        http = HTTPException(status_code=503, detail="Sandbox unavailable.")
+        http._mcp_error_code = "SANDBOX_UNAVAILABLE"  # type: ignore[attr-defined]
+        return http
+    if isinstance(exc, (SandboxOutputError, SandboxToolError)):
+        http = HTTPException(status_code=500, detail="Internal tool error.")
+        http._mcp_error_code = "SANDBOX_ERROR"  # type: ignore[attr-defined]
+        return http
+    return None
 
 
 # ---------------------------------------------------------------------------

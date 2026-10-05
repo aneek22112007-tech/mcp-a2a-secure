@@ -118,13 +118,13 @@ On `main` today:
 - **Database layer.** SQLAlchemy 2 (async) with Alembic migrations and repositories. Tables exist for clients, API keys, audit events and sandbox runs. SQLite is used in development.
 - **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Mutating REST calls (`PUT /api/notes/{name}`) and MCP `tools/call` are audit-first: a required row is written before the tool runs. Read tools are audited after execution, before the result is returned. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
 - **Rate limiting, metrics and retention.** Each API key has its own token bucket, with separate buckets for REST and `/mcp`. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler.
+- **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
 - **Frontend.** React 19, Vite and Tailwind. The Server Status view at `/dashboard-v2` reads `/api/status`. The other dashboard panels still use mock data.
 
 ## Status
 
 Planned for v1.0 (target 31 October 2026):
 
-- A sandbox runner for tool execution.
 - Tool schema fingerprinting and pinning, so a changed tool definition is held until someone approves it again.
 - A rule-based tool-poisoning scanner, followed by an LLM-assisted version.
 - The GenAI work described below.
@@ -219,7 +219,7 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `DELETE` | `/api/keys/{key_id}` | `admin` | Revoke a key |
 | `GET` | `/docs`, `/redoc`, `/openapi.json` | public, dev only | Disabled outside development |
 
-Gateway errors map to 400 (bad arguments), 404 (unknown tool or note), 413 (too large) and 504 (tool timeout).
+Gateway errors map to 400 (bad arguments), 404 (unknown tool or note), 413 (too large), 503 (sandbox unavailable) and 504 (tool timeout).
 
 ### Scopes
 
@@ -254,7 +254,20 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `DATABASE_URL` | `sqlite+aiosqlite:///<api>/data/mcp_guard.db` | Async SQLAlchemy URL |
 | `NOTES_DIR` | `api/data/notes` | Where notes are stored as `.md` files |
 | `MAX_BODY_BYTES` | `1048576` | Request body limit (1 MiB) |
-| `TOOL_TIMEOUT_S` | `5` | Gateway tool timeout in seconds |
+| `TOOL_TIMEOUT_S` | `5` | Gateway tool timeout in seconds. Must be greater than `SANDBOX_TIMEOUT_S` |
+| `SANDBOX_MODE` | `docker` | `docker` runs each tool in a container. `inprocess` runs it in the API process and is rejected when the environment is production-like |
+| `SANDBOX_IMAGE` | `mcp-guard-tool-runner:local` | Runner image. Build it with `api/scripts/build_sandbox_image.sh` |
+| `SANDBOX_TIMEOUT_S` | `4` | Seconds to wait for one sandbox run |
+| `SANDBOX_MEMORY` | `128m` | Container memory limit, applied to both `--memory` and `--memory-swap` |
+| `SANDBOX_CPUS` | `0.5` | Container CPU limit |
+| `SANDBOX_PIDS_LIMIT` | `64` | Process limit inside the container |
+| `SANDBOX_MAX_FILE_BYTES` | `1048576` | Largest file the container may write |
+| `SANDBOX_MAX_OUTPUT_BYTES` | `1048576` | Largest tool result accepted |
+| `SANDBOX_MAX_CONCURRENT` | `4` | How many sandbox runs may be active at once. A full queue returns 503 |
+| `SANDBOX_NETWORK` | `none` | Docker network for the run. `host` is rejected. Production requires `none` |
+| `SANDBOX_RUN_AS` | `65534:65534` | `uid:gid` inside the container. Production rejects a uid that starts with 0 |
+| `SANDBOX_NOTES_SOURCE` | unset | Absolute host path, or `volume:<name>`, mounted at `/notes`. Unset uses `NOTES_DIR` |
+| `SANDBOX_DOCKER_BIN` | `docker` | Docker CLI used to start runs |
 | `AUDIT_STREAM_MAX_SUBSCRIBERS` | `20` | Concurrent subscribers on `GET /api/audit/stream` |
 | `AUDIT_STREAM_QUEUE_SIZE` | `100` | Per-subscriber SSE queue. A full queue drops events for that subscriber |
 | `RATE_LIMIT_CAPACITY` | `100` | Token bucket capacity for rate limiting |
