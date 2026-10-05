@@ -103,6 +103,23 @@ class MemoryRunRecorder:
 
 
 @pytest.fixture(autouse=True)
+def tool_pinning_off(monkeypatch):
+    """Pinning stays off unless a test opts in. The pin cache starts empty."""
+
+    from app.config import settings
+    from app.pins.gate import NullScanGate, set_scan_gate
+    from app.services.pins import clear_pin_cache
+
+    monkeypatch.setattr(settings, "tool_pinning_mode", "off")
+    monkeypatch.setattr(settings, "tool_pinning_bootstrap_approve", False)
+    set_scan_gate(NullScanGate())
+    clear_pin_cache()
+    yield
+    set_scan_gate(NullScanGate())
+    clear_pin_cache()
+
+
+@pytest.fixture(autouse=True)
 def memory_run_recorder():
     from app.sandbox.recorder import get_run_recorder, set_run_recorder
 

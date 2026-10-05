@@ -111,22 +111,22 @@ On `main` today:
 
 - **MCP server.** Built on the official Python SDK (FastMCP) and mounted at `/mcp/` over Streamable HTTP. It exposes three notes tools, `list_notes`, `read_note` and `write_note`. Note names are checked against `[A-Za-z0-9_-]{1,64}` and the resolved path must stay inside the notes directory.
 - **Notes REST API.** `/api/notes` routes call tools only through `gateway.call_tool()`, which applies a tool allowlist, a 128 KiB argument limit, a 5 second timeout and error messages that don't leak paths or tracebacks.
-- **API-key auth and scopes.** Protected REST routes and `/mcp/` need `Authorization: Bearer mcpg_...`. Scopes are `notes:read`, `notes:write`, `audit:read`, `metrics:read`, `agent:run` and `admin`. The key verifier is pluggable and defaults to deny-all. Every route has to appear in the scope map or the app fails at startup.
+- **API-key auth and scopes.** Protected REST routes and `/mcp/` need `Authorization: Bearer mcpg_...`. Scopes are `notes:read`, `notes:write`, `audit:read`, `metrics:read`, `sandbox:read`, `tools:read`, `agent:run` and `admin`. The key verifier is pluggable and defaults to deny-all. Every route has to appear in the scope map or the app fails at startup.
 - **Consistent errors.** 401, 403 and other errors use one JSON shape and include `WWW-Authenticate` where it applies.
 - **HTTP hardening.** Request IDs on every response and log line, a request body size limit, security headers with a strict CSP, a CORS allowlist, and API docs disabled outside development.
 - **Status endpoint.** `/api/status` does a real MCP handshake against the server and reports latency, protocol version and tools.
-- **Database layer.** SQLAlchemy 2 (async) with Alembic migrations and repositories. Tables exist for clients, API keys, audit events and sandbox runs. SQLite is used in development.
+- **Database layer.** SQLAlchemy 2 (async) with Alembic migrations and repositories. Tables exist for clients, API keys, audit events, sandbox runs and tool pins. SQLite is used in development.
 - **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Mutating REST calls (`PUT /api/notes/{name}`) and MCP `tools/call` are audit-first: a required row is written before the tool runs. Read tools are audited after execution, before the result is returned. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
 - **Rate limiting, metrics and retention.** Each API key has its own token bucket, with separate buckets for REST and `/mcp`. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler. Sandbox run records are pruned on the same retention cycle.
 - **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
+- **Tool pinning.** Each tool's name, description, and JSON schema are hashed. `TOOL_PINNING_MODE=enforce` returns 403 `Tool is not approved.` until an admin approves that hash, and `tools/list` plus `GET /api/mcp/info` omit tools that are not approved. `warn` writes an audit row and still runs the tool. `off` (the default) skips the check. A schema or description change is drift and has to be approved again. The hash does not cover the function body. An optional source digest is stored for operators and is not an allow or deny input. A scan hook runs only after a pin would otherwise allow the call. The default gate does not block. A production-like environment rejects `TOOL_PINNING_BOOTSTRAP_APPROVE`.
 - **Frontend.** React 19, Vite and Tailwind. The Server Status view at `/dashboard-v2` reads `/api/status`. The other dashboard panels still use mock data.
 
 ## Status
 
 Planned for v1.0 (target 31 October 2026):
 
-- Tool schema fingerprinting and pinning, so a changed tool definition is held until someone approves it again.
-- A rule-based tool-poisoning scanner, followed by an LLM-assisted version.
+- A rule-based tool-poisoning scanner, followed by an LLM-assisted version. The scan hook is in place. The default gate does not block.
 - The GenAI work described below.
 - Docker Compose with PostgreSQL 16.
 
@@ -206,7 +206,7 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 |---|---|---|---|
 | `GET` | `/health` | public | Liveness check |
 | `GET` | `/api/status` | public | MCP handshake against `MCP_SELF_URL`. Reports `online` only when `MCP_SELF_API_KEY` is set to a key with `agent:run` |
-| `GET` | `/api/mcp/info` | public | Server name, transport, endpoint and tool names |
+| `GET` | `/api/mcp/info` | public | Server name, transport, endpoint and tool names. In enforce mode, only approved names |
 | `GET` | `/api/notes` | `notes:read` | List notes |
 | `GET` | `/api/notes/{name}` | `notes:read` | Read a note |
 | `PUT` | `/api/notes/{name}` | `notes:write` | Create or overwrite a note. Body `{"content": "..."}`, up to 100 KiB |
@@ -217,12 +217,17 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `GET` | `/api/sandbox/runs` | `sandbox:read` | Sandbox execution records, newest first |
 | `GET` | `/api/sandbox/runs/{run_id}` | `sandbox:read` | Details for one sandbox run |
 | `GET` | `/api/sandbox/health` | `sandbox:read` | Status of the active sandbox executor |
+| `GET` | `/api/pins` | `tools:read` | Catalog tools and stored pins, with `matches` against the live fingerprint |
+| `GET` | `/api/pins/{tool_name}` | `tools:read` | One pin, or a catalog tool that has no row yet |
+| `POST` | `/api/pins/sync` | `admin` | Store a pending pin when the live fingerprint is not already stored |
+| `POST` | `/api/pins/{tool_name}/approve` | `admin` | Approve the live fingerprint. Required audit row, then the pin write |
+| `POST` | `/api/pins/{tool_name}/revoke` | `admin` | Revoke a stored pin. Required audit row, then the pin write |
 | `POST` | `/api/keys` | `admin` | Create an API key. The raw key is returned once |
 | `GET` | `/api/keys` | `admin` | List keys for a client (`client_id` query parameter) |
 | `DELETE` | `/api/keys/{key_id}` | `admin` | Revoke a key |
 | `GET` | `/docs`, `/redoc`, `/openapi.json` | public, dev only | Disabled outside development |
 
-Gateway errors map to 400 (bad arguments), 404 (unknown tool or note), 413 (too large), 503 (sandbox unavailable) and 504 (tool timeout).
+Gateway errors map to 400 (bad arguments), 403 (tool not approved when pinning is enforced), 404 (unknown tool or note), 413 (too large), 503 (sandbox unavailable) and 504 (tool timeout).
 
 ### Scopes
 
@@ -234,7 +239,8 @@ Gateway errors map to 400 (bad arguments), 404 (unknown tool or note), 413 (too 
 | `audit:read` | `GET /api/audit` and `GET /api/audit/stream` |
 | `metrics:read` | `GET /api/metrics` |
 | `sandbox:read` | `GET /api/sandbox/runs` and `GET /api/sandbox/health` |
-| `admin` | Passes every scope check |
+| `tools:read` | `GET /api/pins` and `GET /api/pins/{tool_name}` |
+| `admin` | Passes every scope check. Also required to sync, approve, and revoke pins |
 
 The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.py).
 
@@ -279,6 +285,9 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `AUDIT_RETENTION_DAYS` | `90` | Number of days to retain audit log events |
 | `ENABLE_RETENTION_SCHEDULER` | `False` | Enable automatic cleanup of old audit records via a background task |
 | `SANDBOX_RUN_RETENTION_DAYS` | `90` | Number of days to retain sandbox runs |
+| `TOOL_PINNING_MODE` | `off` | `off` skips pinning. `warn` audits a mismatch and still runs the tool. `enforce` returns 403 `Tool is not approved.` and hides unapproved tools from `tools/list` and `GET /api/mcp/info` |
+| `TOOL_PINNING_BOOTSTRAP_APPROVE` | `false` | Approve every current tool when the process starts. Rejected when the environment is production-like |
+| `TOOL_PINNING_CACHE_TTL_S` | `5` | Seconds to cache pin rows. Approve, revoke, and sync clear the cache |
 
 The frontend reads `VITE_MCP_GUARD_API_URL` (default `http://localhost:8000`). Don't commit `.env` files or real keys; `.env` is in `.gitignore`.
 
@@ -368,11 +377,14 @@ mcp-a2a-secure/
 │   │   ├── errors.py           # JSON error format
 │   │   ├── config.py           # settings (pydantic-settings)
 │   │   ├── database.py         # async engine and sessions
-│   │   ├── models/             # clients, api_keys, audit_events, sandbox_runs
+│   │   ├── models/             # clients, api_keys, audit_events, sandbox_runs, tool_pins
+│   │   ├── pins/               # scan hook, MCP pin middleware, tools/list filter
 │   │   ├── repos/              # repository layer
-│   │   └── routes/             # notes.py, status.py
+│   │   └── routes/             # notes, status, pins, sandbox
 │   ├── alembic/                # migrations
 │   ├── scripts/seed_dev.py     # dev clients (no credentials)
+│   ├── scripts/approve_current_tools.py
+│   ├── scripts/demo_tool_pinning.sh
 │   ├── tests/
 │   ├── .env.example
 │   ├── log_config.json

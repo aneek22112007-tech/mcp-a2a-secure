@@ -110,6 +110,27 @@ class Settings(BaseSettings):
         gt=0,
         description="Number of days to retain sandbox runs.",
     )
+    tool_pinning_mode: Literal["off", "warn", "enforce"] = Field(
+        default="off",
+        description=(
+            "off skips pinning, warn audits and continues, "
+            "enforce denies unapproved tools."
+        ),
+    )
+    tool_pinning_bootstrap_approve: bool = Field(
+        default=False,
+        description=(
+            "Approve every current tool at startup. "
+            "Rejected when the environment is production-like."
+        ),
+    )
+    tool_pinning_cache_ttl_s: float = Field(
+        default=5.0,
+        ge=0,
+        description=(
+            "Seconds to cache tool pin rows. Approve and revoke clear the cache."
+        ),
+    )
 
     @field_validator("environment", mode="before")
     @classmethod
@@ -139,6 +160,11 @@ class Settings(BaseSettings):
 
         if self.is_production_like and not self.api_key_pepper:
             raise ValueError("API_KEY_PEPPER is required in production environment")
+
+        if self.is_production_like and self.tool_pinning_bootstrap_approve:
+            raise ValueError(
+                "TOOL_PINNING_BOOTSTRAP_APPROVE is not allowed in production"
+            )
 
         if self.is_production_like:
             for origin in self.cors_origins:

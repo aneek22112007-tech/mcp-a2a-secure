@@ -24,6 +24,7 @@ from app.gateway import call_tool
 
 # Also keep a thin import of api_mcp_info helpers for the /api/mcp/info endpoint
 from app.mcp_server import mcp
+from app.services.pins import visible_tool_names
 
 router = APIRouter(prefix="/api", dependencies=[Depends(authorize_route)])
 
@@ -131,16 +132,18 @@ async def api_write_note(
 
 
 @router.get("/mcp/info", response_model=McpInfo, summary="MCP Guard server metadata")
-def api_mcp_info() -> McpInfo:
+async def api_mcp_info() -> McpInfo:
     """Return metadata about the running MCP Guard server and its registered tools.
 
     This endpoint is consumed by the frontend dashboard status badge.
     It does NOT pass through the gateway (it reads server metadata, not tool output).
+    When tool pinning is enforced, only approved tool names are listed.
     """
     try:
         tool_names = [t.name for t in mcp._tool_manager.list_tools()]
     except AttributeError:
         tool_names = ["list_notes", "read_note", "write_note"]
+    tool_names = await visible_tool_names(tool_names)
 
     return McpInfo(
         server_name=mcp.name,
