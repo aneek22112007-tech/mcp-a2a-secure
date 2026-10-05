@@ -25,6 +25,9 @@ def _isolated_settings(monkeypatch, **overrides) -> Settings:
         "SANDBOX_DOCKER_BIN",
         "CORS_ORIGINS",
         "MCP_SELF_URL",
+        "TOOL_PINNING_MODE",
+        "TOOL_PINNING_BOOTSTRAP_APPROVE",
+        "TOOL_PINNING_CACHE_TTL_S",
     ):
         monkeypatch.delenv(key, raising=False)
     for key, value in overrides.items():

@@ -2,17 +2,20 @@
 
 POLICY
 ------
-- REQUIRED (fail-closed): ``tool.call`` and ``mcp.tools_call``.
+- REQUIRED (fail-closed): ``tool.call``, ``mcp.tools_call``,
+  ``tool.pin.approve`` and ``tool.pin.revoke``.
 - Mutating REST calls and MCP tools/call are audit-first. They write a
   required ``tool.call`` row before forwarding to the tool. Then a best-effort
-  ``tool.result`` row is written.
+  ``tool.result`` row is written. Pin approval and revocation write their
+  required row before the pin row changes.
 - Read tools (REST) are audited after execution: a required ``tool.call`` row
   is written before the result is returned.
 - Allowlist rejections, argument rejections, and tool errors are recorded
   best-effort, then the original HTTP error is re-raised.
-- BEST-EFFORT (fail-open, logged + ``on_write_failure``): ``auth.allow`` and
-  ``auth.deny``. A denial must keep its real 401/403 response; never turn it
-  into a 500.
+- BEST-EFFORT (fail-open, logged + ``on_write_failure``): ``auth.allow``,
+  ``auth.deny``, ``tool.pin.deny``, ``tool.pin.drift`` and
+  ``tool.pin.unapproved``. A denial must keep its real 401/403 response;
+  never turn it into a 500.
 """
 
 from __future__ import annotations

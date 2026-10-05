@@ -17,6 +17,11 @@ ACTION_AUTH_ALLOW = "auth.allow"
 ACTION_AUTH_DENY = "auth.deny"
 ACTION_TOOL_CALL = "tool.call"
 ACTION_TOOL_RESULT = "tool.result"
+ACTION_TOOL_PIN_APPROVE = "tool.pin.approve"
+ACTION_TOOL_PIN_REVOKE = "tool.pin.revoke"
+ACTION_TOOL_PIN_DENY = "tool.pin.deny"
+ACTION_TOOL_PIN_DRIFT = "tool.pin.drift"
+ACTION_TOOL_PIN_UNAPPROVED = "tool.pin.unapproved"
 ACTION_MCP_TOOLS_CALL = "mcp.tools_call"
 
 STATUS_OK = "ok"
@@ -29,6 +34,11 @@ __all__ = [
     "ACTION_AUTH_DENY",
     "ACTION_MCP_TOOLS_CALL",
     "ACTION_TOOL_CALL",
+    "ACTION_TOOL_PIN_APPROVE",
+    "ACTION_TOOL_PIN_DENY",
+    "ACTION_TOOL_PIN_DRIFT",
+    "ACTION_TOOL_PIN_REVOKE",
+    "ACTION_TOOL_PIN_UNAPPROVED",
     "ACTION_TOOL_RESULT",
     "AUDIT_DECISION_ALLOWED",
     "AUDIT_DECISION_DENIED",
