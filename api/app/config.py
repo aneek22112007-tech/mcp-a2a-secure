@@ -105,6 +105,11 @@ class Settings(BaseSettings):
         default=False,
         description="Enable automatic cleanup of old audit records via a background task.",
     )
+    sandbox_run_retention_days: int = Field(
+        default=90,
+        gt=0,
+        description="Number of days to retain sandbox runs.",
+    )
 
     @field_validator("environment", mode="before")
     @classmethod

@@ -8,6 +8,8 @@ from app.config import settings
 from app.database import async_session_maker
 from app.models.audit_events import AUDIT_DECISION_ALLOWED
 from app.repos.audit import delete_events_before
+from app.repos.sandbox_runs import delete_runs_before as delete_sandbox_runs_before
+from app.services.sandbox_runs import sweep_stale_runs
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,37 @@ async def run_retention_cleanup() -> None:
                 required=False,
             )
     except Exception:
-        logger.exception("Failed to run retention cleanup")
+        logger.exception("Failed to run audit retention cleanup")
+
+    try:
+        await sweep_stale_runs()
+    except Exception:
+        logger.exception("Failed to sweep stale sandbox runs in retention")
+
+    sandbox_retention_days = settings.sandbox_run_retention_days
+    sandbox_cutoff = datetime.now(UTC) - timedelta(days=sandbox_retention_days)
+    try:
+        async with async_session_maker() as session, session.begin():
+            sandbox_deleted = await delete_sandbox_runs_before(
+                session, cutoff=sandbox_cutoff
+            )
+
+        if sandbox_deleted > 0:
+            logger.info(
+                f"Deleted {sandbox_deleted} sandbox records older than {sandbox_retention_days} days."
+            )
+
+            await record_event(
+                AuditRecord(
+                    action="sandbox.retention",
+                    decision=AUDIT_DECISION_ALLOWED,
+                    status="ok",
+                    reason=f"deleted={sandbox_deleted}",
+                ),
+                required=False,
+            )
+    except Exception:
+        logger.exception("Failed to run sandbox retention cleanup")
 
 
 async def retention_scheduler_task() -> None:

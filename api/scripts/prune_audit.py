@@ -20,6 +20,12 @@ from app.config import settings
 from app.database import async_session_maker, engine
 from app.models.audit_events import AUDIT_DECISION_ALLOWED
 from app.repos.audit import count_events, delete_events_before
+from app.repos.sandbox_runs import (
+    count_runs as count_sandbox_runs,
+)
+from app.repos.sandbox_runs import (
+    delete_runs_before as delete_sandbox_runs_before,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,56 +34,100 @@ async def async_main(dry_run: bool) -> int:
     retention_days = settings.audit_retention_days
     cutoff = datetime.now(UTC) - timedelta(days=retention_days)
 
+    sandbox_retention_days = settings.sandbox_run_retention_days
+    sandbox_cutoff = datetime.now(UTC) - timedelta(days=sandbox_retention_days)
+
+    exit_code = 0
     try:
         async with async_session_maker() as session:
-            # First calculate how many records will be deleted
-            eligible_count = await count_events(session, end=cutoff)
+            # Audit runs
+            try:
+                eligible_count = await count_events(session, end=cutoff)
 
-            if eligible_count == 0:
+                if eligible_count == 0:
+                    print(
+                        f"No audit records older than {retention_days} days (cutoff: {cutoff.isoformat()})."
+                    )
+                elif dry_run:
+                    print(
+                        f"[DRY-RUN] {eligible_count} audit records are older than {retention_days} days and eligible for deletion."
+                    )
+                else:
+                    print(
+                        f"Deleting up to {eligible_count} audit records older than {retention_days} days..."
+                    )
+
+                    deleted = await delete_events_before(session, cutoff=cutoff)
+                    await session.commit()
+
+                    await record_event(
+                        AuditRecord(
+                            action="audit.retention",
+                            decision=AUDIT_DECISION_ALLOWED,
+                            status="ok",
+                            reason=f"deleted={deleted}",
+                        ),
+                        required=False,
+                    )
+
+                    print(f"Successfully deleted {deleted} audit records.")
+            except Exception:
                 print(
-                    f"No audit records older than {retention_days} days (cutoff: {cutoff.isoformat()})."
+                    "An error occurred while cleaning up audit records. Check logs for details."
                 )
-                return 0
+                logger.exception("Audit cleanup failed.")
+                exit_code = 1
 
-            if dry_run:
+            # Sandbox runs
+            try:
+                sandbox_eligible_count = await count_sandbox_runs(
+                    session, end=sandbox_cutoff
+                )
+
+                if sandbox_eligible_count == 0:
+                    print(
+                        f"No sandbox records older than {sandbox_retention_days} days (cutoff: {sandbox_cutoff.isoformat()})."
+                    )
+                elif dry_run:
+                    print(
+                        f"[DRY-RUN] {sandbox_eligible_count} sandbox records are older than {sandbox_retention_days} days and eligible for deletion."
+                    )
+                else:
+                    print(
+                        f"Deleting up to {sandbox_eligible_count} sandbox records older than {sandbox_retention_days} days..."
+                    )
+
+                    sandbox_deleted = await delete_sandbox_runs_before(
+                        session, cutoff=sandbox_cutoff
+                    )
+                    await session.commit()
+
+                    await record_event(
+                        AuditRecord(
+                            action="sandbox.retention",
+                            decision=AUDIT_DECISION_ALLOWED,
+                            status="ok",
+                            reason=f"deleted={sandbox_deleted}",
+                        ),
+                        required=False,
+                    )
+
+                    print(f"Successfully deleted {sandbox_deleted} sandbox records.")
+            except Exception:
                 print(
-                    f"[DRY-RUN] {eligible_count} audit records are older than {retention_days} days and eligible for deletion."
+                    "An error occurred while cleaning up sandbox records. Check logs for details."
                 )
-                return 0
+                logger.exception("Sandbox cleanup failed.")
+                exit_code = 1
 
-            # Actually delete
-            print(
-                f"Deleting up to {eligible_count} audit records older than {retention_days} days..."
-            )
-
-            deleted = await delete_events_before(session, cutoff=cutoff)
-            await session.commit()
-
-            await record_event(
-                AuditRecord(
-                    action="audit.retention",
-                    decision=AUDIT_DECISION_ALLOWED,
-                    status="ok",
-                    reason=f"deleted={deleted}",
-                ),
-                required=False,
-            )
-
-            print(f"Successfully deleted {deleted} audit records.")
-            return 0
-    except Exception:
-        print(
-            "An error occurred while cleaning up audit records. Check logs for details."
-        )
-        logger.exception("Audit cleanup failed.")
-        return 1
+        return exit_code
     finally:
         await engine.dispose()
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Clean up old audit records based on retention policy."
+        description="Clean up old audit and sandbox records based on retention policy."
     )
     parser.add_argument(
         "--dry-run",
