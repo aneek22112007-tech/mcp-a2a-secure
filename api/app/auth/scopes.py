@@ -7,10 +7,20 @@ AUDIT_READ = "audit:read"
 METRICS_READ = "metrics:read"
 AGENT_RUN = "agent:run"
 SANDBOX_READ = "sandbox:read"
+TOOLS_READ = "tools:read"
 ADMIN = "admin"
 
 ALL_SCOPES = frozenset(
-    {NOTES_READ, NOTES_WRITE, AUDIT_READ, METRICS_READ, SANDBOX_READ, AGENT_RUN, ADMIN}
+    {
+        NOTES_READ,
+        NOTES_WRITE,
+        AUDIT_READ,
+        METRICS_READ,
+        SANDBOX_READ,
+        TOOLS_READ,
+        AGENT_RUN,
+        ADMIN,
+    }
 )
 MCP_REQUIRED_SCOPE = AGENT_RUN
 
@@ -24,6 +34,11 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("GET", "/api/sandbox/runs"): SANDBOX_READ,
     ("GET", "/api/sandbox/runs/{run_id}"): SANDBOX_READ,
     ("GET", "/api/sandbox/health"): SANDBOX_READ,
+    ("GET", "/api/pins"): TOOLS_READ,
+    ("GET", "/api/pins/{tool_name}"): TOOLS_READ,
+    ("POST", "/api/pins/sync"): ADMIN,
+    ("POST", "/api/pins/{tool_name}/approve"): ADMIN,
+    ("POST", "/api/pins/{tool_name}/revoke"): ADMIN,
     ("GET", "/api/status"): None,
     ("GET", "/api/mcp/info"): None,
     ("GET", "/health"): None,

@@ -40,6 +40,7 @@ from app.routes.api_keys import router as api_keys_router
 from app.routes.audit import router as audit_router
 from app.routes.metrics import router as metrics_router
 from app.routes.notes import router as notes_router
+from app.routes.pins import router as pins_router
 from app.routes.sandbox import router as sandbox_router
 from app.routes.status import router as status_router
 from app.sandbox.recorder import NullRunRecorder, get_run_recorder, set_run_recorder
@@ -145,6 +146,7 @@ app.include_router(api_keys_router)
 app.include_router(audit_router)
 app.include_router(metrics_router)
 app.include_router(sandbox_router)
+app.include_router(pins_router)
 
 
 @app.get("/health")
