@@ -247,13 +247,10 @@ mcp.settings.streamable_http_path = "/"
 
 ```python
 def _safe(name: str) -> Path:
-    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name):
-        raise ValueError(f"invalid note name: {name!r}")
-    candidate = (NOTES_DIR / f"{name}.md").resolve()
-    if NOTES_DIR.resolve() not in candidate.parents:
-        raise ValueError(f"invalid note name: {name!r}")
-    return candidate
+    return resolve_note_path(NOTES_DIR, name)
 ```
+
+`_safe` is a wrapper. The checks live in `app/tools/notes.py`, which the sandbox image can run without the rest of the API:
 
 Two layers of defence:
 
@@ -270,19 +267,19 @@ Two layers of defence:
 
 ```python
 @mcp.tool()
-def list_notes() -> list[str]:
+async def list_notes(ctx: Context | None = None) -> list[str]:
     """List saved notes. Returns the note names (without the .md suffix) sorted lexicographically."""
-    return sorted(p.stem for p in NOTES_DIR.glob("*.md"))
+    return await run_tool("list_notes", {}, mcp_context=ctx)
 ```
 
-- `@mcp.tool()` decorator registers this function as an MCP tool
-- FastMCP reads the function signature (`-> list[str]`) and docstring to auto-generate the JSON Schema
-- `p.stem` strips the `.md` extension (`hello.md` → `hello`)
-- `sorted()` ensures deterministic ordering
+- `@mcp.tool()` registers this function as an MCP tool
+- FastMCP reads the return type and docstring to build the JSON Schema. `ctx` is a FastMCP context parameter and is left out of that schema
+- The body does not touch the filesystem. `run_tool` runs `app.tools.notes.list_notes` in the sandbox. Names are the sorted stems of `*.md` files
+- REST reaches the same function through `gateway._dispatch` → `mcp.call_tool`. MCP `tools/call` reaches it through FastMCP and never enters the gateway
 
-**Input:** none  
-**Output:** `["apple", "demo", "hello"]` (sorted list of note names)  
-**Error cases:** directory unreadable (OS permission error — not currently handled)
+**Input:** none
+**Output:** `["apple", "demo", "hello"]` (sorted list of note names)
+**Error cases:** sandbox unavailable (503 on REST), timeout (504 on REST)
 
 ---
 
@@ -290,18 +287,18 @@ def list_notes() -> list[str]:
 
 ```python
 @mcp.tool()
-def read_note(name: str) -> str:
+async def read_note(name: str, ctx: Context | None = None) -> str:
     """Read one note. Args: name - The note name (without .md)."""
-    return _safe(name).read_text()
+    return await run_tool("read_note", {"name": name}, mcp_context=ctx)
 ```
 
-- Calls `_safe(name)` → raises `ValueError` on invalid name
-- `.read_text()` raises `FileNotFoundError` if the note doesn't exist
-- FastMCP propagates exceptions back to the client as MCP error responses
+- The sandbox runner calls `validate_note_name` and `resolve_note_path`, then reads the file
+- An invalid name becomes `ValueError`. A missing note becomes `FileNotFoundError("Note not found.")`
+- FastMCP turns a tool exception into `str(exc)`, so sandbox failures use fixed messages
 
-**Input:** `name: str` — note name, e.g. `"hello"`  
-**Output:** `str` — full Markdown content  
-**Error cases:** `ValueError` (invalid name), `FileNotFoundError` (not found)
+**Input:** `name: str` — note name, e.g. `"hello"`
+**Output:** `str` — full Markdown content
+**Error cases:** `ValueError` (invalid name), `FileNotFoundError` (not found), sandbox 503/504 on the REST gateway
 
 ---
 
@@ -309,19 +306,23 @@ def read_note(name: str) -> str:
 
 ```python
 @mcp.tool()
-def write_note(name: str, content: str) -> str:
+async def write_note(name: str, content: str, ctx: Context | None = None) -> str:
     """Create or overwrite a note. Returns 'saved {name}'."""
-    _safe(name).write_text(content)
-    return f"saved {name}"
+    return await run_tool(
+        "write_note",
+        {"name": name, "content": content},
+        mcp_context=ctx,
+    )
 ```
 
-- Validates `name` via `_safe()`
-- `write_text(content)` atomically overwrites the file (or creates it)
-- Returns a simple confirmation string
+- The sandbox runner validates `name`, creates the notes directory, and writes `{name}.md`
+- Returns `saved {name}`
+- The notes mount is read-write for this tool and read-only for `list_notes` and `read_note`
+- Compose should set `SANDBOX_NOTES_SOURCE=volume:<name>` so the runner writes into a named volume instead of a host directory
 
-**Input:** `name: str`, `content: str`  
-**Output:** `"saved hello"`  
-**Error cases:** `ValueError` (invalid name), OS write error
+**Input:** `name: str`, `content: str`
+**Output:** `"saved hello"`
+**Error cases:** `ValueError` (invalid name), sandbox unavailable, sandbox timeout
 
 ---
 
@@ -464,10 +465,9 @@ FastMCP responds with the schema of all registered tools — names, descriptions
 4.   → mcpApi.ts: POST http://localhost:8000/api/notes/hello
                        body: {"content": "# Hello\nworld"}
 5.     → FastAPI router (notes.py): api_write_note("hello", NoteBody(...))
-6.       → calls: write_note(name="hello", content="# Hello\nworld")
-                   (same Python function registered as MCP tool)
-7.         → _safe("hello") validates name → returns Path("api/data/notes/hello.md")
-8.           → writes "# Hello\nworld" to api/data/notes/hello.md
+6.       → gateway.call_tool("write_note", {"name": "hello", "content": "# Hello\nworld"})
+7.         → write_note calls run_tool. Docker starts one container, or in-process mode runs app.tools.notes in a worker thread
+8.           → the runner checks the name and writes hello.md under the notes mount (/notes in the container)
 9.         → returns "saved hello"
 10.      → REST router returns: {"name": "hello", "content": "# Hello\nworld"}
 11.    → mcpApi.ts returns NoteDetail object
@@ -477,8 +477,10 @@ FastMCP responds with the schema of all registered tools — names, descriptions
 ```
 
 The **same `write_note` function** is reachable via:
-- REST: `POST /api/notes/hello`
-- MCP: `tools/call { name: "write_note", arguments: { name: "hello", content: "..." } }`
+- REST: `PUT /api/notes/hello`, which enters through the gateway
+- MCP: `tools/call { name: "write_note", arguments: { name: "hello", content: "..." } }`, which does not enter the gateway
+
+Both paths call `run_tool`. With `SANDBOX_NOTES_SOURCE=volume:<name>`, Compose shares one named volume between the API and the runner. Unset, the container bind-mounts `NOTES_DIR`.
 
 ---
 

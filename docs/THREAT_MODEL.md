@@ -37,7 +37,7 @@
 │  ┌──────────────────────▼───────────────────────────────────────┐   │
 │  │ mcp_server.py / FastMCP tools                                  │   │
 │  │  • list_notes  • read_note  • write_note                       │   │
-│  │  • _safe() path-traversal guard                                │   │
+│  │  • each call goes to the sandbox runner                        │   │
 │  └──────────────────────┬───────────────────────────────────────┘   │
 │                          │                                           │
 │  ┌──────────────────────▼───────────────────────────────────────┐   │
@@ -57,7 +57,6 @@
 │  Google OAuth 2.0 flow                                               │
 └─────────────────────────────────────────────────────────────────────┘
 
-[PROPOSED] Docker sandbox — not yet implemented
 [PROPOSED] A2A request signing — not yet implemented
 ```
 
@@ -68,7 +67,8 @@
 | **Browser ↔ API** | Untrusted HTTP input. CORS allowlist, body size limit, error sanitization applied. |
 | **REST routes ↔ gateway** | Internal — routes must call gateway, never tools directly. |
 | **Gateway ↔ MCP tools** | Internal — allowlist enforced; tool results normalised. |
-| **API ↔ Filesystem** | Tool functions read/write `api/data/notes/`. Path-traversal guard enforced in `_safe()`. |
+| **Gateway ↔ sandbox container** | Each tool call runs in its own container. The gateway speaks to it only through the Docker CLI and one JSON object on stdin. |
+| **API ↔ Filesystem** | The notes directory is the only host path mounted into the container. Path checks live in `app/tools/notes.py`. |
 | **API ↔ SQLite** | Internal — SQLAlchemy async ORM; no raw SQL from user input in current routes. |
 | **API ↔ Express OAuth** | Separate process; no direct code dependency in current API. |
 
@@ -208,6 +208,20 @@
 
 ---
 
+### Risk 6: Sandbox shares the host kernel
+
+| Field | Detail |
+|-------|--------|
+| **Scenario** | A tool process escapes the container through a kernel bug, or an operator mounts the Docker socket into some other container. |
+| **Likelihood** | Low for a kernel escape. High if the Docker socket is mounted into a container: that mount is root-equivalent on the host. |
+| **Impact** | High — code running as root on the host can read notes, the database, and API key hashes |
+| **Existing mitigation** | The runner container drops all capabilities, disallows privilege escalation, uses a non-root user, has no network, and does not receive the Docker socket. `SANDBOX_NETWORK=host` is rejected. Production rejects `SANDBOX_MODE=inprocess` and a `SANDBOX_RUN_AS` uid that starts with 0. |
+| **Residual risk** | The container shares the host kernel, so a kernel vulnerability is not contained. Mounting the Docker socket into a container is root-equivalent, so Block 11 should talk to Docker through a socket proxy rather than the raw socket. `SANDBOX_MODE=inprocess` has no isolation: the tool runs in the API process. |
+| **Next action** | Keep the API off the raw Docker socket when it moves into Compose. Leave `inprocess` for development and tests only. |
+| **Source files** | `api/app/sandbox/docker.py`, `api/app/config.py`, `api/sandbox/Dockerfile` |
+
+---
+
 ## Implemented Controls Summary
 
 | Control | Status | Evidence |
@@ -217,7 +231,7 @@
 | Body size limit (1 MiB) | Implemented | `middleware.py:BodySizeLimitMiddleware` |
 | Request ID tracking | Implemented | `middleware.py:RequestContextMiddleware` |
 | Tool allowlist | Implemented | `gateway.py:ALLOWED_TOOLS` |
-| Path traversal guard | Implemented | `mcp_server.py:_safe()` |
+| Path traversal guard | Implemented | `app/tools/notes.py` (`validate_note_name`, `resolve_note_path`); `mcp_server.py:_safe()` delegates to it |
 | Argument size guard (128 KiB) | Implemented | `gateway.py:MAX_ARG_BYTES` |
 | Tool timeout (5 s) | Implemented | `gateway.py:asyncio.wait_for` |
 | Error sanitisation (no stack traces) | Implemented | `errors.py`, `gateway.py` |
@@ -229,4 +243,4 @@
 | Trusted-proxy client IP | Implemented | `api/app/middleware.py` (`ClientIPMiddleware`, `TRUSTED_PROXIES`) |
 | Audit log persistence | Implemented | `tool.call` success and `mcp.tools_call` are fail-closed. `auth.allow` and `auth.deny` are fail-open. ORM rejects update/delete. The Postgres append-only trigger is installed (revision `cc48301ff61d`). |
 | A2A request signing | Not implemented | — |
-| Docker sandbox | Not implemented | — |
+| Docker sandbox | Implemented | `docker run --rm --pull never --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit --memory --memory-swap --cpus --user`, tmpfs `/tmp`, no docker socket, no extra mounts, no env file. A daemon or image failure is HTTP 503 and is not retried in-process. |
