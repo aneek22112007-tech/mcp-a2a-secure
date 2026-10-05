@@ -51,6 +51,9 @@ All API variables are loaded from `api/.env` (copy `api/.env.example`).
 | `SANDBOX_RUN_AS` | `65534:65534` | `uid:gid` inside the container |
 | `SANDBOX_NOTES_SOURCE` | unset | Absolute host path or `volume:<name>` mounted at `/notes` |
 | `SANDBOX_DOCKER_BIN` | `docker` | Docker CLI binary |
+| `TOOL_PINNING_MODE` | `off` | `off`, `warn`, or `enforce`. `enforce` denies a tool until its schema hash is approved |
+| `TOOL_PINNING_BOOTSTRAP_APPROVE` | `false` | Approve the current catalog at startup. Refused when `ENVIRONMENT` is production-like |
+| `TOOL_PINNING_CACHE_TTL_S` | `5` | Seconds pin rows stay cached. Approve, revoke, and sync clear the cache |
 
 > **Production requirement**: Set `ENVIRONMENT=production` to disable API documentation endpoints. The default `dev` keeps docs enabled and is suitable only for local development.
 
@@ -235,6 +238,44 @@ Every tool invocation starts a sandbox run. The lifecycle is recorded in the `sa
 - **Startup sweep**: When the application starts, `sweep_stale_runs()` runs to find runs that were stuck in `running` or `pending` (if the process crashed) and marks them `failed` with the error type `stale_run`.
 - **Pruning**: The retention scheduler (or `scripts/prune_audit.py`) deletes sandbox runs older than `SANDBOX_RUN_RETENTION_DAYS`. It sweeps stale runs before deletion. A single `sandbox.retention` audit event is written if runs are deleted.
 - **Demo script**: `scripts/demo_sandbox.sh` provisions an admin key and demonstrates the lifecycle by starting the API, querying health, running tools, and listing the resulting sandbox records.
+
+---
+
+## Tool schema pinning
+
+Pinning compares a sha256 of the live tool contract with the row in `tool_pins`. The contract is the tool name, the description with whitespace collapsed on each line, the input schema, and the output schema when the tool has one. Object keys are sorted. The function body is not part of the hash. `implementation_digest` is a separate hash of the registered function source. It is stored for operators and is not used to allow or deny a call.
+
+`TOOL_PINNING_MODE` selects the behaviour:
+
+- `off` (the default) does not read pins and does not write pin audit rows.
+- `warn` writes a best-effort `tool.pin.unapproved`, `tool.pin.drift`, or `tool.pin.deny` row and still runs the tool.
+- `enforce` returns HTTP 403 with the message `Tool is not approved.` on REST and on MCP `tools/call`. The tool does not run. `tools/list` and `GET /api/mcp/info` list only tools that are currently approved.
+
+A missing pin, a pending pin, a revoked pin, a fingerprint that does not match, or a block from the scan hook all count as not approved. The default scan hook does not block. Revoke wins over a matching fingerprint. Drift is reported when a pin exists and the live schema differs.
+
+Approval and revocation require `admin`. Each one writes a required audit row before the pin changes. If that audit row cannot be stored, the response is 503 `Audit log unavailable.` and the pin is left as it was. `GET /api/pins` requires `tools:read` and includes `matches`, which is true only when the stored fingerprint equals the live one.
+
+To take a new schema live:
+
+```bash
+cd api
+uv run alembic upgrade head
+
+# Pending rows for schemas that are not already stored.
+curl -X POST -H "Authorization: Bearer $ADMIN_KEY" http://127.0.0.1:8000/api/pins/sync
+
+# Approve the live fingerprint of one tool.
+curl -X POST -H "Authorization: Bearer $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"note":"reviewed"}' \
+  http://127.0.0.1:8000/api/pins/write_note/approve
+```
+
+`scripts/approve_current_tools.py` approves every registered tool directly. Use it when the process should not bootstrap itself. `TOOL_PINNING_BOOTSTRAP_APPROVE=true` does the same at startup and is rejected when the environment is production-like.
+
+`scripts/demo_tool_pinning.sh` starts the API in enforce mode, shows the 403, syncs, approves `write_note`, shows the write succeed, revokes it, and shows the 403 again.
+
+Changing a tool's description or schema after approval makes the next call drift. Sync moves that tool back to pending. It has to be approved again. A revoked tool stays revoked until someone approves the live fingerprint.
 
 ---
 
