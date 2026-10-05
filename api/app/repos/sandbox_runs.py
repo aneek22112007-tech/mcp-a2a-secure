@@ -315,7 +315,7 @@ async def mark_stale_runs(session: AsyncSession, older_than: datetime) -> None:
     statement = (
         update(SandboxRun)
         .where(
-            SandboxRun.status == RUN_STATUS_RUNNING,
+            SandboxRun.status.in_((RUN_STATUS_RUNNING, "pending")),
             SandboxRun.created_at < as_utc(older_than),
         )
         .values(

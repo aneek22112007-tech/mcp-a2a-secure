@@ -72,6 +72,7 @@ async def async_main(dry_run: bool) -> int:
 
                     print(f"Successfully deleted {deleted} audit records.")
             except Exception:
+                await session.rollback()
                 print(
                     "An error occurred while cleaning up audit records. Check logs for details."
                 )
