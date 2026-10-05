@@ -33,6 +33,8 @@ from app.middleware import (
     SecurityHeadersMiddleware,
     install_request_id_logging,
 )
+from app.pins.listing import install_pinned_tool_list
+from app.pins.mcp_asgi import McpToolPinMiddleware
 from app.rate_limit import McpRateLimitMiddleware, rate_limit_dependency
 from app.routes.api_keys import router as api_keys_router
 from app.routes.audit import router as audit_router
@@ -58,6 +60,12 @@ async def lifespan(app: FastAPI):
 
     if isinstance(get_run_recorder(), NullRunRecorder):
         set_run_recorder(DbRunRecorder())
+
+    install_pinned_tool_list()
+    if settings.tool_pinning_bootstrap_approve:
+        from app.services.pins import bootstrap_approve_current_tools
+
+        await bootstrap_approve_current_tools()
 
     try:
         await sweep_stale_runs()
@@ -148,7 +156,9 @@ def health():
 app.mount(
     "/mcp",
     McpBearerAuthMiddleware(
-        McpRateLimitMiddleware(McpToolAuditMiddleware(mcp.streamable_http_app()))
+        McpRateLimitMiddleware(
+            McpToolPinMiddleware(McpToolAuditMiddleware(mcp.streamable_http_app()))
+        )
     ),
 )
 

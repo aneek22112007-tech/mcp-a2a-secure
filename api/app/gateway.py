@@ -12,7 +12,10 @@ required ``tool.call`` row before forwarding to the tool. Then a best-effort
 ``tool.result`` row is written. Read tools (REST) are audited after execution:
 a required ``tool.call`` row is written before the result is returned.
 Allowlist rejections, argument rejections, and tool errors are recorded
-best-effort, then the original HTTP error is re-raised.
+best-effort, then the original HTTP error is re-raised. When tool pinning
+is enforced, an unapproved tool returns 403 before the argument check and
+before the mutating audit row. Warn mode records the pin decision and
+continues. Off skips the check.
 
 The tool body runs in the sandbox. Docker is the default and is fail closed:
 if the daemon or the runner image is unavailable, the call returns 503 and
@@ -50,6 +53,7 @@ from app.audit.sink import AuditUnavailableError, record_event
 from app.config import settings
 from app.errors import _ERROR_CODES
 from app.models.audit_events import AUDIT_DECISION_ALLOWED, AUDIT_DECISION_DENIED
+from app.pins.types import MODE_OFF, MODE_WARN, PIN_REASON_MISSING
 from app.sandbox.context import (
     ExecutionContext,
     bind_execution_context,
@@ -64,6 +68,7 @@ from app.sandbox.errors import (
 )
 from app.sandbox.policy import TOOL_POLICIES
 from app.sandbox.types import TRANSPORT_REST
+from app.services.pins import evaluate_tool, pin_audit_action
 
 if TYPE_CHECKING:
     from app.auth import Principal
@@ -164,6 +169,7 @@ async def call_tool(
     Raises
     ------
     HTTPException 404  – unknown or unregistered tool
+    HTTPException 403  – tool pinning is enforced and the tool is not approved
     HTTPException 413  – serialised argument size exceeds ``MAX_ARG_BYTES``
     HTTPException 504  – tool did not complete within ``settings.tool_timeout_s``
     HTTPException 400  – invalid arguments rejected by the tool
@@ -196,6 +202,8 @@ async def call_tool(
                 status_code=404,
                 detail=f"Tool '{name}' is not registered in the gateway.",
             )
+
+        await _apply_tool_pin(name, audit_base)
 
         # ------------------------------------------------------------------
         # 2. Argument size guard
@@ -351,6 +359,8 @@ async def call_tool(
         finally:
             reset_execution_context(token)
     except HTTPException as exc:
+        if getattr(exc, "_mcp_pin_enforced", False):
+            raise
         is_mutating = name in MUTATING_TOOLS
         if is_mutating and denial_reason is None and not dispatch_started:
             raise
@@ -385,6 +395,47 @@ async def call_tool(
         status_code=200,
     )
     return {"ok": True, "result": result_raw, "duration_ms": duration_ms}
+
+
+async def _apply_tool_pin(name: str, audit_base: dict[str, Any]) -> None:
+    """Hold the call when the live schema is not an approved pin.
+
+    ``warn`` records ``tool.pin.deny``, ``tool.pin.drift``, or
+    ``tool.pin.unapproved`` and then returns. ``enforce`` raises 403 after
+    that best-effort row. The generic tool.call denial is skipped for that
+    403 so the pin action is the record of the decision.
+    """
+
+    mode = settings.tool_pinning_mode
+    if mode == MODE_OFF:
+        return
+    decision = await evaluate_tool(name)
+    if decision.allowed:
+        return
+    reason = decision.reason or PIN_REASON_MISSING
+    blocked = mode != MODE_WARN
+    await record_event(
+        AuditRecord(
+            action=pin_audit_action(reason),
+            decision=AUDIT_DECISION_DENIED,
+            status=STATUS_DENIED,
+            reason=reason,
+            tool_name=safe_tool_name(name),
+            args_hash=decision.live_fingerprint,
+            status_code=403 if blocked else None,
+            error_code="FORBIDDEN" if blocked else None,
+            request_id=_optional_str(audit_base.get("request_id")),
+            client_ip=_optional_str(audit_base.get("client_ip")),
+            client_id=_optional_str(audit_base.get("client_id")),
+            api_key_id=_optional_str(audit_base.get("api_key_id")),
+            key_prefix=_optional_str(audit_base.get("key_prefix")),
+        ),
+        required=False,
+    )
+    if blocked:
+        denied = HTTPException(status_code=403, detail="Tool is not approved.")
+        denied._mcp_pin_enforced = True  # type: ignore[attr-defined]
+        raise denied
 
 
 async def _write_tool_audit(
