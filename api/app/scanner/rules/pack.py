@@ -37,18 +37,19 @@ OVERBROAD_PARAMS = {
 }
 
 
-def extract_all_strings(obj) -> list[str]:
-    strings = []
-    if isinstance(obj, str):
-        strings.append(obj)
-    elif isinstance(obj, dict):
+def extract_descriptions(obj) -> list[str]:
+    descriptions = []
+    if isinstance(obj, dict):
         for k, v in obj.items():
-            strings.append(k)
-            strings.extend(extract_all_strings(v))
+            if k in ("description", "title") and isinstance(v, str):
+                descriptions.append(v)
+            elif isinstance(v, (dict, list)):
+                descriptions.extend(extract_descriptions(v))
     elif isinstance(obj, list):
         for item in obj:
-            strings.extend(extract_all_strings(item))
-    return strings
+            if isinstance(item, (dict, list)):
+                descriptions.extend(extract_descriptions(item))
+    return descriptions
 
 
 def normalise_text(text: str) -> str:
@@ -62,41 +63,51 @@ NORMAL_EXFIL_PHRASES = [normalise_text(p) for p in EXFILTRATION_PHRASES]
 def scan_tool_rules(defn: ToolDefinition) -> list[ScannerFinding]:
     findings = []
 
-    all_strings = []
-    if defn.name:
-        all_strings.append(defn.name)
-    if defn.description:
-        all_strings.append(defn.description)
-    if defn.input_schema:
-        all_strings.extend(extract_all_strings(defn.input_schema))
-    if defn.output_schema:
-        all_strings.extend(extract_all_strings(defn.output_schema))
-
-    norm_strings = [(s, normalise_text(s)) for s in all_strings]
-
-    # Rule 1 & Rule 2 & Rule 5 across everything
-    for orig, norm in norm_strings:
-        if not norm:
-            continue
-        for p_idx, phrase in enumerate(NORMAL_PROMPT_PHRASES):
-            if phrase in norm:
+    # Rule 1 & Rule 2 (tool description only)
+    desc_str = defn.description or ""
+    norm_desc = normalise_text(desc_str)
+    if norm_desc:
+        for phrase in NORMAL_PROMPT_PHRASES:
+            if phrase in norm_desc:
                 findings.append(
                     ScannerFinding(
                         rule_id="R1_PROMPT_INJECTION",
                         severity="high",
                         message="Prompt injection phrase found.",
-                        evidence=orig[:200],
+                        evidence=desc_str[:200],
                     )
                 )
-                break  # avoid duplicate findings for same string
-
-        for e_idx, phrase in enumerate(NORMAL_EXFIL_PHRASES):
-            if phrase in norm:
+                break
+        for phrase in NORMAL_EXFIL_PHRASES:
+            if phrase in norm_desc:
                 findings.append(
                     ScannerFinding(
                         rule_id="R2_EXFILTRATION",
                         severity="critical",
                         message="Exfiltration phrase found.",
+                        evidence=desc_str[:200],
+                    )
+                )
+                break
+
+    # Rule 5 (schema descriptions only)
+    schema_descs = []
+    if defn.input_schema:
+        schema_descs.extend(extract_descriptions(defn.input_schema))
+    if defn.output_schema:
+        schema_descs.extend(extract_descriptions(defn.output_schema))
+
+    for orig in schema_descs:
+        norm = normalise_text(orig)
+        if not norm:
+            continue
+        for phrase in NORMAL_PROMPT_PHRASES + NORMAL_EXFIL_PHRASES:
+            if phrase in norm:
+                findings.append(
+                    ScannerFinding(
+                        rule_id="R5_SUSPICIOUS_PARAM_DESC",
+                        severity="high",
+                        message="Suspicious parameter description.",
                         evidence=orig[:200],
                     )
                 )

@@ -250,10 +250,10 @@ async def test_db_scan_gate(monkeypatch, mock_db):
     reason = await gate.blocking_reason("test_tool", "fp2")
     assert reason is None
 
-    # Blocked by unscanned in enforce mode
+    # Still not blocked in enforce mode if unscanned (failsafe removed per P6 contract)
     monkeypatch.setattr(settings, "tool_pinning_mode", "enforce")
     reason = await gate.blocking_reason("test_tool", "fp2")
-    assert reason == "pin_scan_blocked"
+    assert reason is None
 
     # Check disabled
     monkeypatch.setattr(settings, "scanner_enabled", False)
@@ -286,15 +286,14 @@ async def test_sync_resolve_logic(mock_db):
             ],
             "scan-1",
         )
-        assert len(active) == 2  # finding + R0_SCANNED
+        assert len(active) == 1  # finding
         await session.commit()
 
         # Second scan, same fingerprint, finding gone
         active = await _sync_findings_for_tool(
             session, "test_sync", "fp_sync", [], "scan-2"
         )
-        assert len(active) == 1  # only R0_SCANNED
-        assert active[0].rule_id == "R0_SCANNED"
+        assert len(active) == 0  # no findings
         await session.commit()
 
 

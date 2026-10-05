@@ -52,12 +52,6 @@ async def _sync_findings_for_tool(
 
     open_dict = {sig(f): f for f in open_findings}
 
-    # Always include a success marker for this fingerprint
-    success_marker = ScannerFinding(
-        rule_id="R0_SCANNED", severity="info", message="Scan complete", evidence=None
-    )
-    drafts.append(success_marker)
-
     draft_dict = {(fingerprint, d.rule_id, d.message): d for d in drafts}
 
     new_db_findings = []
@@ -138,10 +132,9 @@ async def run_scan_one(tool_name: str) -> ScanStats | None:
                 except Exception:
                     logger.exception("Failed to emit audit event")
 
-        stats.findings_open = len([f for f in active if f.rule_id != "R0_SCANNED"])
+        stats.findings_open = len(active)
         for f in active:
-            if f.rule_id != "R0_SCANNED":
-                stats.by_severity[f.severity] += 1
+            stats.by_severity[f.severity] += 1
 
     stats.by_severity = dict(stats.by_severity)
     return stats
@@ -193,12 +186,9 @@ async def run_scan_all() -> ScanStats:
                         except Exception:
                             logger.exception("Failed to emit audit event")
 
-                stats.findings_open += len(
-                    [f for f in active if f.rule_id != "R0_SCANNED"]
-                )
+                stats.findings_open += len(active)
                 for f in active:
-                    if f.rule_id != "R0_SCANNED":
-                        stats.by_severity[f.severity] += 1
+                    stats.by_severity[f.severity] += 1
             except Exception:
                 logger.exception("Failed to sync findings for tool %s", defn.name)
 
