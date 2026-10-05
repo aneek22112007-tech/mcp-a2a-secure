@@ -54,9 +54,20 @@ erDiagram
         string id PK "UUID"
         string client_id FK "References clients.id"
         string audit_event_id FK "References audit_events.id (nullable)"
-        string status "pending/running/finished/failed (max 50)"
+        string status "pending/running/succeeded/failed/timeout/cancelled/unavailable/rejected/abandoned (max 50)"
+        string tool_name "Name of the MCP tool (nullable, max 100)"
+        string mode "Sandbox mode: docker/inprocess (nullable, max 16)"
+        string image "Docker image name (nullable, max 255)"
+        string transport "rest/mcp (nullable, max 8)"
+        string args_hash "Hashed tool arguments (nullable, max 255)"
+        string request_id "Correlated request ID (nullable, max 64)"
+        string api_key_id FK "References api_keys.id (nullable)"
+        string key_prefix "Used API key prefix (nullable, max 20)"
+        int duration_ms "Execution duration (nullable)"
+        int output_bytes "Size of the tool output (nullable)"
+        string error_type "Standardized error constant (nullable, max 50)"
         int exit_code "Process exit code (nullable)"
-        text error_metadata "Detailed error JSON (nullable)"
+        text error_metadata "Detailed error JSON (legacy, nullable)"
         datetime created_at "UTC timestamp"
         datetime started_at "UTC timestamp (nullable)"
         datetime finished_at "UTC timestamp (nullable)"
@@ -68,7 +79,7 @@ erDiagram
 - **clients**: Represents an integrated system or human actor.
 - **api_keys**: Hashed access credentials tied to a client. Uses a prefix for identification and a JSON list for `scopes`.
 - **audit_events**: Immutable ledger of access decisions and tool executions. Contains performance metrics (`duration_ms`) and failure insights. The table is append-only. Mutating tools write `tool.call` (status `forwarded`) and then `tool.result`. `client_ip` is personal data and is kept for the same retention period as the rest of the row. On Postgres, the trigger rejects UPDATE, DELETE and TRUNCATE on `audit_events`. The exceptions are the retention delete (`repos.audit.delete_events_before` sets `SET LOCAL mcp_guard.audit_retention = 'on'`) and the `api_key_id` ON DELETE SET NULL update. SQLite relies on the ORM guard. A database owner can disable triggers, so production should use a non-owner role. The only sanctioned delete path is `app.repos.audit.delete_events_before`, used for retention.
-- **sandbox_runs**: Tracks the execution lifecycle of sandboxed processes initiated by a client.
+- **sandbox_runs**: Tracks the execution lifecycle of sandboxed processes initiated by a client. Statuses include `pending`, `running`, `succeeded`, `failed`, `timeout`, `cancelled`, `unavailable`, `rejected`, and `abandoned`. The `error_type` column stores standardized error constants. A `stale_run` error type indicates a run was stuck in `running` or `pending` status after a crash and was marked failed by the startup sweep or retention task. It links to `audit_events` via `audit_event_id`.
 
 All `datetime` columns are stored as naive UTC in SQLite and read back as timezone-aware UTC objects via the `UTCDateTime` custom type.
 Foreign keys are strictly enforced on SQLite connections.

@@ -38,9 +38,12 @@ from app.routes.api_keys import router as api_keys_router
 from app.routes.audit import router as audit_router
 from app.routes.metrics import router as metrics_router
 from app.routes.notes import router as notes_router
+from app.routes.sandbox import router as sandbox_router
 from app.routes.status import router as status_router
+from app.sandbox.recorder import NullRunRecorder, get_run_recorder, set_run_recorder
 from app.services.api_keys import HmacApiKeyVerifier
 from app.services.retention import retention_scheduler_task
+from app.services.sandbox_runs import DbRunRecorder, sweep_stale_runs
 
 install_request_id_logging()
 
@@ -52,6 +55,18 @@ async def lifespan(app: FastAPI):
 
     if isinstance(get_api_key_verifier(), DenyAllVerifier):
         set_api_key_verifier(HmacApiKeyVerifier())
+
+    if isinstance(get_run_recorder(), NullRunRecorder):
+        set_run_recorder(DbRunRecorder())
+
+    try:
+        await sweep_stale_runs()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "Failed to sweep stale sandbox runs at startup"
+        )
 
     scheduler_task = None
     if settings.enable_retention_scheduler:
@@ -121,6 +136,7 @@ app.include_router(notes_router)
 app.include_router(api_keys_router)
 app.include_router(audit_router)
 app.include_router(metrics_router)
+app.include_router(sandbox_router)
 
 
 @app.get("/health")

@@ -227,6 +227,17 @@ SANDBOX_NOTES_SOURCE=volume:<name>
 
 ---
 
+## Sandbox run records
+
+Every tool invocation starts a sandbox run. The lifecycle is recorded in the `sandbox_runs` table.
+
+- **API**: `GET /api/sandbox/runs` lists runs (newest first) and supports filtering by `client_id`, `tool_name`, `status`, `transport`, `mode`, `request_id`, and a time window (`start`, `end`). `GET /api/sandbox/runs/{run_id}` returns details for a specific run. `GET /api/sandbox/health` returns the health of the sandbox executor without leaking sensitive configuration paths.
+- **Startup sweep**: When the application starts, `sweep_stale_runs()` runs to find runs that were stuck in `running` or `pending` (if the process crashed) and marks them `failed` with the error type `stale_run`.
+- **Pruning**: The retention scheduler (or `scripts/prune_audit.py`) deletes sandbox runs older than `SANDBOX_RUN_RETENTION_DAYS`. It sweeps stale runs before deletion. A single `sandbox.retention` audit event is written if runs are deleted.
+- **Demo script**: `scripts/demo_sandbox.sh` provisions an admin key and demonstrates the lifecycle by starting the API, querying health, running tools, and listing the resulting sandbox records.
+
+---
+
 ## Database Migration Failures and Recovery
 
 ### Running migrations

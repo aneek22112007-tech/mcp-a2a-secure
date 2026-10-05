@@ -87,3 +87,27 @@ def sandbox_inprocess(monkeypatch):
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+class MemoryRunRecorder:
+    def __init__(self) -> None:
+        self.starts = []
+        self.finishes = []
+        self.failures = 0
+
+    async def record_start(self, run) -> None:
+        self.starts.append(run)
+
+    async def record_finish(self, run_id: str, finish) -> None:
+        self.finishes.append((run_id, finish))
+
+
+@pytest.fixture(autouse=True)
+def memory_run_recorder():
+    from app.sandbox.recorder import get_run_recorder, set_run_recorder
+
+    previous = get_run_recorder()
+    recorder = MemoryRunRecorder()
+    set_run_recorder(recorder)
+    yield recorder
+    set_run_recorder(previous)

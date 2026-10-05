@@ -117,7 +117,7 @@ On `main` today:
 - **Status endpoint.** `/api/status` does a real MCP handshake against the server and reports latency, protocol version and tools.
 - **Database layer.** SQLAlchemy 2 (async) with Alembic migrations and repositories. Tables exist for clients, API keys, audit events and sandbox runs. SQLite is used in development.
 - **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Mutating REST calls (`PUT /api/notes/{name}`) and MCP `tools/call` are audit-first: a required row is written before the tool runs. Read tools are audited after execution, before the result is returned. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
-- **Rate limiting, metrics and retention.** Each API key has its own token bucket, with separate buckets for REST and `/mcp`. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler.
+- **Rate limiting, metrics and retention.** Each API key has its own token bucket, with separate buckets for REST and `/mcp`. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler. Sandbox run records are pruned on the same retention cycle.
 - **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
 - **Frontend.** React 19, Vite and Tailwind. The Server Status view at `/dashboard-v2` reads `/api/status`. The other dashboard panels still use mock data.
 
@@ -214,6 +214,9 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `GET` | `/api/audit` | `audit:read` | Audit events, newest first |
 | `GET` | `/api/audit/stream` | `audit:read` | Live SSE stream of audit events. The key is sent only in the `Authorization` header |
 | `GET` | `/api/metrics` | `metrics:read` | Returns database totals and in-process rate limit counters |
+| `GET` | `/api/sandbox/runs` | `sandbox:read` | Sandbox execution records, newest first |
+| `GET` | `/api/sandbox/runs/{run_id}` | `sandbox:read` | Details for one sandbox run |
+| `GET` | `/api/sandbox/health` | `sandbox:read` | Status of the active sandbox executor |
 | `POST` | `/api/keys` | `admin` | Create an API key. The raw key is returned once |
 | `GET` | `/api/keys` | `admin` | List keys for a client (`client_id` query parameter) |
 | `DELETE` | `/api/keys/{key_id}` | `admin` | Revoke a key |
@@ -230,6 +233,7 @@ Gateway errors map to 400 (bad arguments), 404 (unknown tool or note), 413 (too 
 | `agent:run` | Everything under `/mcp/` |
 | `audit:read` | `GET /api/audit` and `GET /api/audit/stream` |
 | `metrics:read` | `GET /api/metrics` |
+| `sandbox:read` | `GET /api/sandbox/runs` and `GET /api/sandbox/health` |
 | `admin` | Passes every scope check |
 
 The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.py).
@@ -274,6 +278,7 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `RATE_LIMIT_REFILL_RATE_PER_SEC` | `10.0` | Token bucket refill rate per second for rate limiting |
 | `AUDIT_RETENTION_DAYS` | `90` | Number of days to retain audit log events |
 | `ENABLE_RETENTION_SCHEDULER` | `False` | Enable automatic cleanup of old audit records via a background task |
+| `SANDBOX_RUN_RETENTION_DAYS` | `90` | Number of days to retain sandbox runs |
 
 The frontend reads `VITE_MCP_GUARD_API_URL` (default `http://localhost:8000`). Don't commit `.env` files or real keys; `.env` is in `.gitignore`.
 
