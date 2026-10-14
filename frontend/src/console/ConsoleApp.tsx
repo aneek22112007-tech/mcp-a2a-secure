@@ -1,18 +1,16 @@
 /**
- * ConsoleApp — top-level router for the MCP Guard live console.
- * Manages: connect state, demo mode, view routing, TanStack Query provider.
+ * ConsoleApp — connect state, live/demo switch, and view routing.
  */
 import './styles/console.css';
-import { useState, lazy, Suspense } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { ConnectScreen } from './features/connect/ConnectScreen';
 import { ConsoleShell, type ViewId } from './components/Shell';
 import { useAuditStream } from './api/hooks';
-import { getApiKey, setApiKey } from './api/client';
+import { consoleApi, detectAccess, forgetApiKey, getApiKey } from './api/client';
 import { LoadingPanel } from './components/ui';
 
-// Lazy views — only loaded when the tab is visited
 const OverviewView = lazy(() =>
   import('./features/overview/OverviewView').then(m => ({ default: m.OverviewView }))
 );
@@ -41,121 +39,133 @@ const PlannedView = lazy(() =>
   import('./features/planned/PlannedView').then(m => ({ default: m.PlannedView }))
 );
 
-// One shared QueryClient for the whole console
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5_000,
-      retry: 1,
-      // Never throw — ErrorPanel handles it
+      retry: 0,
       throwOnError: false,
     },
   },
 });
-
-// ── Session state ─────────────────────────────────────────────────────
 
 interface Session {
   clientId: string;
   scopes: string[];
 }
 
-/** Try to restore session from sessionStorage at boot */
-function restoreSession(): Session | null {
-  const key = getApiKey();
-  if (!key) return null;
-  // We have a key but we don't know scopes — treat as basic session
-  // The user will need to re-run Connect to get scopes
-  // OR we can just assume admin for now (will get 403 on restricted endpoints)
-  return { clientId: '', scopes: ['admin'] };
-}
-
-// ── Route guard — SSE lives here (above lazy views) ───────────────────
-
 function ConsoleBody({
   session,
   isDemo,
+  backendUp,
 }: {
   session: Session;
   isDemo: boolean;
+  backendUp: boolean;
 }) {
   const [view, setView] = useState<ViewId>('overview');
-  const { state: streamState } = useAuditStream(100);
+  const { state: streamState } = useAuditStream(100, !isDemo && backendUp);
 
   return (
     <ConsoleShell
       activeView={view}
       onViewChange={setView}
-      streamState={streamState}
+      streamState={isDemo ? 'offline' : streamState}
       scopes={session.scopes}
       isDemo={isDemo}
+      backendUp={backendUp}
     >
       <Suspense fallback={<LoadingPanel />}>
         {view === 'overview' && <OverviewView isDemo={isDemo} />}
-        {view === 'keys'     && <KeysView isDemo={isDemo} clientIds={[session.clientId].filter(Boolean)} />}
-        {view === 'audit'    && <AuditView isDemo={isDemo} />}
-        {view === 'metrics'  && <MetricsView isDemo={isDemo} />}
-        {view === 'pins'     && <PinsView isDemo={isDemo} />}
-        {view === 'scanner'  && <ScannerView isDemo={isDemo} />}
-        {view === 'sandbox'  && <SandboxView isDemo={isDemo} />}
-        {view === 'attack'   && <AttackView isDemo={isDemo} />}
-        {view === 'planned'  && <PlannedView />}
+        {view === 'keys' && <KeysView isDemo={isDemo} clientIds={session.clientId ? [session.clientId] : []} />}
+        {view === 'audit' && <AuditView isDemo={isDemo} />}
+        {view === 'metrics' && <MetricsView isDemo={isDemo} />}
+        {view === 'pins' && <PinsView isDemo={isDemo} />}
+        {view === 'scanner' && <ScannerView isDemo={isDemo} />}
+        {view === 'sandbox' && <SandboxView isDemo={isDemo} />}
+        {view === 'attack' && <AttackView isDemo={isDemo} />}
+        {view === 'planned' && <PlannedView />}
       </Suspense>
     </ConsoleShell>
   );
 }
 
-// ── Root ──────────────────────────────────────────────────────────────
-
 export function ConsoleApp() {
-  const [session, setSession] = useState<Session | null>(restoreSession);
-  const [isDemo, setIsDemo] = useState(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [explicitDemo, setExplicitDemo] = useState(false);
+  const [backendUp, setBackendUp] = useState<boolean | null>(null);
 
-  const handleConnected = (clientId: string, scopes: string[]) => {
-    setSession({ clientId, scopes });
-    setIsDemo(false);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        await consoleApi.health();
+        if (!cancelled) setBackendUp(true);
+      } catch {
+        if (!cancelled) setBackendUp(false);
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
 
-  const handleDemoMode = () => {
-    // User clicked "use demo mode" — no key required
-    setIsDemo(true);
-    setSession({ clientId: 'demo', scopes: ['admin'] });
-  };
+  useEffect(() => {
+    if (backendUp !== true || session || !getApiKey()) return;
+    let cancelled = false;
+    detectAccess()
+      .then(detected => {
+        if (!cancelled) {
+          setSession({ clientId: detected.clientId, scopes: detected.scopes });
+          setExplicitDemo(false);
+        }
+      })
+      .catch(() => {
+        forgetApiKey();
+      });
+    return () => { cancelled = true; };
+  }, [backendUp, session]);
 
-  if (!session) {
+  const offline = backendUp === false;
+  // No session yet: stay on the connect screen so a bad backend URL can be edited.
+  // A session that later loses the backend falls back to the demo dataset.
+  const isDemo = explicitDemo || (offline && session !== null);
+
+  if (backendUp === null) {
+    return (
+      <div className="boot-screen" role="status">
+        Checking backend…
+      </div>
+    );
+  }
+
+  if (!isDemo && !session) {
     return (
       <>
-        <ConnectScreen onConnected={handleConnected} onUseDemo={handleDemoMode} />
-        <button
-          onClick={handleDemoMode}
-          style={{
-            position: 'fixed',
-            bottom: 20,
-            right: 20,
-            background: 'var(--c-surface)',
-            border: '1px solid var(--c-border)',
-            borderRadius: 'var(--radius)',
-            padding: '8px 14px',
-            fontSize: 11,
-            color: 'var(--c-text-muted)',
-            cursor: 'pointer',
-            fontFamily: 'var(--font-sans)',
+        <ConnectScreen
+          onConnected={(clientId, scopes) => {
+            setSession({ clientId, scopes });
+            setExplicitDemo(false);
           }}
-        >
-          ← View with demo data (no key needed)
-        </button>
+          onUseDemo={() => setExplicitDemo(true)}
+        />
         <Toaster richColors theme="dark" position="bottom-right" />
       </>
     );
   }
 
+  const active: Session = isDemo
+    ? { clientId: session?.clientId || 'demo', scopes: ['admin'] }
+    : (session ?? { clientId: '', scopes: [] });
+
   return (
     <QueryClientProvider client={queryClient}>
-      <ConsoleBody session={session} isDemo={isDemo} />
+      <ConsoleBody session={active} isDemo={isDemo} backendUp={backendUp === true} />
       <Toaster richColors theme="dark" position="bottom-right" />
     </QueryClientProvider>
   );
 }
 
-// Export setApiKey for ConnectScreen — it does the validation before calling onConnected
-export { setApiKey };

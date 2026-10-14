@@ -77,7 +77,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
   };
 
   return (
-    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="console-page">
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -125,7 +125,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
           className={`badge ${pinningModeHint === 'enforce' ? 'badge-deny' : pinningModeHint === 'warn' ? 'badge-review' : 'badge-muted'}`}
           style={{ flexShrink: 0 }}
         >
-          {pinningModeHint}
+          expected: enforce
         </span>
       </div>
 

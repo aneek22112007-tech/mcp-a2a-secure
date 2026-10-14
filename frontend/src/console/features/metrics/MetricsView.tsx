@@ -85,7 +85,7 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
     : [];
 
   return (
-    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div className="console-page">
 
       <div>
         <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--c-text)', margin: 0 }}>

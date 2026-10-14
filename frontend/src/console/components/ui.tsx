@@ -392,7 +392,7 @@ export function Drawer({
             onClick={onClose}
             aria-label="Close"
           >
-            ✕
+            Close
           </button>
         </div>
         <div style={{ padding: 16, flex: 1, overflowY: 'auto' }}>

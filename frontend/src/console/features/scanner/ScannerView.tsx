@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
   Search, Play, CheckCircle, AlertTriangle, Download, Info,
 } from 'lucide-react';
@@ -89,7 +89,7 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
   const scanning = scanAll.isPending || scanTool.isPending;
 
   return (
-    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="console-page">
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -126,7 +126,7 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
             aria-label="Run full scan"
           >
             <Search size={12} style={scanning && !selectedTool ? { animation: 'spin 1s linear infinite' } : undefined} />
-            {scanning && !selectedTool ? 'Scanning…' : 'Run scan'}
+            {scanning && !selectedTool ? 'Scanning…' : 'Scan all tools'}
           </button>
         </div>
       </div>
@@ -220,9 +220,8 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
             </thead>
             <tbody>
               {findings.map(f => (
-                <>
+                <Fragment key={f.id}>
                   <tr
-                    key={f.id}
                     style={{ cursor: 'pointer' }}
                     onClick={() => setExpanded(expanded === f.id ? null : f.id)}
                     aria-expanded={expanded === f.id}
@@ -266,7 +265,7 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
                     </td>
                   </tr>
                   {expanded === f.id && (
-                    <tr key={f.id + '-exp'} style={{ background: 'var(--c-surface-2)' }}>
+                    <tr style={{ background: 'var(--c-surface-2)' }}>
                       <td colSpan={7} style={{ padding: '12px 16px' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                           <div style={{ fontSize: 12, color: 'var(--c-text)' }}>
@@ -309,7 +308,7 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>

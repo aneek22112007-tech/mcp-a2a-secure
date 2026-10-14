@@ -1,241 +1,320 @@
+import { useEffect, useState } from 'react';
 import NumberFlow from '@number-flow/react';
-import { Activity, Shield, AlertTriangle, Clock, Server, Box, FileText } from 'lucide-react';
-import { useMetrics, useHealth, useStatus, useAuditStream } from '../../api/hooks';
+import { Activity, Shield, AlertTriangle, Clock, Server, Box, FileText, Play } from 'lucide-react';
+import { useMetrics, useHealth, useStatus, useAuditStream, useAudit, usePins } from '../../api/hooks';
 import { LoadingPanel, ErrorPanel, StreamDot, EmptyState } from '../../components/ui';
+import { PipelineStrip } from '../../components/Pipeline';
+import { lightsMatched, pipelineLights, type StageLight } from '../../components/pipelineLogic';
+import { DEMO_SEQUENCE, waitForCaption, type AttackResult } from '../attack/runners';
 import {
-  fmtTimestamp, fmtDuration, decisionBadgeClass,
+  fmtTimestamp, fmtDuration, fmtUptime, decisionBadgeClass,
   getPinBadge, PIN_BADGE_CLASS, PIN_BADGE_LABEL,
-  sandboxStatusBadgeClass, auditRowClass,
+  sandboxStatusBadgeClass, auditRowClass, isConsolePoll,
 } from '../../utils/helpers';
-import type { MetricsResponse, AuditEvent } from '../../api/client';
+import type { MetricsResponse, AuditEvent, ToolPin } from '../../api/client';
 import { DEMO_METRICS, DEMO_AUDIT_EVENTS, DEMO_PINS } from '../../demo/demoData';
+import { useReducedMotion } from '../../../hooks/useReducedMotion';
 
 interface OverviewProps {
   isDemo: boolean;
+}
+
+function useGaveUp(active: boolean): boolean {
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setGaveUp(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setGaveUp(true), 5000);
+    return () => window.clearTimeout(timer);
+  }, [active]);
+  return active && gaveUp;
+}
+
+function Count({ value, color }: { value: number; color: string }) {
+  const reduced = useReducedMotion();
+  if (reduced) {
+    return <span className="stat-card-value" style={{ color }}>{value}</span>;
+  }
+  return (
+    <span className="stat-card-value" style={{ color }}>
+      <NumberFlow value={value} format={{ notation: 'compact' }} />
+    </span>
+  );
+}
+
+function mergeEvents(stream: AuditEvent[], page: AuditEvent[]): AuditEvent[] {
+  const seen = new Set<string>();
+  const merged: AuditEvent[] = [];
+  for (const evt of [...stream, ...page]) {
+    if (seen.has(evt.id) || isConsolePoll(evt)) continue;
+    seen.add(evt.id);
+    merged.push(evt);
+    if (merged.length >= 18) break;
+  }
+  return merged;
+}
+
+function pinCounts(pins: ToolPin[]) {
+  const counts = { trusted: 0, review: 0, drift: 0, revoked: 0 };
+  for (const pin of pins) {
+    const badge = getPinBadge(pin);
+    if (badge === 'trusted' || badge === 'review' || badge === 'drift' || badge === 'revoked') {
+      counts[badge] += 1;
+    }
+  }
+  return counts;
 }
 
 export function OverviewView({ isDemo }: OverviewProps) {
   const { data: liveMetrics, isLoading, isError, refetch } = useMetrics(!isDemo);
   const { data: health } = useHealth(!isDemo);
   const { data: status } = useStatus(!isDemo);
-  const { events: liveEvents, state: streamState } = useAuditStream(20);
+  const { data: livePins } = usePins(!isDemo);
+  const { data: auditPage } = useAudit({ limit: 50 }, !isDemo);
+  const { events: liveEvents, state: streamState } = useAuditStream(20, !isDemo);
+  const [demoResults, setDemoResults] = useState<Record<string, AttackResult>>({});
+  const [demoRunning, setDemoRunning] = useState<string | null>(null);
+  const [demoError, setDemoError] = useState('');
+  const [lights, setLights] = useState<StageLight[]>(() => pipelineLights('', 0));
+  const gaveUp = useGaveUp(!isDemo && isLoading && !liveMetrics);
 
   const metrics: MetricsResponse | undefined = isDemo ? DEMO_METRICS : liveMetrics;
-  const events: AuditEvent[] = isDemo ? DEMO_AUDIT_EVENTS : liveEvents;
-  const demoPins = DEMO_PINS;
+  const probe = isDemo ? undefined : status;
+  const events: AuditEvent[] = isDemo
+    ? DEMO_AUDIT_EVENTS
+    : mergeEvents(liveEvents, auditPage?.items ?? []);
+  const pins = isDemo ? DEMO_PINS : (livePins?.items ?? []);
+  const summary = pinCounts(pins);
 
-  if (!isDemo && isLoading && !metrics) return <LoadingPanel label="Loading metrics…" />;
-  if (!isDemo && isError && !metrics) {
-    return <ErrorPanel message="Failed to load metrics" onRetry={() => void refetch()} />;
+  if (!isDemo && isLoading && !metrics && !gaveUp) return <LoadingPanel label="Loading metrics…" />;
+  if (!isDemo && (isError || gaveUp) && !metrics) {
+    return (
+      <ErrorPanel
+        message={gaveUp && !isError ? 'Metrics timed out after 5 seconds.' : 'Failed to load metrics'}
+        onRetry={() => void refetch()}
+      />
+    );
   }
 
   const totals = metrics?.totals ?? { total: 0, successful: 0, denied: 0, error: 0, rate_limit_rejections: 0 };
   const sandbox = metrics?.sandbox;
+  const mcpUnconfigured = !isDemo && status?.mcp === 'offline' && status.error === 'mcp_unavailable';
 
-  // Pin summary from demo or empty
-  const pinSummary = isDemo
-    ? { trusted: 1, review: 1, drift: 0, revoked: 1 }
-    : { trusted: 0, review: 0, drift: 0, revoked: 0 };
+  const rememberLights = (result: AttackResult) => {
+    const next = pipelineLights(result.stage, result.status);
+    if (lightsMatched(next)) setLights(next);
+  };
+
+  const runSequence = async () => {
+    if (isDemo || demoRunning) return;
+    setDemoError('');
+    setDemoResults({});
+    for (let index = 0; index < DEMO_SEQUENCE.length; index += 1) {
+      const step = DEMO_SEQUENCE[index];
+      setDemoRunning(step.id);
+      try {
+        const result = await step.run();
+        setDemoResults(current => ({ ...current, [step.id]: result }));
+        rememberLights(result);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Request failed';
+        const failed: AttackResult = {
+          status: 0,
+          headers: {},
+          body: { error: { message } },
+          ok: false,
+          stage: 'HTTP error',
+          stageColor: 'var(--c-deny)',
+          summary: message,
+        };
+        setDemoResults(current => ({ ...current, [step.id]: failed }));
+        rememberLights(failed);
+        setDemoError(message);
+        break;
+      }
+      if (index < DEMO_SEQUENCE.length - 1) await waitForCaption();
+    }
+    setDemoRunning(null);
+  };
 
   return (
-    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-      {/* ── Title row ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <div className="console-page">
+      <header className="page-header">
         <div>
-          <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--c-text)', margin: 0 }}>
-            Overview
-          </h1>
-          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '2px 0 0' }}>
-            {health ? `${health.app} — backend ok` : 'Backend status unknown'}
-            {status?.uptime_seconds != null &&
-              ` · uptime ${fmtDuration(status.uptime_seconds * 1000)}`}
-          </p>
+          <h1 className="page-title">Overview</h1>
+          {!isDemo && (
+            <p className="page-sub">
+              {health ? health.app : 'Backend status unknown'}
+              {probe?.uptime_seconds != null && ` · uptime ${fmtUptime(probe.uptime_seconds)}`}
+            </p>
+          )}
         </div>
-        <StreamDot state={isDemo ? 'offline' : streamState} />
-      </div>
+        {!isDemo && <StreamDot state={streamState} />}
+      </header>
 
-      {/* ── Big counters ── */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-          gap: 1,
-          background: 'var(--c-border)',
-          border: '1px solid var(--c-border)',
-          borderRadius: 'var(--radius)',
-          overflow: 'hidden',
-        }}
-      >
+      <div className="stat-row">
         {[
-          { label: 'Total Requests', value: totals.total, icon: Activity, color: 'var(--c-text)' },
-          { label: 'Successful', value: totals.successful, icon: Shield, color: 'var(--c-allow)' },
-          { label: 'Denied', value: totals.denied, icon: AlertTriangle, color: 'var(--c-deny)' },
-          { label: 'Rate Limited', value: totals.rate_limit_rejections, icon: Clock, color: 'var(--c-review)' },
-        ].map(({ label, value, icon: Icon, color }) => (
-          <div
-            key={label}
-            className="stat-card"
-            style={{ background: 'var(--c-surface)' }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          { label: 'Total Requests', value: totals.total, icon: Activity, color: 'var(--c-text)', wide: true },
+          { label: 'Successful', value: totals.successful, icon: Shield, color: 'var(--c-allow)', wide: false },
+          { label: 'Denied', value: totals.denied, icon: AlertTriangle, color: 'var(--c-deny)', wide: false },
+          { label: 'Rate Limited', value: totals.rate_limit_rejections, icon: Clock, color: 'var(--c-review)', wide: false },
+        ].map(({ label, value, icon: Icon, color, wide }) => (
+          <div key={label} className={`stat-card ${wide ? 'stat-card-wide' : ''}`}>
+            <div className="row-between">
               <span className="stat-card-label">{label}</span>
-              <Icon size={13} style={{ color: 'var(--c-text-dim)' }} />
+              <Icon size={14} aria-hidden />
             </div>
-            <span className="stat-card-value" style={{ color }}>
-              <NumberFlow
-                value={value}
-                format={{ notation: 'compact' }}
-              />
-            </span>
+            <Count value={value} color={color} />
           </div>
         ))}
       </div>
 
-      {/* ── Mid row: pins + health + sandbox ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+      <section className="panel panel-pad">
+        <div className="section-label">Request pipeline</div>
+        <PipelineStrip lights={lights} />
+      </section>
 
-        {/* Pin summary */}
-        <div className="panel" style={{ padding: 16 }}>
-          <div className="section-label" style={{ marginBottom: 12 }}>Tool Pins</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {(['trusted', 'review', 'drift', 'revoked'] as const).map(k => (
-              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className={`badge ${PIN_BADGE_CLASS[k]}`}>{PIN_BADGE_LABEL[k]}</span>
-                <span className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--c-text)' }}>
-                  {pinSummary[k]}
-                </span>
+      <div className="split-main">
+        <section className="panel panel-grow">
+          <div className="panel-head">
+            <span className="section-label label-with-icon">
+              <FileText size={14} aria-hidden />
+              Live Events
+            </span>
+            {!isDemo && <StreamDot state={streamState} />}
+          </div>
+          <div className="events-scroll">
+            {events.length === 0 ? (
+              <EmptyState label="Waiting for events…" />
+            ) : (
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Action</th>
+                    <th>Decision</th>
+                    <th>Tool</th>
+                    <th>Key</th>
+                    <th>Duration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.slice(0, 18).map((evt, idx) => (
+                    <tr key={evt.id} className={idx === 0 && !isDemo ? 'row-enter' : ''}>
+                      <td className="mono nowrap">{fmtTimestamp(evt.created_at)}</td>
+                      <td className={`mono ${auditRowClass(evt)}`}>{evt.action}</td>
+                      <td><span className={`badge ${decisionBadgeClass(evt.decision)}`}>{evt.decision}</span></td>
+                      <td className="mono">{evt.tool_name ?? '—'}</td>
+                      <td className="mono dim">{evt.key_prefix ?? '—'}</td>
+                      <td className="mono">{fmtDuration(evt.duration_ms)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+
+        <section className="panel demo-panel">
+          <div className="panel-head">
+            <span className="section-label">Demo sequence</span>
+            <button className="btn btn-primary btn-sm" onClick={() => void runSequence()} disabled={isDemo || !!demoRunning}>
+              <Play size={12} aria-hidden />
+              {demoRunning ? 'Running…' : 'Run demo sequence'}
+            </button>
+          </div>
+          <ol className="demo-steps">
+            {DEMO_SEQUENCE.map(step => {
+              const result = demoResults[step.id];
+              const active = demoRunning === step.id;
+              return (
+                <li key={step.id} className={active ? 'demo-step demo-step-active' : 'demo-step'}>
+                  <p>{step.caption}</p>
+                  {result && (
+                    <p className="demo-step-result">
+                      <span className="badge result-stage" style={{ color: result.stageColor, borderColor: result.stageColor }}>
+                        {result.stage}
+                      </span>
+                      <span className="mono">HTTP {result.status}</span>
+                      {result.pinReason && <span className="mono">{result.pinReason}</span>}
+                    </p>
+                  )}
+                  {result && <p className="page-sub">{result.summary}</p>}
+                </li>
+              );
+            })}
+          </ol>
+          {isDemo && <p className="page-sub">Demo data is on screen. The sequence sends real requests only while the backend is up.</p>}
+          {demoError && <p className="tone-deny">{demoError}</p>}
+        </section>
+      </div>
+
+      <div className="split-uneven">
+        <section className="panel panel-pad">
+          <div className="section-label">Tool Pins</div>
+          <div className="stack">
+            {(['trusted', 'review', 'drift', 'revoked'] as const).map(key => (
+              <div key={key} className="row-between">
+                <span className={`badge ${PIN_BADGE_CLASS[key]}`}>{PIN_BADGE_LABEL[key]}</span>
+                <span className="mono pin-count">{summary[key]}</span>
               </div>
             ))}
           </div>
-        </div>
+        </section>
 
-        {/* Health card */}
-        <div className="panel" style={{ padding: 16 }}>
-          <div className="section-label" style={{ marginBottom: 12 }}>Backend Health</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>
-                <Server size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                MCP
-              </span>
-              <span className={`badge ${status?.mcp === 'online' ? 'badge-allow' : 'badge-deny'}`}>
-                {status?.mcp ?? (isDemo ? 'offline' : '—')}
-              </span>
+        <section className="panel panel-pad">
+          <div className="section-label">Backend Health</div>
+          <div className="stack">
+            <div className="row-between">
+              <span className="muted-line"><Server size={12} aria-hidden /> MCP</span>
+              {isDemo ? (
+                <span className="badge badge-muted">demo</span>
+              ) : mcpUnconfigured ? (
+                <span className="mcp-warn">MCP not configured: set MCP_SELF_API_KEY</span>
+              ) : (
+                <span className={`badge ${probe?.mcp === 'online' ? 'badge-allow' : 'badge-deny'}`}>
+                  {probe?.mcp ?? '—'}
+                </span>
+              )}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>Database</span>
+            <div className="row-between">
+              <span className="muted-line">Database</span>
               <span className={`badge ${metrics?.database?.available ? 'badge-allow' : 'badge-deny'}`}>
                 {metrics?.database?.available ? 'ok' : 'error'}
               </span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>Latency</span>
-              <span className="mono" style={{ fontSize: 12 }}>
-                {status?.latency_ms != null ? `${status.latency_ms} ms` : '—'}
-              </span>
+            <div className="row-between">
+              <span className="muted-line">Latency</span>
+              <span className="mono">{probe?.latency_ms != null ? `${probe.latency_ms} ms` : '—'}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>Rate buckets</span>
-              <span className="mono" style={{ fontSize: 12 }}>
-                {metrics?.in_process_limiter?.active_buckets ?? 0}
-              </span>
+            <div className="row-between">
+              <span className="muted-line">Rate buckets</span>
+              <span className="mono">{metrics?.in_process_limiter?.active_buckets ?? 0}</span>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Sandbox summary */}
-        <div className="panel" style={{ padding: 16 }}>
-          <div className="section-label" style={{ marginBottom: 12 }}>
-            <Box size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-            Sandbox Runs
+        <section className="panel panel-pad">
+          <div className="section-label label-with-icon"><Box size={12} aria-hidden /> Sandbox Runs</div>
+          <div className="stack">
+            {sandbox && Object.entries(sandbox.by_status).filter(([, count]) => count > 0).sort(([, a], [, b]) => b - a).map(([name, count]) => (
+              <div key={name} className="row-between">
+                <span className={`badge ${sandboxStatusBadgeClass(name)}`}>{name}</span>
+                <span className="mono pin-count">{count}</span>
+              </div>
+            ))}
+            {(!sandbox || Object.values(sandbox.by_status).every(count => count === 0)) && (
+              <span className="page-sub">No runs yet</span>
+            )}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {sandbox && Object.entries(sandbox.by_status)
-              .filter(([, v]) => v > 0)
-              .sort(([, a], [, b]) => b - a)
-              .map(([status, count]) => (
-                <div key={status} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span className={`badge ${sandboxStatusBadgeClass(status)}`}>{status}</span>
-                  <span className="mono" style={{ fontSize: 13, fontWeight: 700 }}>{count}</span>
-                </div>
-              ))
-            }
-            {!sandbox && <span style={{ fontSize: 12, color: 'var(--c-text-dim)' }}>No data</span>}
-          </div>
-        </div>
+        </section>
       </div>
 
-      {/* ── Live event ticker ── */}
-      <div className="panel">
-        <div
-          style={{
-            padding: '10px 14px',
-            borderBottom: '1px solid var(--c-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <span className="section-label">
-            <FileText size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-            Live Events
-          </span>
-          <StreamDot state={isDemo ? 'offline' : streamState} />
-        </div>
-
-        <div style={{ maxHeight: 280, overflowY: 'auto' }}>
-          {events.length === 0 ? (
-            <EmptyState label="Waiting for events…" />
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Action</th>
-                  <th>Decision</th>
-                  <th>Tool</th>
-                  <th>Key</th>
-                  <th>Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.slice(0, 15).map((evt, idx) => (
-                  <tr key={evt.id} className={idx === 0 ? 'row-enter' : ''}>
-                    <td className="mono" style={{ color: 'var(--c-text-muted)', whiteSpace: 'nowrap', fontSize: 11 }}>
-                      {fmtTimestamp(evt.created_at)}
-                    </td>
-                    <td className={`mono ${auditRowClass(evt)}`} style={{ fontSize: 11 }}>
-                      {evt.action}
-                    </td>
-                    <td>
-                      <span className={`badge ${decisionBadgeClass(evt.decision)}`}>
-                        {evt.decision}
-                      </span>
-                    </td>
-                    <td className="mono" style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>
-                      {evt.tool_name ?? '—'}
-                    </td>
-                    <td className="mono" style={{ fontSize: 11, color: 'var(--c-text-dim)' }}>
-                      {evt.key_prefix ?? '—'}
-                    </td>
-                    <td className="mono" style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>
-                      {fmtDuration(evt.duration_ms)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      {/* ── Slowest tools ── */}
       {metrics?.slowest_tools && metrics.slowest_tools.length > 0 && (
-        <div className="panel">
-          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--c-border)' }}>
-            <span className="section-label">Slowest Tools</span>
-          </div>
+        <section className="panel">
+          <div className="panel-head"><span className="section-label">Slowest Tools</span></div>
           <table className="data-table">
             <thead>
               <tr>
@@ -246,24 +325,17 @@ export function OverviewView({ isDemo }: OverviewProps) {
               </tr>
             </thead>
             <tbody>
-              {metrics.slowest_tools.map(t => (
-                <tr key={t.tool_name}>
-                  <td className="mono" style={{ fontSize: 12 }}>{t.tool_name}</td>
-                  <td className="mono" style={{ fontSize: 12 }}>{t.request_count}</td>
-                  <td className="mono" style={{ fontSize: 12 }}>{fmtDuration(t.avg_duration_ms)}</td>
-                  <td className="mono" style={{ fontSize: 12 }}>{fmtDuration(t.max_duration_ms)}</td>
+              {metrics.slowest_tools.map(tool => (
+                <tr key={tool.tool_name}>
+                  <td className="mono">{tool.tool_name}</td>
+                  <td className="mono">{tool.request_count}</td>
+                  <td className="mono">{fmtDuration(tool.avg_duration_ms)}</td>
+                  <td className="mono">{fmtDuration(tool.max_duration_ms)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* Demo data used for pin summary */}
-      {!isDemo && (
-        <div style={{ display: 'none' }} aria-hidden>
-          {demoPins.map(p => <span key={p.tool_name}>{getPinBadge(p)}</span>)}
-        </div>
+        </section>
       )}
     </div>
   );

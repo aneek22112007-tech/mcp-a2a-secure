@@ -29,7 +29,8 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
   };
 
   const { data, isLoading, isError, refetch } = useSandboxRuns(params, !isDemo);
-  const { data: health } = useSandboxHealth(!isDemo);
+  const { data: liveHealth } = useSandboxHealth(!isDemo);
+  const health = isDemo ? undefined : liveHealth;
 
   const runs: SandboxRun[] = isDemo ? DEMO_SANDBOX_RUNS : (data?.items ?? []);
 
@@ -39,7 +40,7 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
   ];
 
   return (
-    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="console-page">
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -123,8 +123,14 @@ def apply_http_middleware(application: FastAPI) -> None:
         allow_origins=settings.cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "DELETE"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
-        expose_headers=["X-Request-ID", "Retry-After"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Request-ID",
+            "Mcp-Session-Id",
+            "Mcp-Protocol-Version",
+        ],
+        expose_headers=["X-Request-ID", "Retry-After", "Mcp-Session-Id"],
         max_age=600,
     )
     original_build = application.build_middleware_stack

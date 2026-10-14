@@ -29,11 +29,35 @@ export function fmtDuration(ms: number | null | undefined): string {
   return `${(ms / 1000).toFixed(2)} s`;
 }
 
+function fmtScaled(value: number, unit: string): string {
+  const text = value >= 10 ? value.toFixed(0) : value.toFixed(1);
+  return `${text.replace(/\.0$/, '')} ${unit}`;
+}
+
 export function fmtBytes(b: number | null | undefined): string {
   if (b == null) return '—';
   if (b < 1024) return `${b} B`;
-  if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`;
-  return `${(b / 1048576).toFixed(2)} MB`;
+  if (b < 1048576) return fmtScaled(b / 1024, 'KB');
+  if (b < 1073741824) return fmtScaled(b / 1048576, 'MB');
+  return fmtScaled(b / 1073741824, 'GB');
+}
+
+/** Uptime from whole seconds, for example "6m 22s". */
+export function fmtUptime(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds)) return '—';
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+/** Console polling rows: auth.allow for GET /api/*. Hidden in Live Audit by default. */
+export function isConsolePoll(evt: AuditEvent): boolean {
+  if (evt.action !== 'auth.allow') return false;
+  return /^route=GET \/api\//.test(evt.reason ?? '');
 }
 
 export function shortenHash(h: string | null | undefined, len = 16): string {
@@ -83,8 +107,8 @@ export const PIN_BADGE_LABEL: Record<PinBadge, string> = {
 // ── Audit coloring ────────────────────────────────────────────────────
 
 export function auditRowClass(evt: AuditEvent): string {
-  if (evt.decision === 'denied' || evt.status === 'denied') return 'text-[var(--c-deny)]';
-  if (evt.status === 'error') return 'text-[var(--c-review)]';
+  if (evt.decision === 'denied' || evt.status === 'denied') return 'tone-deny';
+  if (evt.status === 'error') return 'tone-review';
   return '';
 }
 

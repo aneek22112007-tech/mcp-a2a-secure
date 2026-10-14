@@ -1,20 +1,81 @@
 import { useState, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   FileText, Filter, ChevronDown, ChevronUp, X,
 } from 'lucide-react';
-import { useAudit, useAuditStream } from '../../api/hooks';
+import { QK, useAuditStream } from '../../api/hooks';
+import { consoleApi, type AuditEvent, type AuditPage } from '../../api/client';
 import {
   LoadingPanel, ErrorPanel, EmptyState, StreamDot,
   Pager, Drawer, DetailRow, ConsoleErrorBoundary,
 } from '../../components/ui';
 import {
   fmtTimestamp, fmtDatetime, fmtDuration,
-  decisionBadgeClass, auditRowClass,
+  decisionBadgeClass, auditRowClass, isConsolePoll,
 } from '../../utils/helpers';
 import { DEMO_AUDIT_EVENTS } from '../../demo/demoData';
-import type { AuditEvent } from '../../api/client';
 
 interface AuditViewProps { isDemo: boolean }
+
+const AUDIT_SCAN_PAGES = 20;
+const AUDIT_RAW_LIMIT = 100;
+
+type AuditQuery = Parameters<typeof consoleApi.listAudit>[0];
+
+/** Walk GET /api/audit until `limit` rows are not the console's own GET /api polls. */
+async function listAuditUntilReal(params: AuditQuery): Promise<AuditPage> {
+  const wanted = params.limit ?? 50;
+  const start = params.offset ?? 0;
+  const items: AuditEvent[] = [];
+  const seen = new Set<string>();
+  let rawOffset = start;
+  let nextOffset: number | null = null;
+  for (let page = 0; page < AUDIT_SCAN_PAGES && items.length < wanted; page += 1) {
+    const audit = await consoleApi.listAudit({
+      ...params,
+      limit: AUDIT_RAW_LIMIT,
+      offset: rawOffset,
+    });
+    if (audit.items.length === 0) {
+      nextOffset = null;
+      break;
+    }
+    let filled = false;
+    for (let index = 0; index < audit.items.length; index += 1) {
+      const item = audit.items[index];
+      if (isConsolePoll(item) || seen.has(item.id)) continue;
+      seen.add(item.id);
+      items.push(item);
+      if (items.length >= wanted) {
+        const consumed = index + 1;
+        nextOffset = consumed < audit.items.length ? rawOffset + consumed : audit.next_offset;
+        filled = true;
+        break;
+      }
+    }
+    if (filled) break;
+    nextOffset = audit.next_offset;
+    if (nextOffset == null) break;
+    rawOffset = nextOffset;
+  }
+  return {
+    items: items.slice(0, wanted),
+    limit: wanted,
+    offset: start,
+    next_offset: nextOffset,
+  };
+}
+
+function dedupeEvents(events: AuditEvent[]): AuditEvent[] {
+  const seen = new Set<string>();
+  const unique: AuditEvent[] = [];
+  for (const evt of events) {
+    if (seen.has(evt.id)) continue;
+    seen.add(evt.id);
+    unique.push(evt);
+  }
+  return unique;
+}
 
 const ACTION_OPTIONS = [
   '', 'auth.allow', 'auth.deny', 'tool.call', 'tool.result',
@@ -76,8 +137,10 @@ function AuditRow({
 }
 
 function AuditViewInner({ isDemo }: AuditViewProps) {
-  const [offset, setOffset] = useState(0);
+  const [cursors, setCursors] = useState<number[]>([0]);
+  const [pageIndex, setPageIndex] = useState(0);
   const limit = 50;
+  const offset = cursors[pageIndex] ?? 0;
 
   // Filters
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -85,14 +148,20 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
   const [filterDecision, setFilterDecision] = useState<'' | 'allowed' | 'denied'>('');
   const [filterTool, setFilterTool] = useState('');
   const [filterPrefix, setFilterPrefix] = useState('');
+  const [showConsolePolls, setShowConsolePolls] = useState(false);
 
   const [selected, setSelected] = useState<AuditEvent | null>(null);
 
   // SSE live stream
-  const { events: streamEvents, state: streamState } = useAuditStream(50);
+  const { events: streamEvents, state: streamState } = useAuditStream(50, !isDemo);
 
-  // REST page
-  const queryParams = {
+  const resetPage = useCallback(() => {
+    setCursors([0]);
+    setPageIndex(0);
+  }, []);
+
+  // REST page. With polls hidden, keep requesting until 50 other rows are in hand.
+  const queryParams: AuditQuery = {
     action: filterAction || undefined,
     decision: (filterDecision || undefined) as 'allowed' | 'denied' | undefined,
     tool_name: filterTool || undefined,
@@ -100,32 +169,43 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
     limit,
     offset,
   };
-  const { data, isLoading, isError, refetch } = useAudit(queryParams, !isDemo);
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: [...QK.audit(queryParams), showConsolePolls ? 'raw' : 'real'],
+    queryFn: () => showConsolePolls ? consoleApi.listAudit(queryParams) : listAuditUntilReal(queryParams),
+    refetchInterval: 10_000,
+    retry: 0,
+    enabled: !isDemo,
+  });
 
   const clearFilters = useCallback(() => {
     setFilterAction('');
     setFilterDecision('');
     setFilterTool('');
     setFilterPrefix('');
-    setOffset(0);
-  }, []);
+    resetPage();
+  }, [resetPage]);
 
   const hasFilters = !!(filterAction || filterDecision || filterTool || filterPrefix);
 
-  // Merge: SSE events prepend at top (only when no filters active + page 0)
   const pageItems: AuditEvent[] = isDemo
     ? DEMO_AUDIT_EVENTS
     : (data?.items ?? []);
+  const liveEvents = showConsolePolls
+    ? streamEvents
+    : streamEvents.filter(evt => !isConsolePoll(evt));
+  const visiblePage = showConsolePolls
+    ? pageItems
+    : pageItems.filter(evt => !isConsolePoll(evt));
 
-  const showLiveStrip = !isDemo && !hasFilters && offset === 0;
+  const showLiveStrip = !isDemo && !hasFilters && pageIndex === 0;
   const displayItems = showLiveStrip
-    ? [...streamEvents.slice(0, 5), ...pageItems].slice(0, limit)
-    : pageItems;
+    ? dedupeEvents([...liveEvents.slice(0, 5), ...visiblePage]).slice(0, limit)
+    : visiblePage;
 
-  const seenIds = new Set(streamEvents.slice(0, 5).map(e => e.id));
+  const seenIds = new Set(liveEvents.slice(0, 5).map(e => e.id));
 
   return (
-    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="console-page">
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -134,13 +214,26 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
             Live Audit
           </h1>
           <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '2px 0 0' }}>
-            {data
-              ? `${data.items.length} events on this page`
-              : isDemo ? `${DEMO_AUDIT_EVENTS.length} demo events` : 'Loading…'}
+            {isDemo
+              ? `${displayItems.length} demo events`
+              : data
+                ? `${displayItems.length} events`
+                : 'Loading…'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <StreamDot state={isDemo ? 'offline' : streamState} />
+          {!isDemo && <StreamDot state={streamState} />}
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={showConsolePolls}
+              onChange={event => {
+                setShowConsolePolls(event.target.checked);
+                resetPage();
+              }}
+            />
+            Show console GET /api polls
+          </label>
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => setFiltersOpen(f => !f)}
@@ -179,7 +272,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
               id="f-action"
               className="input"
               value={filterAction}
-              onChange={e => { setFilterAction(e.target.value); setOffset(0); }}
+              onChange={e => { setFilterAction(e.target.value); resetPage(); }}
               style={{ fontSize: 11 }}
             >
               {ACTION_OPTIONS.map(a => (
@@ -193,7 +286,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
               id="f-decision"
               className="input"
               value={filterDecision}
-              onChange={e => { setFilterDecision(e.target.value as '' | 'allowed' | 'denied'); setOffset(0); }}
+              onChange={e => { setFilterDecision(e.target.value as '' | 'allowed' | 'denied'); resetPage(); }}
               style={{ fontSize: 11 }}
             >
               <option value="">— any —</option>
@@ -208,7 +301,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
               className="input mono"
               placeholder="e.g. list_notes"
               value={filterTool}
-              onChange={e => { setFilterTool(e.target.value); setOffset(0); }}
+              onChange={e => { setFilterTool(e.target.value); resetPage(); }}
               style={{ fontSize: 11 }}
             />
           </div>
@@ -219,7 +312,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
               className="input mono"
               placeholder="e.g. f10598f5"
               value={filterPrefix}
-              onChange={e => { setFilterPrefix(e.target.value); setOffset(0); }}
+              onChange={e => { setFilterPrefix(e.target.value); resetPage(); }}
               style={{ fontSize: 11 }}
             />
           </div>
@@ -270,11 +363,20 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
             </div>
             {!isDemo && data && (
               <Pager
-                offset={offset}
+                offset={pageIndex * limit}
                 limit={limit}
                 nextOffset={data.next_offset}
-                onPrev={() => setOffset(o => Math.max(0, o - limit))}
-                onNext={() => data.next_offset !== null && setOffset(data.next_offset)}
+                onPrev={() => setPageIndex(index => Math.max(0, index - 1))}
+                onNext={() => {
+                  if (data.next_offset == null) return;
+                  const next = data.next_offset;
+                  setCursors(current => {
+                    const copy = current.slice(0, pageIndex + 1);
+                    copy.push(next);
+                    return copy;
+                  });
+                  setPageIndex(index => index + 1);
+                }}
               />
             )}
           </>

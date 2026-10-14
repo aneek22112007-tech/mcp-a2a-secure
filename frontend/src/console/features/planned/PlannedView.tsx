@@ -33,7 +33,7 @@ export function PlannedView() {
   ];
 
   return (
-    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="console-page">
       <div>
         <h1
           style={{

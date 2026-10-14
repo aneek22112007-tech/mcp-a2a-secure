@@ -31,7 +31,7 @@ export function useHealth(enabled = true) {
     queryKey: QK.health,
     queryFn:  () => consoleApi.health(),
     refetchInterval: 10_000,
-    retry: 1,
+    retry: 0,
     enabled,
   });
 }
@@ -42,7 +42,7 @@ export function useStatus(enabled = true) {
     queryKey: QK.status,
     queryFn:  () => consoleApi.status(),
     refetchInterval: 30_000,
-    retry: 1,
+    retry: 0,
     enabled,
   });
 }
@@ -53,7 +53,7 @@ export function useMetrics(enabled = true) {
     queryKey: QK.metrics,
     queryFn:  () => consoleApi.metrics(),
     refetchInterval: 15_000,
-    retry: 2,
+    retry: 0,
     enabled,
   });
 }
@@ -99,13 +99,17 @@ export function useAudit(params: Parameters<typeof consoleApi.listAudit>[0], ena
 }
 
 // ── Audit SSE Stream ──────────────────────────────────────────────────
-export function useAuditStream(maxEvents = 100) {
+export function useAuditStream(maxEvents = 100, enabled = true) {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [state, setState] = useState<StreamState>('connecting');
   const abortRef = useRef<AbortController | null>(null);
   const stopRef  = useRef<(() => void) | null>(null);
 
   useEffect(() => {
+    if (!enabled) {
+      setState('offline');
+      return;
+    }
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -125,7 +129,7 @@ export function useAuditStream(maxEvents = 100) {
       controller.abort();
       stop();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled, maxEvents]);
 
   const clear = () => setEvents([]);
 

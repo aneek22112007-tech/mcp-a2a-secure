@@ -121,7 +121,7 @@ On `main` today:
 - **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
 - **Tool pinning.** Each tool's name, description, and JSON schema are hashed. `TOOL_PINNING_MODE=enforce` returns 403 `Tool is not approved.` until an admin approves that hash, and `tools/list` plus `GET /api/mcp/info` omit tools that are not approved. `warn` writes an audit row and still runs the tool. `off` (the default) skips the check. A schema or description change is drift and has to be approved again. The hash does not cover the function body. An optional source digest is stored for operators and is not an allow or deny input.
 - **Rule-based Scanner.** A static tool-poisoning scanner evaluates tools against phrase rules for prompt injection, data exfiltration, overbroad parameters, and size anomalies. Unsafe patterns generate `ToolScanFinding` records. The `DbScanGate` hooks into the pinning flow to block tools with `high` or `critical` severity findings before they can run, but only if `TOOL_PINNING_MODE=enforce`.
-- **Frontend.** React 19, Vite and Tailwind. The Server Status view at `/dashboard-v2` reads `/api/status`. The other dashboard panels still use mock data.
+- **Frontend.** React 19, Vite and Tailwind. The live console at `/console` and `/dashboard` reads the real API.
 
 ## Status
 
@@ -191,7 +191,7 @@ Frontend, in a second terminal:
 ```bash
 cd frontend
 npm install
-npm run dev                       # http://localhost:5173, live status at /dashboard-v2
+npm run dev                       # http://localhost:5173, live console at /console
 ```
 
 To try the tools without auth, run the server over stdio with MCP Inspector:

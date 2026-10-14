@@ -16,8 +16,8 @@
 
   /* Text */
   --c-text:        #E9E6DF;   /* bone */
-  --c-text-muted:  #8B8D90;   /* muted */
-  --c-text-dim:    #5A5C60;   /* very dim */
+  --c-text-muted:  #A3A5A8;   /* muted, bright enough to read */
+  --c-text-dim:    #8B8D90;   /* secondary */
 
   /* Accent */
   --c-amber:       #F2A33A;   /* signal amber — sparingly */
@@ -47,8 +47,8 @@
   --rail-w:       220px;
   --rail-w-collapsed: 56px;
   --strip-h:      40px;
-  --radius:       4px;
-  --radius-sm:    2px;
+  --radius:       5px;
+  --radius-sm:    4px;
 
   /* Scrollbar */
   scrollbar-width: thin;

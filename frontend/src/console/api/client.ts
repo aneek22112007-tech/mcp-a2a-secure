@@ -4,9 +4,60 @@
  * Auth: Authorization: Bearer <key> only.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
+const DEFAULT_BASE = 'http://127.0.0.1:8000';
+const BASE_STORAGE_KEY = 'mcpg_base';
+const REQUEST_TIMEOUT_MS = 5_000;
 
-// ── Auth store (in-memory + optional sessionStorage) ──────────────────
+let _base: string | null = null;
+
+function normaliseBase(url: string): string {
+  return url.trim().replace(/\/+$/, '');
+}
+
+/** Runtime API origin. The connect screen writes this; nothing is baked into the bundle. */
+export function setApiBase(url: string): void {
+  const next = normaliseBase(url) || DEFAULT_BASE;
+  _base = next;
+  try { sessionStorage.setItem(BASE_STORAGE_KEY, next); } catch { /* ignore */ }
+}
+
+export function getApiBase(): string {
+  if (_base) return _base;
+  try {
+    const stored = sessionStorage.getItem(BASE_STORAGE_KEY);
+    if (stored && stored.trim()) {
+      _base = normaliseBase(stored);
+      return _base;
+    }
+  } catch { /* ignore */ }
+  const fromEnv = import.meta.env.VITE_API_BASE_URL;
+  _base = normaliseBase(typeof fromEnv === 'string' && fromEnv.trim() ? fromEnv : DEFAULT_BASE);
+  return _base;
+}
+
+function timeoutSignal(): AbortSignal {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  return controller.signal;
+}
+
+function asTimeout(err: unknown): ConsoleApiError | null {
+  if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+    return new ConsoleApiError({
+      code: 'TIMEOUT',
+      message: 'Request timed out after 5 seconds.',
+      details: null,
+      request_id: null,
+      status: 0,
+    });
+  }
+  return null;
+}
+
+// ── Auth store (in-memory + sessionStorage) ───────────────────────────
 let _key: string | null = null;
 
 export function setApiKey(key: string, persist: boolean = true): void {
@@ -78,10 +129,18 @@ async function apiFetch<T>(
     headers['Authorization'] = `Bearer ${resolvedKey}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${getApiBase()}${path}`, {
+      ...options,
+      headers,
+      signal: options.signal ?? timeoutSignal(),
+    });
+  } catch (err) {
+    const timeout = asTimeout(err);
+    if (timeout) throw timeout;
+    throw err;
+  }
 
   if (!res.ok) {
     let errBody: { error?: { code?: string; message?: string; details?: unknown; request_id?: string } } = {};
@@ -471,21 +530,122 @@ export const consoleApi = {
       const k = getApiKey();
       if (k) headers['Authorization'] = `Bearer ${k}`;
     }
-    const res = await fetch(`${API_BASE}${path}`, {
-      method,
+    let res: Response;
+    try {
+      res = await fetch(`${getApiBase()}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: timeoutSignal(),
+      });
+    } catch (err) {
+      const timeout = asTimeout(err);
+      if (timeout) throw timeout;
+      throw err;
+    }
+
+    return readRawResponse(res);
+  },
+
+  /** MCP tools/call on a real session: initialize, then reuse mcp-session-id. */
+  async mcpToolsCall(
+    tool: string,
+    args: Record<string, unknown>,
+    key?: string,
+  ): Promise<{ status: number; headers: Record<string, string>; body: unknown; ok: boolean }> {
+    const token = key ?? getApiKey() ?? '';
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const initRes = await fetch(`${getApiBase()}/mcp/`, {
+      method: 'POST',
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'mcp-guard-console', version: '1.0.0' },
+        },
+      }),
+      signal: timeoutSignal(),
     });
+    const initRaw = await readRawResponse(initRes);
+    if (!initRes.ok) return initRaw;
 
-    const respHeaders: Record<string, string> = {};
-    res.headers.forEach((v, k) => { respHeaders[k] = v; });
+    const session = initRes.headers.get('mcp-session-id');
+    if (!session) {
+      return {
+        status: 0,
+        headers: initRaw.headers,
+        ok: false,
+        body: {
+          error: {
+            message: 'MCP initialize did not return Mcp-Session-Id, so the tool call was not sent.',
+          },
+        },
+      };
+    }
+    let protocol = '2025-06-18';
+    if (initRaw.body && typeof initRaw.body === 'object') {
+      const result = (initRaw.body as { result?: { protocolVersion?: unknown } }).result;
+      if (result && typeof result.protocolVersion === 'string' && result.protocolVersion) {
+        protocol = result.protocolVersion;
+      }
+    }
+    headers['mcp-session-id'] = session;
+    headers['mcp-protocol-version'] = protocol;
 
-    let respBody: unknown;
-    try { respBody = await res.json(); } catch { respBody = null; }
+    const noted = await fetch(`${getApiBase()}/mcp/`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }),
+      signal: timeoutSignal(),
+    }).catch(() => undefined);
+    if (noted) await noted.body?.cancel().catch(() => undefined);
 
-    return { status: res.status, headers: respHeaders, body: respBody, ok: res.ok };
+    const callRes = await fetch(`${getApiBase()}/mcp/`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: tool, arguments: args },
+      }),
+      signal: timeoutSignal(),
+    });
+    return readRawResponse(callRes);
   },
 };
+
+async function readRawResponse(res: Response): Promise<{
+  status: number;
+  headers: Record<string, string>;
+  body: unknown;
+  ok: boolean;
+}> {
+  const respHeaders: Record<string, string> = {};
+  res.headers.forEach((v, k) => { respHeaders[k] = v; });
+  const text = await res.text();
+  let respBody: unknown = text ? text : null;
+  if (text) {
+    try {
+      respBody = JSON.parse(text);
+    } catch {
+      const dataLine = text.split('\n').find(line => line.startsWith('data: '));
+      if (dataLine) {
+        try { respBody = JSON.parse(dataLine.slice(6)); } catch { respBody = text; }
+      }
+    }
+  }
+  return { status: res.status, headers: respHeaders, body: respBody, ok: res.ok };
+}
 
 // ── SSE Audit Stream ──────────────────────────────────────────────────
 
@@ -513,7 +673,7 @@ export function createAuditStream(options: AuditStreamOptions): () => void {
     options.onStateChange(backoff > INITIAL_BACKOFF_MS ? 'reconnecting' : 'connecting');
 
     try {
-      const res = await fetch(`${API_BASE}/api/audit/stream`, {
+      const res = await fetch(`${getApiBase()}/api/audit/stream`, {
         headers: { 'Authorization': `Bearer ${key}` },
         signal: options.signal,
       });
@@ -585,4 +745,74 @@ export function createAuditStream(options: AuditStreamOptions): () => void {
     if (timeoutId !== null) clearTimeout(timeoutId);
     options.onStateChange('offline');
   };
+}
+
+const SCOPE_PROBES: { scope: string; run: () => Promise<unknown> }[] = [
+  { scope: 'metrics:read', run: () => consoleApi.metrics() },
+  { scope: 'audit:read', run: () => consoleApi.listAudit({ limit: 1 }) },
+  { scope: 'tools:read', run: () => consoleApi.listPins() },
+  { scope: 'scanner:read', run: () => consoleApi.listFindings({ limit: 1 }) },
+  { scope: 'sandbox:read', run: () => consoleApi.sandboxHealth() },
+  { scope: 'notes:read', run: () => consoleApi.listNotes() },
+];
+
+export interface DetectedAccess {
+  scopes: string[];
+  clientId: string;
+}
+
+/**
+ * Probe real endpoints. A 200 means the scope is present (admin satisfies every check).
+ * A 403 means that scope is absent. There is no whoami route.
+ */
+export async function detectAccess(): Promise<DetectedAccess> {
+  const scopes: string[] = [];
+  const settled = await Promise.all(SCOPE_PROBES.map(async probe => {
+    try {
+      await probe.run();
+      return probe.scope;
+    } catch (err) {
+      if (err instanceof ConsoleApiError && err.status === 401) throw err;
+      return null;
+    }
+  }));
+  for (const scope of settled) {
+    if (scope) scopes.push(scope);
+  }
+
+  try {
+    await consoleApi.listKeys('00000000-0000-0000-0000-000000000000');
+    scopes.push('admin');
+  } catch (err) {
+    if (err instanceof ConsoleApiError && err.status === 401) throw err;
+  }
+
+  let clientId = '';
+  if (scopes.includes('audit:read') || scopes.includes('admin')) {
+    try {
+      const page = await consoleApi.listAudit({ limit: 30 });
+      const prefix = getKeyPrefix();
+      const mine = page.items.find(evt => evt.client_id && (!prefix || evt.key_prefix === prefix));
+      clientId = mine?.client_id ?? page.items.find(evt => evt.client_id)?.client_id ?? '';
+    } catch {
+      clientId = '';
+    }
+  }
+
+  return { scopes, clientId };
+}
+
+/** Client ids that have actually appeared on audit rows. */
+export async function discoverClientIds(): Promise<string[]> {
+  const ids = new Set<string>();
+  let offset = 0;
+  for (let page = 0; page < 3; page += 1) {
+    const audit = await consoleApi.listAudit({ limit: 100, offset });
+    for (const item of audit.items) {
+      if (item.client_id) ids.add(item.client_id);
+    }
+    if (audit.next_offset == null) break;
+    offset = audit.next_offset;
+  }
+  return [...ids];
 }

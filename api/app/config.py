@@ -143,6 +143,14 @@ class Settings(BaseSettings):
         default=True,
         description="Run scanner on all tools during startup.",
     )
+    demo_poison_tool: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MCPG_DEMO_POISON_TOOL"),
+        description=(
+            "Register a harmless poisoned test tool so the scanner demo "
+            "has findings. Development only."
+        ),
+    )
 
     @field_validator("environment", mode="before")
     @classmethod
@@ -187,6 +195,9 @@ class Settings(BaseSettings):
             raise ValueError(
                 "TOOL_PINNING_BOOTSTRAP_APPROVE is not allowed in production"
             )
+
+        if self.is_production_like and self.demo_poison_tool:
+            raise ValueError("MCPG_DEMO_POISON_TOOL is not allowed in production")
 
         if self.is_production_like:
             for origin in self.cors_origins:

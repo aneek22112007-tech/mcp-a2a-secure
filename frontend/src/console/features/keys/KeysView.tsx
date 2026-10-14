@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Key, Plus, Trash2, TestTube, Copy, CheckCircle, AlertTriangle } from 'lucide-react';
-import { useApiKeys, useCreateKey, useRevokeKey } from '../../api/hooks';
+import { useCreateKey, useRevokeKey } from '../../api/hooks';
+import { consoleApi, discoverClientIds } from '../../api/client';
 import {
   LoadingPanel, ErrorPanel, EmptyState, ConfirmDialog,
   CopyButton, ConsoleErrorBoundary,
@@ -8,7 +10,6 @@ import {
 import { fmtDate, ALL_SCOPES, elapsedSince } from '../../utils/helpers';
 import { DEMO_KEYS } from '../../demo/demoData';
 import type { ApiKey } from '../../api/client';
-import { consoleApi } from '../../api/client';
 import { toast } from 'sonner';
 
 interface KeysViewProps {
@@ -17,10 +18,9 @@ interface KeysViewProps {
   clientIds: string[];
 }
 
-const DEFAULT_CLIENTS = ['dev-admin', 'demo-agent'];
-
 function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
-  const [selectedClient, setSelectedClient] = useState(clientIds[0] ?? '');
+  const [extraIds, setExtraIds] = useState<string[]>([]);
+  const [extraInput, setExtraInput] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [rawKey, setRawKey] = useState<string | null>(null);
   const [rawKeyCopied, setRawKeyCopied] = useState(false);
@@ -28,15 +28,38 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
   const [testResult, setTestResult] = useState<{ key_prefix: string; status: number; label: string } | null>(null);
 
   // Form state
-  const [formClientId, setFormClientId] = useState(clientIds[0] ?? '');
+  const [formClientId, setFormClientId] = useState('');
   const [formName, setFormName] = useState('');
   const [formScopes, setFormScopes] = useState<string[]>([]);
 
-  const { data, isLoading, isError, refetch } = useApiKeys(selectedClient, !isDemo && !!selectedClient);
+  const discovered = useQuery({
+    queryKey: ['client-ids'],
+    queryFn: discoverClientIds,
+    enabled: !isDemo,
+  });
+  const clientIdList = [...new Set([...(discovered.data ?? []), ...clientIds, ...extraIds])].filter(Boolean);
+  const keysQuery = useQuery({
+    queryKey: ['keys-all', clientIdList],
+    queryFn: async () => {
+      const batches = await Promise.all(clientIdList.map(async id => {
+        try {
+          const res = await consoleApi.listKeys(id);
+          return res.keys;
+        } catch {
+          return [] as ApiKey[];
+        }
+      }));
+      return batches.flat();
+    },
+    enabled: !isDemo && clientIdList.length > 0,
+  });
   const createKey = useCreateKey();
   const revokeKey = useRevokeKey();
 
-  const keys: ApiKey[] = isDemo ? DEMO_KEYS : (data?.keys ?? []);
+  const keys: ApiKey[] = isDemo ? DEMO_KEYS : (keysQuery.data ?? []);
+  const isLoading = !isDemo && (discovered.isLoading || (clientIdList.length > 0 && keysQuery.isLoading));
+  const isError = !isDemo && discovered.isError;
+  const refetch = () => { void discovered.refetch(); void keysQuery.refetch(); };
 
   const handleCreate = async () => {
     if (!formClientId || !formName) {
@@ -98,7 +121,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
   };
 
   return (
-    <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="console-page">
 
       {/* Title */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -188,39 +211,50 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
             {testResult.label}
           </span>
           <button className="btn btn-ghost btn-sm" onClick={() => setTestResult(null)}>
-            ✕
+            Dismiss
           </button>
         </div>
       )}
 
-      {/* Client selector */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <span className="section-label">Client</span>
-        <select
-          className="input"
-          value={selectedClient}
-          onChange={e => setSelectedClient(e.target.value)}
-          style={{ width: 240 }}
-          aria-label="Select client"
-        >
-          {[...new Set([...clientIds, ...DEFAULT_CLIENTS])].map(c => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
+      <div className="row-between">
+        <span className="section-label">All clients ({isDemo ? 'demo' : clientIdList.length})</span>
+        {!isDemo && (
+          <form
+            className="field-row"
+            onSubmit={event => {
+              event.preventDefault();
+              const next = extraInput.trim();
+              if (!next) return;
+              setExtraIds(current => current.includes(next) ? current : [...current, next]);
+              setFormClientId(next);
+              setExtraInput('');
+            }}
+          >
+            <input
+              className="input input-mono"
+              value={extraInput}
+              onChange={event => setExtraInput(event.target.value)}
+              placeholder="Add client id"
+              aria-label="Add client id"
+            />
+            <button className="btn btn-ghost btn-sm" type="submit">Load</button>
+          </form>
+        )}
       </div>
 
       {/* Keys table */}
       <div className="panel">
-        {!isDemo && isLoading && !data ? (
+        {!isDemo && isLoading && keys.length === 0 ? (
           <LoadingPanel label="Loading keys…" />
-        ) : !isDemo && isError ? (
-          <ErrorPanel message="Failed to load keys" onRetry={() => void refetch()} />
+        ) : !isDemo && isError && keys.length === 0 ? (
+          <ErrorPanel message="Failed to load keys" onRetry={refetch} />
         ) : keys.length === 0 ? (
-          <EmptyState label="No keys for this client." icon={Key} />
+          <EmptyState label="No client ids in the audit log yet. Paste a client id to load its keys." icon={Key} />
         ) : (
           <table className="data-table">
             <thead>
               <tr>
+                <th>Client</th>
                 <th>Prefix</th>
                 <th>Name</th>
                 <th>Scopes</th>
@@ -235,8 +269,9 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
                 const isRevoked = !!k.revoked_at;
                 return (
                   <tr key={k.id} style={{ opacity: isRevoked ? 0.55 : 1 }}>
+                    <td className="mono">{k.client_id}</td>
                     <td>
-                      <span className="mono" style={{ fontSize: 12 }}>{k.key_prefix}…</span>
+                      <span className="mono">{k.key_prefix}…</span>
                     </td>
                     <td style={{ fontSize: 12 }}>{k.name}</td>
                     <td>
@@ -313,16 +348,17 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label className="section-label" htmlFor="new-client-id">Client ID</label>
-              <select
+              <input
                 id="new-client-id"
-                className="input"
+                className="input input-mono"
                 value={formClientId}
                 onChange={e => setFormClientId(e.target.value)}
-              >
-                {[...new Set([...clientIds, ...DEFAULT_CLIENTS])].map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+                placeholder="client id"
+                list="known-clients"
+              />
+              <datalist id="known-clients">
+                {clientIdList.map(id => <option key={id} value={id} />)}
+              </datalist>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

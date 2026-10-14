@@ -2,6 +2,34 @@ import { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 
+function CompetitorRow({
+  row,
+  index,
+  reducedMotion,
+}: {
+  row: (typeof TABLE_DATA)[number]
+  index: number
+  reducedMotion: boolean
+}) {
+  const rowRef = useRef(null)
+  const isInView = useInView(rowRef, { once: true, margin: '-20px' })
+
+  return (
+    <motion.tr
+      ref={rowRef}
+      initial={{ opacity: 0, x: -20 }}
+      animate={isInView || reducedMotion ? { opacity: 1, x: 0 } : { opacity: 0, x: -20 }}
+      transition={{ duration: 0.5, delay: reducedMotion ? 0 : index * 0.15 }}
+      style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+    >
+      <td style={{ padding: '1.5rem 1rem', color: '#fff', fontWeight: 600 }}>{row.category}</td>
+      <td style={{ padding: '1.5rem 1rem', color: 'var(--text-secondary)' }}>{row.examples}</td>
+      <td style={{ padding: '1.5rem 1rem', color: 'var(--text-secondary)' }}>{row.whatTheyDo}</td>
+      <td style={{ padding: '1.5rem 1rem', color: '#fff' }}>{row.missing}</td>
+    </motion.tr>
+  )
+}
+
 const TABLE_DATA = [
   {
     category: 'Registries / marketplaces',
@@ -83,25 +111,9 @@ export default function CompetitorLandscapeSection() {
             </tr>
           </thead>
           <tbody>
-            {TABLE_DATA.map((row, i) => {
-              const rowRef = useRef(null)
-              const isInView = useInView(rowRef, { once: true, margin: '-20px' })
-              return (
-                <motion.tr
-                  key={i}
-                  ref={rowRef}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={isInView || reducedMotion ? { opacity: 1, x: 0 } : { opacity: 0, x: -20 }}
-                  transition={{ duration: 0.5, delay: reducedMotion ? 0 : i * 0.15 }}
-                  style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-                >
-                  <td style={{ padding: '1.5rem 1rem', color: '#fff', fontWeight: 600 }}>{row.category}</td>
-                  <td style={{ padding: '1.5rem 1rem', color: 'var(--text-secondary)' }}>{row.examples}</td>
-                  <td style={{ padding: '1.5rem 1rem', color: 'var(--text-secondary)' }}>{row.whatTheyDo}</td>
-                  <td style={{ padding: '1.5rem 1rem', color: '#fff' }}>{row.missing}</td>
-                </motion.tr>
-              )
-            })}
+            {TABLE_DATA.map((row, i) => (
+              <CompetitorRow key={row.category} row={row} index={i} reducedMotion={reducedMotion} />
+            ))}
           </tbody>
         </table>
       </div>

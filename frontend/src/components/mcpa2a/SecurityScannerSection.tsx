@@ -2,6 +2,42 @@ import { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 
+function ScannerTag({
+  tag,
+  index,
+  reducedMotion,
+}: {
+  tag: string
+  index: number
+  reducedMotion: boolean
+}) {
+  const tagRef = useRef(null)
+  const isInView = useInView(tagRef, { once: true, margin: '-20px' })
+
+  return (
+    <motion.div
+      ref={tagRef}
+      initial={{ scale: 0.8, opacity: 0 }}
+      animate={isInView || reducedMotion ? { scale: 1, opacity: 1 } : { scale: 0.8, opacity: 0 }}
+      transition={{ duration: 0.4, delay: reducedMotion ? 0 : index * 0.1 }}
+      style={{
+        background: 'rgba(255, 255, 255, 0.05)',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        padding: '0.75rem 1.5rem',
+        borderRadius: '8px',
+        fontFamily: 'var(--font-display)',
+        fontSize: '0.9rem',
+        fontWeight: 600,
+        color: '#fff',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+      }}
+    >
+      {tag}
+    </motion.div>
+  )
+}
+
 const TAGS = [
   'Command Injection',
   'Path Traversal',
@@ -55,34 +91,9 @@ export default function SecurityScannerSection() {
         gap: '1rem',
         maxWidth: '900px'
       }}>
-        {TAGS.map((tag, i) => {
-          const tagRef = useRef(null)
-          const isInView = useInView(tagRef, { once: true, margin: '-20px' })
-          
-          return (
-            <motion.div
-              key={i}
-              ref={tagRef}
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={isInView || reducedMotion ? { scale: 1, opacity: 1 } : { scale: 0.8, opacity: 0 }}
-              transition={{ duration: 0.4, delay: reducedMotion ? 0 : i * 0.1 }}
-              style={{
-                background: 'rgba(255, 255, 255, 0.05)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                padding: '0.75rem 1.5rem',
-                borderRadius: '8px',
-                fontFamily: 'var(--font-display)',
-                fontSize: '0.9rem',
-                fontWeight: 600,
-                color: '#fff',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-              }}
-            >
-              {tag}
-            </motion.div>
-          )
-        })}
+        {TAGS.map((tag, i) => (
+          <ScannerTag key={tag} tag={tag} index={i} reducedMotion={reducedMotion} />
+        ))}
       </div>
 
       <div style={{

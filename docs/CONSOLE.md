@@ -1,198 +1,99 @@
-# MCP Guard — Live Console
+# MCP Guard live console
 
-> **Branch:** `feat/live-dashboard`  
-> **Route:** `http://localhost:5173/console`  
-> **Constraint:** no auth code was modified — this doc describes only the new console.
+The live console is the React app in `frontend/src/console/`. `/console` and `/dashboard` both render it. The old `/dashboard-legacy` and `/dashboard-v2` screens are gone.
 
----
+The console talks to the Python API on port 8000. You type an API key into the connect screen. The browser keeps that key in `sessionStorage` for the tab. It is not a build variable and it is not written into the frontend source.
 
-## Quick start
+## Settings
+
+Copy `api/.env.example` to `api/.env` and set these before you start the API:
+
+```
+ENVIRONMENT=dev
+SANDBOX_MODE=inprocess
+TOOL_PINNING_MODE=enforce
+API_KEY_PEPPER=replace-with-a-local-development-secret
+MCP_SELF_API_KEY=
+MCPG_DEMO_POISON_TOOL=1
+RATE_LIMIT_CAPACITY=20
+```
+
+`API_KEY_PEPPER` is any long local secret. Do not commit `api/.env`.
+
+`MCP_SELF_API_KEY` is an `mcpg_` key with the `agent:run` scope. The admin key from `create_admin_key.py` is enough. `/api/status` uses it only to probe MCP. Leave it empty and the overview shows an amber line, "MCP not configured: set MCP_SELF_API_KEY". The status route cannot tell an unset key apart from any other probe failure, so that same amber line also covers a probe that failed for another reason. A green online badge means the probe succeeded.
+
+`RATE_LIMIT_CAPACITY=20` is the demo setting in `api/.env.example`. The attack simulator and the seed script send 120 requests at once. A bucket of 20 cannot hold that burst, so most of those requests come back as 429 with a Retry-After value. The code default without this setting is 100, and a higher capacity can absorb the whole burst so you see zero 429 responses. Restart the API after you change it.
+
+`MCPG_DEMO_POISON_TOOL=1` registers `poisoned_test_tool`. Its description is a fixture for the scanner (R1 prompt injection and R2 exfiltration). The function returns a fixed string and does not open a network connection. The flag is refused when `ENVIRONMENT` is production-like. Leave it unset when you run the test suite, or the tests that expect only the three notes tools will fail. Restart the API after you change it.
+
+## Run
+
+From the repo root, in this order.
+
+1. Apply the schema and create the two local clients.
 
 ```bash
-# Terminal 1 — MCP Guard Gateway (FastAPI)
 cd api
-source .venv/bin/activate
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+uv run alembic upgrade head
+uv run python scripts/seed_dev.py
+```
 
-# Terminal 2 — Auth Backend (Node server for /signin & /signup)
-cd backend
-node server.js   # runs on port 5001
+`seed_dev.py` creates the clients `dev-admin` and `demo-agent`. It does not create keys. It refuses to run unless the environment is dev, development, or local.
 
-# Terminal 3 — (optional) generate key & seed realistic demo data
-cd api
-source .venv/bin/activate
-python scripts/create_admin_key.py --force
-ADMIN_KEY="mcpg_e24acea2_r1NdGFHSpwt8v28ZxFiiM2hAAcDDz5hl7Y0es_POLWo" python ../scripts/seed_demo_data.py
+2. Create an admin key and put it in the environment you will use for the seed script. The script prints the raw key once.
 
-# Terminal 4 — Frontend (Vite)
+```bash
+uv run python scripts/create_admin_key.py
+```
+
+Copy that key into `MCP_SELF_API_KEY` in `api/.env`. Keep the same value in your shell as `ADMIN_KEY` for the next step. Do not paste it into a `VITE_` variable.
+
+3. Start the API, then seed demo traffic. The seed script calls the running API, so uvicorn has to be up first.
+
+```bash
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+In a second terminal, from `api/`:
+
+```bash
+ADMIN_KEY="the key from create_admin_key.py" uv run python scripts/seed_demo_data.py
+```
+
+`seed_demo_data.py` also refuses to run outside a dev environment. It reads `ADMIN_KEY` from the environment and exits if that variable is missing. HTTP 200 and 201 count as success. Any other status on a setup step is a failure and is printed with the status and a short body. A step that is supposed to be denied (401, 403, or 429) succeeds only when the status matches. The process exits non-zero if any step fails.
+
+The script resolves `dev-admin` and `demo-agent` from the database, then creates keys for those clients. It syncs pins, approves `list_notes`, `read_note`, and `write_note`, and runs the scanner. It opens an MCP session with `initialize`, reuses the `mcp-session-id` header, and sends `Accept: application/json, text/event-stream`. Through that session it writes, reads, and lists a note so sandbox runs exist. It then revokes `write_note` and rewrites the stored `read_note` fingerprint so the pin shows drift. After the pin cache expires it calls those tools again and checks the audit reasons `pin_revoked` and `pin_drift`. It also sends a bad key, a notes-only key against `/api/metrics`, and a burst of 120 metrics requests. The base URL is `MCPG_BASE_URL` or `http://127.0.0.1:8000`.
+
+If the scanner step says R1 or R2 is missing, set `MCPG_DEMO_POISON_TOOL=1`, restart uvicorn, and run the seed script again.
+
+4. Start the frontend and open the console.
+
+```bash
 cd frontend
 npm run dev
-# → open http://localhost:5173/ (landing page) or http://localhost:5173/console
 ```
 
----
+Open http://localhost:5173/console. The API only allows that origin in CORS. Paste the admin key into the connect screen. Leave the backend URL as http://127.0.0.1:8000. The footer shows the same value. MCP calls to `localhost` can be rejected by the server host check, so the field defaults to 127.0.0.1.
 
-## Architecture
+`/signin` and `/signup` still use the Node server on port 5001. The console does not.
 
-```
-frontend/src/console/
-├── ConsoleApp.tsx          ← top-level router, session management, QC provider
-├── styles/
-│   ├── tokens.css          ← design tokens (colors, fonts, motion, layout)
-│   └── console.css         ← all CSS classes (panel, badge, btn, data-table …)
-├── api/
-│   ├── client.ts           ← typed API client + SSE stream handler
-│   └── hooks.ts            ← all TanStack Query hooks
-├── components/
-│   ├── Shell.tsx           ← collapsible nav rail + top status strip
-│   └── ui.tsx              ← shared components (Drawer, Pager, ConfirmDialog …)
-├── demo/
-│   └── demoData.ts         ← static offline fallback (clearly labelled)
-├── utils/
-│   └── helpers.ts          ← formatting, badge logic, severity helpers
-└── features/
-    ├── connect/            ← Connect screen (key entry)
-    ├── overview/           ← Dashboard + SSE ticker
-    ├── keys/               ← API key CRUD
-    ├── audit/              ← Live audit log + filters
-    ├── metrics/            ← Recharts visualisations
-    ├── pins/               ← Tool pinning approve/revoke/sync
-    ├── scanner/            ← Findings table + manual scan
-    ├── sandbox/            ← Run history + health
-    ├── attack/             ← Live attack simulator
-    └── planned/            ← Planned features text
-```
+## What you should see
 
----
+Overview counts requests from `GET /api/metrics` and pin totals from `GET /api/pins`. The live event feed and the demo sequence sit side by side under the pipeline strip. "Run demo sequence" sends a real allowed call, a bad key (401), a wrong scope (403), a rate-limit burst (429), and a pinned-tool block. Each row is labelled from the HTTP status. A 200 is Allowed. A 403 that says the tool is not approved, or whose audit reason is `pin_revoked`, `pin_drift`, `pin_scan_blocked`, or `pin_missing`, is the pin gate.
 
-## Views
+API Keys lists every client id found in the audit log. Live Audit hides the console's own `GET /api` allow rows until you turn on "Show console GET /api polls". The scanner button is "Scan all tools".
 
-| Route (tab)       | Data source                          | Key feature |
-|-------------------|--------------------------------------|-------------|
-| Overview          | `/api/metrics` + SSE `/api/audit/stream` | Animated counters, live ticker, pin summary |
-| API Keys          | `/api/keys?client_id=…`              | Create (scopes), copy-once raw key, revoke |
-| Live Audit        | SSE prepend + `/api/audit` (paginated) | Filter by action/decision/tool/key, drawer detail |
-| Metrics           | `/api/metrics`                       | Recharts: status breakdown, slowest tools, busiest keys, sandbox |
-| Tool Pinning      | `/api/pins`                          | Fingerprint diff, approve/revoke with note, drift animation |
-| Scanner           | `/api/scanner/findings`              | Run scan, expand evidence, resolve, export JSON |
-| Sandbox           | `/api/sandbox/runs` + `/api/sandbox/health` | Health panel with limits, run detail drawer |
-| Attack Simulator  | Direct `fetch` to backend            | 6 real attacks, pipeline stage label, HTTP status, raw body |
-| Planned           | Static text                          | No fake data |
+If `GET /health` fails, the console switches to the demo dataset and shows "DEMO DATA (backend offline)". The Live and backend-ok text is hidden. When health succeeds again, it returns to live data. A request that does not finish within 5 seconds shows an error instead of a spinner.
 
----
+## What was not changed
 
-## Design system
+These paths were not edited for the console:
 
-### Colour tokens
-
-| Token             | Value     | Meaning |
-|-------------------|-----------|---------|
-| `--c-amber`       | `#F2A33A` | Primary accent — used sparingly |
-| `--c-allow`       | `#3DD6B0` | Allowed / success / trusted |
-| `--c-deny`        | `#F0524A` | Denied / error / revoked |
-| `--c-review`      | `#F2A33A` | Pending / rate-limited / reconnecting |
-| `--c-info`        | `#7F9BB3` | Info / neutral |
-| `--c-bg`          | `#0B0C0D` | Page background (warm near-black) |
-| `--c-surface`     | `#131416` | Raised surface |
-| `--c-surface-2`   | `#1A1C1F` | Nested surface (hover, expand) |
-
-### Fonts
-
-- Sans: **IBM Plex Sans Variable** (loaded from `@fontsource-variable/ibm-plex-sans`)  
-- Mono: **JetBrains Mono Variable** (loaded from `@fontsource-variable/jetbrains-mono`)
-
-### Animations
-
-- `row-enter` — new SSE events slide in from top
-- `snap-deny` — denied rows flash red then fade
-- `pulse-dot` — live stream indicator
-
----
-
-## Data integrity
-
-### Live mode
-Every number on screen comes from a backend call:
-
-| Number | Endpoint |
-|--------|----------|
-| Total / Allowed / Denied / Rate-limited | `GET /api/metrics` |
-| SSE event ticker | `GET /api/audit/stream` (SSE) |
-| Sandbox by-status | `GET /api/metrics → sandbox.by_status` |
-| Tool pins | `GET /api/pins` |
-| Scanner findings | `GET /api/scanner/findings` |
-| Sandbox runs | `GET /api/sandbox/runs` |
-| API keys | `GET /api/keys?client_id=…` |
-| Backend health | `GET /health` (no auth) |
-| MCP latency | `GET /api/status` |
-
-### Demo mode (offline)
-- Activated via **"← View with demo data"** button on the connect screen  
-- A **`DEMO DATA (backend offline)`** badge appears in the top strip at all times  
-- All demo data lives in `demo/demoData.ts` — never mixed with live data  
-- The demo data was manually authored to resemble a real session (not AI-generated metrics)
-
----
-
-## Attack Simulator
-
-Six real HTTP requests against the running backend. Each result appears in **Live Audit** within ~1 second.
-
-| Attack | Expected result | Pipeline stage |
-|--------|----------------|----------------|
-| Bad key | `401 Unauthorized` | Bearer Auth |
-| Valid key, wrong scope | `403 Forbidden` or `404` | Scope / Pin Gate |
-| Revoked key format | `401 Unauthorized` | Bearer Auth |
-| Rate-limit burst (15×) | `429 Too Many Requests` | Rate Limiter |
-| Revoked-pin tool call | `403 Forbidden` | Tool Pin Gate |
-| Path traversal note name | `404` or `422` | Handler / Validation |
-
-> **Note:** The pin-gate attack only triggers a 403 when `TOOL_PINNING_MODE=enforce`.  
-> In `warn` mode the tool call is audited but passes through.
-
----
-
-## Seed script
- 
-```bash
-cd api
-source .venv/bin/activate
-ADMIN_KEY="mcpg_e24acea2_r1NdGFHSpwt8v28ZxFiiM2hAAcDDz5hl7Y0es_POLWo" python ../scripts/seed_demo_data.py
-```
-
-Creates:
-- Two API keys (`dev-admin`, `demo-agent`)
-- Syncs, approves, and revokes tool pins (write_note is left revoked for demo)
-- Runs the full scanner
-- Fires 8 tool calls through `/mcp/` + 1 bad-key call for audit variety
-
----
-
-## What was NOT changed
-
-Per the hard constraint, none of these files were modified:
-
-- `backend/` (entire Node server)
+- `backend/` (the Node auth server)
 - `frontend/src/lib/api.ts`
-- `frontend/src/components/auth/` (SignIn, SignUp, AuthLayout, Auth3D)
-- `/signin` and `/signup` routes in `App.tsx`
-- Google OAuth setup (`@react-oauth/google`)
-- `api/app/auth/` (bearer, dependencies, mcp_asgi, principal, scopes, throttle, verifier)
+- `frontend/src/components/auth/`
+- the `/signin` and `/signup` routes and the Google OAuth provider in `frontend/src/App.tsx`
+- `api/app/auth/`
 - `api/app/rate_limit.py`
 
-The only edit to `App.tsx` was adding two lines: a lazy import and a `<Route path="/console">`.
-
----
-
-## Dependencies added (all permitted)
-
-```
-@tanstack/react-query
-sonner
-@number-flow/react
-@fontsource-variable/ibm-plex-sans
-@fontsource-variable/jetbrains-mono
-tailwind-merge      (not yet used — installed as per spec)
-```
-
-`recharts` was already a dependency of the project.
+`App.tsx` only lost the old dashboard routes. `/dashboard` and `/console` both render `ConsoleApp`.
