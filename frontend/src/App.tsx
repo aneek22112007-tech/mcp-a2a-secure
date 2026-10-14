@@ -62,7 +62,8 @@ function App() {
               </GoogleOAuthProvider>
             }
           />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={<ConsoleApp />} />
+          <Route path="/dashboard-legacy" element={<Dashboard />} />
           <Route path="/dashboard-v2" element={<DashboardV2 />} />
           <Route path="/console" element={<ConsoleApp />} />
         </Routes>
