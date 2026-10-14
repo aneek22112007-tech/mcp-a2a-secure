@@ -2,6 +2,67 @@ import { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
 import { Briefcase, Target, FolderGit2, CheckCircle2 } from 'lucide-react'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
+import type { LucideIcon } from 'lucide-react'
+
+function WhyBlock({
+  block,
+  index,
+  reducedMotion,
+}: {
+  block: { icon: LucideIcon, title: string, desc: string }
+  index: number
+  reducedMotion: boolean
+}) {
+  const blockRef = useRef(null)
+  const isInView = useInView(blockRef, { once: true, margin: '-50px' })
+  const Icon = block.icon
+
+  return (
+    <motion.div
+      ref={blockRef}
+      initial={{ opacity: 0, y: 20 }}
+      animate={isInView || reducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
+      transition={{ duration: 0.6, delay: reducedMotion ? 0 : index * 0.15 }}
+      style={{
+        background: 'rgba(255,255,255,0.02)',
+        border: '1px solid rgba(255,255,255,0.05)',
+        borderRadius: '12px',
+        padding: '2rem',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '1rem',
+      }}
+    >
+      <div style={{
+        width: '48px',
+        height: '48px',
+        borderRadius: '8px',
+        background: 'rgba(254,110,68,0.1)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+      }}>
+        <Icon size={24} color="var(--accent)" />
+      </div>
+      <h3 style={{
+        fontFamily: 'var(--font-display)',
+        fontSize: '1.2rem',
+        fontWeight: 700,
+        color: '#fff',
+      }}>
+        {block.title}
+      </h3>
+      <p style={{
+        fontFamily: 'var(--font-body)',
+        fontSize: '0.95rem',
+        color: 'var(--text-secondary)',
+        lineHeight: 1.6,
+      }}>
+        {block.desc}
+      </p>
+    </motion.div>
+  )
+}
 
 const BLOCKS = [
   {
@@ -61,58 +122,9 @@ export default function WhyThisProjectSection() {
         width: '100%',
         maxWidth: '1200px',
       }}>
-        {BLOCKS.map((block, i) => {
-          const blockRef = useRef(null)
-          const isInView = useInView(blockRef, { once: true, margin: '-50px' })
-          const Icon = block.icon
-
-          return (
-            <motion.div
-              key={i}
-              ref={blockRef}
-              initial={{ opacity: 0, y: 20 }}
-              animate={isInView || reducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
-              transition={{ duration: 0.6, delay: reducedMotion ? 0 : i * 0.15 }}
-              style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px solid rgba(255,255,255,0.05)',
-                borderRadius: '12px',
-                padding: '2rem',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '1rem',
-              }}
-            >
-              <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '8px',
-                background: 'rgba(254,110,68,0.1)',
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}>
-                <Icon size={24} color="var(--accent)" />
-              </div>
-              <h3 style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '1.2rem',
-                fontWeight: 700,
-                color: '#fff',
-              }}>
-                {block.title}
-              </h3>
-              <p style={{
-                fontFamily: 'var(--font-body)',
-                fontSize: '0.95rem',
-                color: 'var(--text-secondary)',
-                lineHeight: 1.6,
-              }}>
-                {block.desc}
-              </p>
-            </motion.div>
-          )
-        })}
+        {BLOCKS.map((block, i) => (
+          <WhyBlock key={block.title} block={block} index={i} reducedMotion={reducedMotion} />
+        ))}
       </div>
     </section>
   )

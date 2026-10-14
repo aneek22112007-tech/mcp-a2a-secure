@@ -4,6 +4,66 @@ import { KeyRound, ShieldAlert, FlaskConical, PackageCheck, Terminal, Fingerprin
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 import type { LucideIcon } from 'lucide-react'
 
+function ThreatRow({
+  row,
+  index,
+  reducedMotion,
+}: {
+  row: { icon: LucideIcon, threat: string, mitigation: string, test: string }
+  index: number
+  reducedMotion: boolean
+}) {
+  const rowRef = useRef(null)
+  const isInView = useInView(rowRef, { once: true, margin: '-20px' })
+  const Icon = row.icon
+
+  return (
+    <motion.div
+      ref={rowRef}
+      initial={{ opacity: 0, x: -30 }}
+      animate={isInView || reducedMotion ? { opacity: 1, x: 0 } : { opacity: 0, x: -30 }}
+      transition={{ duration: 0.5, delay: reducedMotion ? 0 : index * 0.1 }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '1rem',
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.05)',
+        borderRadius: '8px',
+        padding: '1rem 1.5rem',
+        fontFamily: 'var(--font-body)',
+      }}
+    >
+      <Icon size={20} color="var(--accent)" style={{ flexShrink: 0 }} />
+
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: '1rem',
+        flexGrow: 1,
+        fontSize: '0.9rem',
+      }}>
+        <span style={{ color: '#fff', fontWeight: 600, minWidth: '180px' }}>{row.threat}</span>
+        <span style={{ color: 'rgba(255,255,255,0.2)' }}>→</span>
+        <span style={{ color: 'var(--text-secondary)', flexGrow: 1 }}>{row.mitigation}</span>
+        <span style={{ color: 'rgba(255,255,255,0.2)', display: 'none' }}>→</span>
+        <span style={{
+          color: 'var(--accent-light)',
+          background: 'rgba(254,110,68,0.1)',
+          padding: '0.25rem 0.75rem',
+          borderRadius: '100px',
+          fontSize: '0.8rem',
+          fontWeight: 600,
+          textTransform: 'uppercase',
+        }}>
+          {row.test}
+        </span>
+      </div>
+    </motion.div>
+  )
+}
+
 const ROWS: Array<{ icon: LucideIcon, threat: string, mitigation: string, test: string }> = [
   { icon: KeyRound, threat: 'Secret exposure', mitigation: 'hashed keys, minimized persistence', test: 'secret test' },
   { icon: ShieldAlert, threat: 'Scope creep', mitigation: 'per-client scopes', test: 'denied-scope test' },
@@ -50,58 +110,9 @@ export default function ThreatModelSection() {
         width: '100%',
         maxWidth: '1000px',
       }}>
-        {ROWS.map((row, i) => {
-          const rowRef = useRef(null)
-          const isInView = useInView(rowRef, { once: true, margin: '-20px' })
-          const Icon = row.icon
-
-          return (
-            <motion.div
-              key={i}
-              ref={rowRef}
-              initial={{ opacity: 0, x: -30 }}
-              animate={isInView || reducedMotion ? { opacity: 1, x: 0 } : { opacity: 0, x: -30 }}
-              transition={{ duration: 0.5, delay: reducedMotion ? 0 : i * 0.1 }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '1rem',
-                background: 'rgba(255,255,255,0.03)',
-                border: '1px solid rgba(255,255,255,0.05)',
-                borderRadius: '8px',
-                padding: '1rem 1.5rem',
-                fontFamily: 'var(--font-body)',
-              }}
-            >
-              <Icon size={20} color="var(--accent)" style={{ flexShrink: 0 }} />
-              
-              <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                alignItems: 'center',
-                gap: '1rem',
-                flexGrow: 1,
-                fontSize: '0.9rem',
-              }}>
-                <span style={{ color: '#fff', fontWeight: 600, minWidth: '180px' }}>{row.threat}</span>
-                <span style={{ color: 'rgba(255,255,255,0.2)' }}>→</span>
-                <span style={{ color: 'var(--text-secondary)', flexGrow: 1 }}>{row.mitigation}</span>
-                <span style={{ color: 'rgba(255,255,255,0.2)', display: 'none' }}>→</span> {/* Hidden on mobile, visible on desktop via flex flow but let's keep it simple */}
-                <span style={{
-                  color: 'var(--accent-light)',
-                  background: 'rgba(254,110,68,0.1)',
-                  padding: '0.25rem 0.75rem',
-                  borderRadius: '100px',
-                  fontSize: '0.8rem',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                }}>
-                  {row.test}
-                </span>
-              </div>
-            </motion.div>
-          )
-        })}
+        {ROWS.map((row, i) => (
+          <ThreatRow key={row.threat} row={row} index={i} reducedMotion={reducedMotion} />
+        ))}
       </div>
     </section>
   )

@@ -89,6 +89,37 @@ export default function Nav() {
         ))}
 
         <Link
+          to="/console"
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: '0.65rem',
+            fontWeight: 700,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            color: '#f59e0b',
+            background: 'rgba(245, 158, 11, 0.12)',
+            border: '1px solid rgba(245, 158, 11, 0.4)',
+            padding: '0.35rem 0.75rem',
+            borderRadius: '4px',
+            textDecoration: 'none',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.45rem',
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(245, 158, 11, 0.22)';
+            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(245, 158, 11, 0.7)';
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.background = 'rgba(245, 158, 11, 0.12)';
+            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(245, 158, 11, 0.4)';
+          }}
+        >
+          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px #10b981' }} />
+          LIVE CONSOLE
+        </Link>
+        <Link
           to="/signin"
           style={{
             fontFamily: 'var(--font-body)',
@@ -186,6 +217,14 @@ export default function Nav() {
               {link.label}
             </a>
           ))}
+          <Link
+            to="/console"
+            className="pill-solid"
+            style={{ background: '#f59e0b', color: '#000', fontSize: '0.85rem', letterSpacing: '0.12em' }}
+            onClick={() => setNavOpen(false)}
+          >
+            ● LIVE CONSOLE ↗
+          </Link>
           <Link to="/signin" className="pill-outline" onClick={() => setNavOpen(false)}>
             Sign In
           </Link>

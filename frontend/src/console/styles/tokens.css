@@ -1,0 +1,64 @@
+/* MCP Guard — Design tokens
+ * All values defined once; referenced everywhere via CSS custom properties.
+ * No light theme. No purple. No glassmorphism.
+ */
+
+@import '@fontsource-variable/ibm-plex-sans';
+@import '@fontsource-variable/jetbrains-mono';
+
+:root {
+  /* ── Palette ─────────────────────────────────────────────────────────── */
+  --c-bg:          #0B0C0D;   /* warm near-black */
+  --c-surface:     #131416;   /* raised surface */
+  --c-surface-2:   #1A1C1F;   /* nested surface */
+  --c-border:      #26282B;   /* hairline border */
+  --c-border-2:    #31343A;   /* slightly raised border */
+
+  /* Text */
+  --c-text:        #E9E6DF;   /* bone */
+  --c-text-muted:  #A3A5A8;   /* muted, bright enough to read */
+  --c-text-dim:    #8B8D90;   /* secondary */
+
+  /* Accent */
+  --c-amber:       #F2A33A;   /* signal amber — sparingly */
+  --c-amber-dim:   #3D2A0C;   /* amber background */
+
+  /* Semantic */
+  --c-allow:       #3DD6B0;   /* teal — allowed */
+  --c-allow-dim:   #0D2E27;
+  --c-deny:        #F0524A;   /* vermilion — denied */
+  --c-deny-dim:    #2E100F;
+  --c-review:      #F2A33A;   /* amber — pending */
+  --c-review-dim:  #2E1E08;
+  --c-info:        #7F9BB3;   /* steel — info */
+  --c-info-dim:    #162028;
+
+  /* ── Typography ──────────────────────────────────────────────────────── */
+  --font-sans:  'IBM Plex Sans Variable', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono:  'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* ── Motion ─────────────────────────────────────────────────────────── */
+  --ease:        cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast:    120ms;
+  --dur-base:    200ms;
+  --dur-slow:    320ms;
+
+  /* ── Layout ─────────────────────────────────────────────────────────── */
+  --rail-w:       220px;
+  --rail-w-collapsed: 56px;
+  --strip-h:      40px;
+  --radius:       5px;
+  --radius-sm:    4px;
+
+  /* Scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-border) transparent;
+}
+
+/* Reduced motion — disable movement, keep instant state changes */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

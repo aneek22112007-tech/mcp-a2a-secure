@@ -10,11 +10,8 @@ const SignIn = lazy(() =>
 const SignUp = lazy(() =>
   import('./components/auth/SignUp').then(m => ({ default: m.SignUp }))
 )
-const Dashboard = lazy(() =>
-  import('./pages/Dashboard').then(m => ({ default: m.Dashboard }))
-)
-const DashboardV2 = lazy(() =>
-  import('./pages/DashboardV2').then(m => ({ default: m.DashboardV2 }))
+const ConsoleApp = lazy(() =>
+  import('./console/ConsoleApp').then(m => ({ default: m.ConsoleApp }))
 )
 
 // Lightweight fallback — no layout shift, no spinner flash
@@ -59,8 +56,8 @@ function App() {
               </GoogleOAuthProvider>
             }
           />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/dashboard-v2" element={<DashboardV2 />} />
+          <Route path="/dashboard" element={<ConsoleApp />} />
+          <Route path="/console" element={<ConsoleApp />} />
         </Routes>
       </Suspense>
     </Router>

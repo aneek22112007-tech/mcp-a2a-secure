@@ -1,4 +1,5 @@
 import { useRef, Suspense } from 'react'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import Hero3D from './Hero3D'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
@@ -179,18 +180,43 @@ export default function HeroSection() {
           ))}
         </div>
 
-        {/* CTA */}
-        <motion.a
-          href="#architecture"
-          className="pill-solid"
-          aria-label="View MCP·A2A Architecture"
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.6, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-          style={{ fontSize: '0.7rem', letterSpacing: '0.15em' }}
-        >
-          View Architecture
-        </motion.a>
+        {/* CTAs */}
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <motion.a
+            href="#architecture"
+            className="pill-outline"
+            aria-label="View MCP·A2A Architecture"
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.6, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+            style={{ fontSize: '0.7rem', letterSpacing: '0.15em' }}
+          >
+            View Architecture
+          </motion.a>
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.7, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <Link
+              to="/console"
+              className="pill-solid"
+              style={{
+                fontSize: '0.7rem',
+                letterSpacing: '0.15em',
+                background: '#f59e0b',
+                color: '#000',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                fontWeight: 700,
+              }}
+            >
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#059669', display: 'inline-block' }} />
+              Live Console ↗
+            </Link>
+          </motion.div>
+        </div>
       </div>
 
       {/* Scroll indicator */}

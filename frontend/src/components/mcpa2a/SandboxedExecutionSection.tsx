@@ -2,6 +2,42 @@ import { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 
+function SandboxChip({
+  chip,
+  index,
+  reducedMotion,
+}: {
+  chip: string
+  index: number
+  reducedMotion: boolean
+}) {
+  const chipRef = useRef(null)
+  const isInView = useInView(chipRef, { once: true, margin: '-20px' })
+
+  return (
+    <motion.div
+      ref={chipRef}
+      initial={{ scale: 0.8, opacity: 0 }}
+      animate={isInView || reducedMotion ? { scale: 1, opacity: 1 } : { scale: 0.8, opacity: 0 }}
+      transition={{ duration: 0.4, delay: reducedMotion ? 0 : index * 0.1 }}
+      style={{
+        background: 'rgba(254, 110, 68, 0.1)',
+        border: '1px solid rgba(254, 110, 68, 0.3)',
+        padding: '0.75rem 1.5rem',
+        borderRadius: '100px',
+        fontFamily: 'var(--font-display)',
+        fontSize: '0.9rem',
+        fontWeight: 600,
+        color: 'var(--accent-light)',
+        textTransform: 'uppercase',
+        letterSpacing: '0.05em',
+      }}
+    >
+      {chip}
+    </motion.div>
+  )
+}
+
 const CHIPS = [
   'Docker Engine API',
   'Read-only root FS',
@@ -57,34 +93,9 @@ export default function SandboxedExecutionSection() {
         gap: '1rem',
         maxWidth: '900px'
       }}>
-        {CHIPS.map((chip, i) => {
-          const chipRef = useRef(null)
-          const isInView = useInView(chipRef, { once: true, margin: '-20px' })
-          
-          return (
-            <motion.div
-              key={i}
-              ref={chipRef}
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={isInView || reducedMotion ? { scale: 1, opacity: 1 } : { scale: 0.8, opacity: 0 }}
-              transition={{ duration: 0.4, delay: reducedMotion ? 0 : i * 0.1 }}
-              style={{
-                background: 'rgba(254, 110, 68, 0.1)',
-                border: '1px solid rgba(254, 110, 68, 0.3)',
-                padding: '0.75rem 1.5rem',
-                borderRadius: '100px',
-                fontFamily: 'var(--font-display)',
-                fontSize: '0.9rem',
-                fontWeight: 600,
-                color: 'var(--accent-light)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-              }}
-            >
-              {chip}
-            </motion.div>
-          )
-        })}
+        {CHIPS.map((chip, i) => (
+          <SandboxChip key={chip} chip={chip} index={i} reducedMotion={reducedMotion} />
+        ))}
       </div>
     </section>
   )
