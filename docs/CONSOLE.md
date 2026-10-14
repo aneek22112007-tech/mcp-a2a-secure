@@ -14,15 +14,18 @@ cd api
 source .venv/bin/activate
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 
-# Terminal 2 — (optional) seed realistic demo data
+# Terminal 2 — (optional) generate key & seed realistic demo data
 cd api
 source .venv/bin/activate
-ADMIN_KEY=<your_key> python ../scripts/seed_demo_data.py
+# Generate an admin API key:
+python scripts/create_admin_key.py --force
+# Seed database with realistic live activity:
+ADMIN_KEY="mcpg_e24acea2_r1NdGFHSpwt8v28ZxFiiM2hAAcDDz5hl7Y0es_POLWo" python ../scripts/seed_demo_data.py
 
 # Terminal 3 — frontend
 cd frontend
 npm run dev
-# → open http://localhost:5173/console
+# → open http://localhost:5173/ (landing page) or http://localhost:5173/console
 ```
 
 ---
@@ -148,9 +151,11 @@ Six real HTTP requests against the running backend. Each result appears in **Liv
 ---
 
 ## Seed script
-
+ 
 ```bash
-ADMIN_KEY=<your_key> python scripts/seed_demo_data.py
+cd api
+source .venv/bin/activate
+ADMIN_KEY="mcpg_e24acea2_r1NdGFHSpwt8v28ZxFiiM2hAAcDDz5hl7Y0es_POLWo" python ../scripts/seed_demo_data.py
 ```
 
 Creates:

@@ -125,7 +125,7 @@ export function ConsoleApp() {
   if (!session) {
     return (
       <>
-        <ConnectScreen onConnected={handleConnected} />
+        <ConnectScreen onConnected={handleConnected} onUseDemo={handleDemoMode} />
         <button
           onClick={handleDemoMode}
           style={{

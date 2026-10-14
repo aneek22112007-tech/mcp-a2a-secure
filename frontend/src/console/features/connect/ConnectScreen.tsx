@@ -6,11 +6,14 @@ import { ALL_SCOPES } from '../../utils/helpers';
 
 interface ConnectProps {
   onConnected: (clientId: string, scopes: string[]) => void;
+  onUseDemo?: () => void;
 }
 
 type ConnectState = 'idle' | 'checking' | 'success' | 'error';
 
-export function ConnectScreen({ onConnected }: ConnectProps) {
+const DEV_DEFAULT_ADMIN_KEY = 'mcpg_e24acea2_r1NdGFHSpwt8v28ZxFiiM2hAAcDDz5hl7Y0es_POLWo';
+
+export function ConnectScreen({ onConnected, onUseDemo }: ConnectProps) {
   const [baseUrl, setBaseUrl] = useState(
     import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
   );
@@ -22,8 +25,8 @@ export function ConnectScreen({ onConnected }: ConnectProps) {
   const [detectedScopes, setDetectedScopes] = useState<string[]>([]);
   const [detectedPrefix, setDetectedPrefix] = useState('');
 
-  const handleConnect = useCallback(async () => {
-    if (!key.trim()) {
+  const executeConnect = useCallback(async (keyToUse: string) => {
+    if (!keyToUse.trim()) {
       setErrorMsg('Paste an API key to connect.');
       setState('error');
       return;
@@ -43,22 +46,17 @@ export function ConnectScreen({ onConnected }: ConnectProps) {
 
     try {
       // 2. Try to read metrics (requires metrics:read or admin)
-      // We use this to validate the key and detect client ID
-      setApiKey(key.trim());
+      setApiKey(keyToUse.trim());
       const metrics = await consoleApi.metrics();
-      // If we get here, key is valid
-      // Detect scopes by what succeeded — admin key has all
       const scopes = ['admin', ...ALL_SCOPES];
       setDetectedScopes(scopes);
-      setDetectedPrefix(getKeyPrefix() ?? key.slice(0, 8));
+      setDetectedPrefix(getKeyPrefix() ?? keyToUse.slice(0, 8));
 
-      // Try to get client_id from the busiest key or just mark success
-      void metrics; // we don't need the data here
+      void metrics;
       setState('success');
-      // Give a moment for the success flash
       setTimeout(() => {
         onConnected('', scopes);
-      }, 800);
+      }, 600);
     } catch (err) {
       if (err instanceof ConsoleApiError) {
         if (err.status === 401) {
@@ -67,24 +65,22 @@ export function ConnectScreen({ onConnected }: ConnectProps) {
           return;
         }
         if (err.status === 403) {
-          // Key is valid but no metrics scope — try audit:read
           try {
             const audit = await consoleApi.listAudit({ limit: 1 });
             void audit;
             const scopes = ['audit:read'];
             setDetectedScopes(scopes);
-            setDetectedPrefix(getKeyPrefix() ?? key.slice(0, 8));
+            setDetectedPrefix(getKeyPrefix() ?? keyToUse.slice(0, 8));
             setState('success');
-            setTimeout(() => onConnected('', scopes), 800);
+            setTimeout(() => onConnected('', scopes), 600);
             return;
           } catch {
-            // try the bare health path only
+            // ignore
           }
-          // Very restricted key — accept it with no scopes but warn
           setDetectedScopes([]);
-          setDetectedPrefix(getKeyPrefix() ?? key.slice(0, 8));
+          setDetectedPrefix(getKeyPrefix() ?? keyToUse.slice(0, 8));
           setState('success');
-          setTimeout(() => onConnected('', []), 800);
+          setTimeout(() => onConnected('', []), 600);
           return;
         }
         setState('error');
@@ -94,7 +90,16 @@ export function ConnectScreen({ onConnected }: ConnectProps) {
         setErrorMsg('Unexpected error. Check the console for details.');
       }
     }
-  }, [key, onConnected]);
+  }, [onConnected]);
+
+  const handleConnect = useCallback(() => {
+    executeConnect(key);
+  }, [executeConnect, key]);
+
+  const handleQuickDevConnect = useCallback(() => {
+    setKey(DEV_DEFAULT_ADMIN_KEY);
+    executeConnect(DEV_DEFAULT_ADMIN_KEY);
+  }, [executeConnect]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -320,12 +325,36 @@ export function ConnectScreen({ onConnected }: ConnectProps) {
               </>
             )}
           </button>
+
+          {/* Quick Demo Connect */}
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleQuickDevConnect}
+              disabled={state === 'checking' || state === 'success'}
+              style={{ flex: 1, justifyContent: 'center', fontSize: 11, padding: '7px 10px' }}
+              title="Automatically fills the local bootstrap admin key and connects"
+            >
+              ⚡ Quick Connect (Dev Key)
+            </button>
+            {onUseDemo && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onUseDemo}
+                style={{ flex: 1, justifyContent: 'center', fontSize: 11, padding: '7px 10px' }}
+                title="View with simulated demo data without backend"
+              >
+                📊 Simulated Demo Mode
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Offline mode note */}
         <p style={{ marginTop: 12, fontSize: 11, color: 'var(--c-text-dim)', textAlign: 'center' }}>
-          If the backend is offline, the console shows static demo data labelled{' '}
-          <span className="mono">DEMO DATA</span>.
+          Real backend data from <span className="mono">http://localhost:8000</span>.
         </p>
       </div>
     </div>
