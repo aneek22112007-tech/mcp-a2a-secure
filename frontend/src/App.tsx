@@ -16,6 +16,9 @@ const Dashboard = lazy(() =>
 const DashboardV2 = lazy(() =>
   import('./pages/DashboardV2').then(m => ({ default: m.DashboardV2 }))
 )
+const ConsoleApp = lazy(() =>
+  import('./console/ConsoleApp').then(m => ({ default: m.ConsoleApp }))
+)
 
 // Lightweight fallback — no layout shift, no spinner flash
 function RouteFallback() {
@@ -61,6 +64,7 @@ function App() {
           />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/dashboard-v2" element={<DashboardV2 />} />
+          <Route path="/console" element={<ConsoleApp />} />
         </Routes>
       </Suspense>
     </Router>

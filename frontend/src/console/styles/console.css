@@ -1,0 +1,331 @@
+/* MCP Guard Console — Base styles */
+@import './tokens.css';
+
+.mcpg-console {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--c-text);
+  background: var(--c-bg);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Mono utility ─────────────────────────────────────────────────────── */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85em;
+  letter-spacing: 0.01em;
+}
+
+/* ── Section label (small-caps style) ────────────────────────────────── */
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+/* ── Hairline divider ────────────────────────────────────────────────── */
+.divider {
+  height: 1px;
+  background: var(--c-border);
+  border: none;
+  margin: 0;
+}
+
+/* ── Panel base ──────────────────────────────────────────────────────── */
+.panel {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+}
+
+/* ── Button system ───────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease),
+              border-color var(--dur-fast) var(--ease),
+              opacity var(--dur-fast) var(--ease);
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--c-amber);
+  color: #0B0C0D;
+  border-color: var(--c-amber);
+  font-weight: 600;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #F5B44E;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--c-text-muted);
+  border-color: var(--c-border);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--c-surface-2);
+  color: var(--c-text);
+  border-color: var(--c-border-2);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--c-deny);
+  border-color: var(--c-deny);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--c-deny-dim);
+}
+
+.btn-success {
+  background: transparent;
+  color: var(--c-allow);
+  border-color: var(--c-allow);
+}
+.btn-success:hover:not(:disabled) {
+  background: var(--c-allow-dim);
+}
+
+.btn-sm {
+  padding: 3px 8px;
+  font-size: 11px;
+  gap: 4px;
+}
+
+/* ── Input system ────────────────────────────────────────────────────── */
+.input {
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  color: var(--c-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 7px 10px;
+  transition: border-color var(--dur-fast) var(--ease);
+  outline: none;
+  width: 100%;
+}
+
+.input:focus {
+  border-color: var(--c-amber);
+}
+
+.input::placeholder {
+  color: var(--c-text-dim);
+}
+
+.input-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.input-password {
+  font-family: var(--font-mono);
+}
+
+/* ── Badge system ────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.badge-allow {
+  color: var(--c-allow);
+  border-color: var(--c-allow);
+  background: var(--c-allow-dim);
+}
+
+.badge-deny {
+  color: var(--c-deny);
+  border-color: var(--c-deny);
+  background: var(--c-deny-dim);
+}
+
+.badge-review {
+  color: var(--c-review);
+  border-color: var(--c-review);
+  background: var(--c-review-dim);
+}
+
+.badge-info {
+  color: var(--c-info);
+  border-color: var(--c-info);
+  background: var(--c-info-dim);
+}
+
+.badge-muted {
+  color: var(--c-text-muted);
+  border-color: var(--c-border);
+  background: var(--c-surface-2);
+}
+
+/* ── Table system ────────────────────────────────────────────────────── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.data-table th {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--c-border);
+  white-space: nowrap;
+}
+
+.data-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text);
+  vertical-align: middle;
+}
+
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+
+.data-table tbody tr {
+  transition: background var(--dur-fast) var(--ease);
+}
+
+.data-table tbody tr:hover {
+  background: var(--c-surface-2);
+}
+
+/* ── Stat card ───────────────────────────────────────────────────────── */
+.stat-card {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-card-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.stat-card-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--c-text);
+}
+
+/* ── Scrollable areas ────────────────────────────────────────────────── */
+.scroll-y {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.scroll-y::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scroll-y::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll-y::-webkit-scrollbar-thumb {
+  background: var(--c-border);
+  border-radius: 2px;
+}
+
+/* ── Focus ring ──────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--c-amber);
+  outline-offset: 2px;
+}
+
+/* ── Severity colors ─────────────────────────────────────────────────── */
+.sev-critical { color: var(--c-deny); }
+.sev-high     { color: #E87B3B; }
+.sev-medium   { color: var(--c-review); }
+.sev-low      { color: var(--c-info); }
+
+/* ── Pulse dot ───────────────────────────────────────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+/* ── Row enter animation ─────────────────────────────────────────────── */
+@keyframes row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.row-enter {
+  animation: row-enter var(--dur-base) var(--ease) both;
+}
+
+/* ── Snap shut (denied) ──────────────────────────────────────────────── */
+@keyframes snap-deny {
+  0%   { background: var(--c-deny-dim); }
+  40%  { background: rgba(240, 82, 74, 0.25); }
+  100% { background: transparent; }
+}
+
+.snap-deny {
+  animation: snap-deny var(--dur-slow) var(--ease) both;
+}
+
+/* ── Toast override ──────────────────────────────────────────────────── */
+[data-sonner-toaster] {
+  font-family: var(--font-sans) !important;
+}
