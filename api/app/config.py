@@ -151,6 +151,37 @@ class Settings(BaseSettings):
             "has findings. Development only."
         ),
     )
+    llm_enabled: bool = Field(
+        default=False,
+        description="Enable LLM calls. When false, the notes agent returns 503.",
+    )
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        description="Base URL of the local Ollama server.",
+    )
+    ollama_model: str = Field(
+        default="qwen3.5:9b",
+        min_length=1,
+        description="Ollama model used as the primary chat model.",
+    )
+    groq_api_key: SecretStr | None = Field(
+        default=None,
+        description="Groq API key. Used only when Ollama cannot be reached.",
+    )
+    groq_model: str = Field(
+        default="llama-3.3-70b-versatile",
+        min_length=1,
+        description="Groq model used as the fallback chat model.",
+    )
+    llm_timeout_seconds: float = Field(
+        default=60,
+        gt=0,
+        description="Timeout for one LLM request, in seconds.",
+    )
+    notes_agent_api_key: SecretStr | None = Field(
+        default=None,
+        description="MCP Guard API key the notes agent sends to /mcp/.",
+    )
 
     @field_validator("environment", mode="before")
     @classmethod
@@ -175,6 +206,22 @@ class Settings(BaseSettings):
         if isinstance(v, str) and v.strip() == "":
             return None
         return v
+
+    @field_validator("groq_api_key", "notes_agent_api_key", mode="before")
+    @classmethod
+    def blank_optional_secret(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
+
+    @field_validator("ollama_base_url")
+    @classmethod
+    def ollama_http_url(cls, value: str) -> str:
+        text = value.strip().rstrip("/")
+        parts = urlsplit(text)
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            raise ValueError("OLLAMA_BASE_URL must be an http or https URL")
+        return text
 
     @property
     def is_development(self) -> bool:
