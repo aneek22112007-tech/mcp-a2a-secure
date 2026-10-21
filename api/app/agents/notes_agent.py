@@ -219,12 +219,33 @@ def _compile(gateway: NotesGateway, backend: LLMBackend):
             )
             return _after_tool(state, record, blocked=False)
 
+        output_text = result.text
+        if result.ok and output_text:
+            from app.guard import check_tool_output
+
+            guard_res = check_tool_output(
+                output_text,
+                tool_name=name,
+                key_prefix=state.get("key_prefix"),
+                request_id=state.get("request_id"),
+            )
+            output_text = guard_res.text
+            if guard_res.blocked:
+                record = _record(
+                    name,
+                    prepared,
+                    status="blocked",
+                    output=output_text,
+                    error=output_text,
+                )
+                return _after_tool(state, record, blocked=True)
+
         record = _record(
             name,
             prepared,
             status="ok" if result.ok else "error",
-            output=result.text,
-            error=None if result.ok else result.text,
+            output=output_text,
+            error=None if result.ok else output_text,
         )
         return _after_tool(state, record, blocked=False)
 

@@ -182,6 +182,21 @@ class Settings(BaseSettings):
         default=None,
         description="MCP Guard API key the notes agent sends to /mcp/.",
     )
+    injection_guard_mode: Literal["off", "warn", "enforce"] = Field(
+        default="enforce",
+        validation_alias=AliasChoices("INJECTION_GUARD_MODE", "injection_guard_mode"),
+        description=(
+            "off skips injection guard, warn audits and continues, "
+            "enforce blocks high severity and cleans medium severity."
+        ),
+    )
+
+    @field_validator("injection_guard_mode", mode="before")
+    @classmethod
+    def strip_and_lower_guard_mode(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
 
     @field_validator("environment", mode="before")
     @classmethod

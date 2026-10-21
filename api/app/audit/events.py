@@ -27,6 +27,8 @@ ACTION_TOOL_SCAN_COMPLETED = "tool.scan.completed"
 ACTION_TOOL_SCAN_FINDING = "tool.scan.finding"
 ACTION_TOOL_SCAN_MANUAL = "tool.scan.manual"
 ACTION_TOOL_SCAN_FINDING_RESOLVED = "tool.scan.finding.resolved"
+ACTION_GUARD_INJECTION = "guard.injection"
+
 
 STATUS_OK = "ok"
 STATUS_ERROR = "error"
@@ -36,6 +38,7 @@ STATUS_FORWARDED = "forwarded"
 __all__ = [
     "ACTION_AUTH_ALLOW",
     "ACTION_AUTH_DENY",
+    "ACTION_GUARD_INJECTION",
     "ACTION_MCP_TOOLS_CALL",
     "ACTION_TOOL_CALL",
     "ACTION_TOOL_PIN_APPROVE",

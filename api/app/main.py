@@ -41,7 +41,9 @@ from app.rate_limit import McpRateLimitMiddleware, rate_limit_dependency
 from app.routes.agents import router as agents_router
 from app.routes.api_keys import router as api_keys_router
 from app.routes.audit import router as audit_router
+from app.routes.guard import router as guard_router
 from app.routes.llm import router as llm_router
+from app.routes.llm_calls import router as llm_calls_router
 from app.routes.metrics import router as metrics_router
 from app.routes.notes import router as notes_router
 from app.routes.pins import router as pins_router
@@ -176,6 +178,8 @@ app.include_router(pins_router)
 app.include_router(scanner_router)
 app.include_router(agents_router)
 app.include_router(llm_router)
+app.include_router(llm_calls_router)
+app.include_router(guard_router)
 
 
 @app.get("/health")
