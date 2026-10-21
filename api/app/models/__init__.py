@@ -2,6 +2,7 @@ from app.models.api_keys import ApiKey
 from app.models.audit_events import AuditEvent
 from app.models.base import Base
 from app.models.clients import Client
+from app.models.llm_calls import LLMCall
 from app.models.sandbox_runs import SandboxRun
 from app.models.tool_pins import ToolPin
 from app.models.tool_scan_findings import ToolScanFinding
@@ -12,6 +13,7 @@ __all__ = [
     "AuditEvent",
     "Base",
     "Client",
+    "LLMCall",
     "SandboxRun",
     "ToolPin",
     "ToolScanFinding",
