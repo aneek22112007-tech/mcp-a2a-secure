@@ -5,6 +5,7 @@ Mounts:
   - REST router: notes endpoints
   - REST router: API keys
   - REST router: audit log and live SSE stream
+  - REST router: notes agent and LLM health
   - MCP streamable-HTTP transport at /mcp/
 """
 
@@ -37,8 +38,10 @@ from app.pins.gate import NullScanGate, get_scan_gate, set_scan_gate
 from app.pins.listing import install_pinned_tool_list
 from app.pins.mcp_asgi import McpToolPinMiddleware
 from app.rate_limit import McpRateLimitMiddleware, rate_limit_dependency
+from app.routes.agents import router as agents_router
 from app.routes.api_keys import router as api_keys_router
 from app.routes.audit import router as audit_router
+from app.routes.llm import router as llm_router
 from app.routes.metrics import router as metrics_router
 from app.routes.notes import router as notes_router
 from app.routes.pins import router as pins_router
@@ -171,6 +174,8 @@ app.include_router(metrics_router)
 app.include_router(sandbox_router)
 app.include_router(pins_router)
 app.include_router(scanner_router)
+app.include_router(agents_router)
+app.include_router(llm_router)
 
 
 @app.get("/health")

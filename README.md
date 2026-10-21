@@ -121,6 +121,7 @@ On `main` today:
 - **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
 - **Tool pinning.** Each tool's name, description, and JSON schema are hashed. `TOOL_PINNING_MODE=enforce` returns 403 `Tool is not approved.` until an admin approves that hash, and `tools/list` plus `GET /api/mcp/info` omit tools that are not approved. `warn` writes an audit row and still runs the tool. `off` (the default) skips the check. A schema or description change is drift and has to be approved again. The hash does not cover the function body. An optional source digest is stored for operators and is not an allow or deny input.
 - **Rule-based Scanner.** A static tool-poisoning scanner evaluates tools against phrase rules for prompt injection, data exfiltration, overbroad parameters, and size anomalies. Unsafe patterns generate `ToolScanFinding` records. The `DbScanGate` hooks into the pinning flow to block tools with `high` or `critical` severity findings before they can run, but only if `TOOL_PINNING_MODE=enforce`.
+- **Notes agent.** `POST /api/agents/notes/run` runs a LangGraph agent. Its tools call `/mcp/` with `NOTES_AGENT_API_KEY`, so auth, scopes, rate limits, pinning, the scanner, the sandbox and the audit log still apply. ChatOllama is the primary model. ChatGroq is used only when Ollama cannot be reached or times out.
 - **Frontend.** React 19, Vite and Tailwind. The live console at `/console` and `/dashboard` reads the real API.
 
 ## Status
@@ -128,29 +129,33 @@ On `main` today:
 Planned for v1.0 (target 31 October 2026):
 
 - An LLM-assisted scanner to catch complex semantic poisoning.
-- The GenAI work described below.
+- The rest of the GenAI work described below.
 - Docker Compose with PostgreSQL 16.
 
-## GenAI plans
+## GenAI
 
-None of this is built yet.
+The notes agent is a LangGraph client of MCP Guard. `POST /api/agents/notes/run` (`agent:run`) runs it. `GET /api/llm/health` (`admin`) reports whether the LLM is enabled, whether Ollama is reachable and has the configured model, and whether Groq is configured. The health response does not include the key.
 
-Agents will be ordinary MCP Guard clients. Each agent gets its own API key and scopes and reaches tools only through `/mcp/`, like any other client.
+Agents are ordinary MCP Guard clients. The notes agent has its own API key and reaches tools only through `/mcp/`. The model sits behind `LLMBackend`: ChatOllama first, ChatGroq only when Ollama cannot be reached or times out. The model plans and summarizes. It does not grant a scope, approve a schema, or skip a gateway check. A gateway 401, 403, or 429 stops the run.
 
-- A LangGraph agent built with LangChain. The model sits behind an `LLMBackend` interface, with ChatOllama (local) as the primary backend and ChatGroq as the fallback.
-- Tools are loaded with `langchain-mcp-adapters`, pointed at MCP Guard's `/mcp/` endpoint and using the agent's key.
-- Tool output passes through a prompt-injection check before it goes back to the model.
+From `api/`, with the API already running:
+
+```bash
+uv run python scripts/run_notes_agent.py "List the notes"
+```
+
+Still planned:
+
+- A prompt-injection check on tool output before it goes back to the model.
 - LLM-written explanations of schema changes and scanner findings, plus an assistant in the dashboard for reviewing audit events.
-- A2A manager and worker agents built with LangGraph, each with its own key.
+- A2A manager and worker agents, each with its own key.
 
 ```mermaid
 flowchart LR
-    U["User or task"] --> AG["LangGraph agent"]
+    U["User or task"] --> AG["LangGraph notes agent"]
     AG <--> LLM["LLMBackend<br/>ChatOllama, ChatGroq fallback"]
-    AG -->|"langchain-mcp-adapters<br/>agent's own key"| MG["MCP Guard /mcp/"]
+    AG -->|"HTTP /mcp/<br/>NOTES_AGENT_API_KEY"| MG["MCP Guard /mcp/"]
     MG --> T["MCP tools"]
-    T -->|"tool output"| PI["Prompt-injection check"]
-    PI --> AG
 ```
 
 The LLM is never the final security authority. Authentication, scope checks, fingerprint comparisons and scanner rules are plain code. Model output can explain something or flag it for a person to review, but it can't grant a scope, approve a changed schema or switch off a check. If the model is down, enforcement still works.
@@ -228,6 +233,8 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `POST` | `/api/scanner/run` | `admin` | Force a re-scan of all tools |
 | `POST` | `/api/scanner/run/{tool_name}` | `admin` | Force a re-scan of a specific tool |
 | `POST` | `/api/scanner/findings/{finding_id}/resolve` | `admin` | Manually resolve a finding |
+| `POST` | `/api/agents/notes/run` | `agent:run` | Run the notes agent. Body `{"task": "..."}`. Returns 503 when the LLM is disabled |
+| `GET` | `/api/llm/health` | `admin` | LLM enablement, Ollama reachability, and whether Groq is configured. The key is not returned |
 | `POST` | `/api/keys` | `admin` | Create an API key. The raw key is returned once |
 | `GET` | `/api/keys` | `admin` | List keys for a client (`client_id` query parameter) |
 | `DELETE` | `/api/keys/{key_id}` | `admin` | Revoke a key |
@@ -297,6 +304,13 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `TOOL_PINNING_CACHE_TTL_S` | `5` | Seconds to cache pin rows. Approve, revoke, and sync clear the cache |
 | `SCANNER_ENABLED` | `True` | Run the static scanner at startup. `DbScanGate` blocks unapproved tools |
 | `SCANNER_BLOCK_SEVERITIES` | `critical,high` | Comma-separated severities that block a tool from running |
+| `LLM_ENABLED` | `false` | When false, LLM calls raise and `POST /api/agents/notes/run` returns 503 |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Local Ollama server. Must be an http or https URL |
+| `OLLAMA_MODEL` | `qwen3.5:9b` | Primary chat model |
+| `GROQ_API_KEY` | unset | Used only when Ollama cannot be reached or times out. Never logged or returned |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Fallback chat model |
+| `LLM_TIMEOUT_SECONDS` | `60` | Timeout for one LLM request |
+| `NOTES_AGENT_API_KEY` | unset | `mcpg_` key with `agent:run`. The notes agent sends it only to `/mcp/` |
 
 The frontend reads `VITE_MCP_GUARD_API_URL` (default `http://localhost:8000`). Don't commit `.env` files or real keys; `.env` is in `.gitignore`.
 

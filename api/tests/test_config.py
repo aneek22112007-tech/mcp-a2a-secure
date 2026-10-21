@@ -1,3 +1,5 @@
+import pytest
+
 from app.config import Settings
 
 
@@ -28,6 +30,13 @@ def _isolated_settings(monkeypatch, **overrides) -> Settings:
         "TOOL_PINNING_MODE",
         "TOOL_PINNING_BOOTSTRAP_APPROVE",
         "TOOL_PINNING_CACHE_TTL_S",
+        "LLM_ENABLED",
+        "OLLAMA_BASE_URL",
+        "OLLAMA_MODEL",
+        "GROQ_API_KEY",
+        "GROQ_MODEL",
+        "LLM_TIMEOUT_SECONDS",
+        "NOTES_AGENT_API_KEY",
     ):
         monkeypatch.delenv(key, raising=False)
     for key, value in overrides.items():
@@ -71,6 +80,34 @@ def test_config_env_overrides(monkeypatch, tmp_path):
     assert not notes.exists()
     assert settings.max_body_bytes == 2048
     assert settings.tool_timeout_s == 2.5
+
+
+def test_llm_settings_defaults(monkeypatch):
+    settings = _isolated_settings(monkeypatch)
+    assert settings.llm_enabled is False
+    assert settings.ollama_base_url == "http://localhost:11434"
+    assert settings.ollama_model == "qwen3.5:9b"
+    assert settings.groq_api_key is None
+    assert settings.groq_model == "llama-3.3-70b-versatile"
+    assert settings.llm_timeout_seconds == 60
+    assert settings.notes_agent_api_key is None
+
+
+def test_blank_llm_secrets_are_unset(monkeypatch):
+    settings = _isolated_settings(
+        monkeypatch,
+        LLM_ENABLED="true",
+        GROQ_API_KEY="  ",
+        NOTES_AGENT_API_KEY="",
+    )
+    assert settings.llm_enabled is True
+    assert settings.groq_api_key is None
+    assert settings.notes_agent_api_key is None
+
+
+def test_ollama_base_url_must_be_http(monkeypatch):
+    with pytest.raises(ValueError, match="OLLAMA_BASE_URL"):
+        _isolated_settings(monkeypatch, OLLAMA_BASE_URL="file:///tmp/ollama")
 
 
 def test_settings_do_not_create_directories(monkeypatch, tmp_path):

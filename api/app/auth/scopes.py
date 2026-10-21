@@ -46,6 +46,8 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("POST", "/api/scanner/run"): ADMIN,
     ("POST", "/api/scanner/run/{tool_name}"): ADMIN,
     ("POST", "/api/scanner/findings/{finding_id}/resolve"): ADMIN,
+    ("POST", "/api/agents/notes/run"): AGENT_RUN,
+    ("GET", "/api/llm/health"): ADMIN,
     ("GET", "/api/status"): None,
     ("GET", "/api/mcp/info"): None,
     ("GET", "/health"): None,

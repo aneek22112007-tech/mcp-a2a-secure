@@ -72,6 +72,17 @@ def reset_auth_throttle():
 
 
 @pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """The token bucket is process-wide. Each test starts with a full bucket."""
+
+    from app.rate_limit import limiter
+
+    limiter._buckets.clear()
+    yield
+    limiter._buckets.clear()
+
+
+@pytest.fixture(autouse=True)
 def sandbox_inprocess(monkeypatch):
     """Tests stay in-process. The executor cache is cleared with the mode."""
 
