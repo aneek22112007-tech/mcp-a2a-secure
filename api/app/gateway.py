@@ -57,7 +57,10 @@ from app.pins.types import MODE_OFF, MODE_WARN, PIN_REASON_MISSING
 from app.sandbox.context import (
     ExecutionContext,
     bind_execution_context,
+    is_tool_output_guarded,
     reset_execution_context,
+    reset_tool_output_guarded,
+    set_tool_output_guarded,
 )
 from app.sandbox.errors import (
     SandboxBusyError,
@@ -265,6 +268,7 @@ async def call_tool(
             audit_event_id=forwarded_event_id,
         )
         token = bind_execution_context(execution)
+        guarded_token = set_tool_output_guarded(False)
         try:
             try:
                 result_raw = await asyncio.wait_for(
@@ -356,7 +360,33 @@ async def call_tool(
 
             duration_ms = round((time.monotonic() - t0) * 1000, 2)
             result_raw = _normalise(result_raw)
+            if not is_tool_output_guarded():
+                if isinstance(result_raw, str):
+                    from app.guard import check_tool_output
+
+                    guard_res = check_tool_output(
+                        result_raw,
+                        tool_name=name,
+                        key_prefix=actor.key_prefix if actor else None,
+                        request_id=current_request_id(),
+                    )
+                    result_raw = guard_res.text
+                elif (
+                    isinstance(result_raw, dict)
+                    and "text" in result_raw
+                    and isinstance(result_raw["text"], str)
+                ):
+                    from app.guard import check_tool_output
+
+                    guard_res = check_tool_output(
+                        result_raw["text"],
+                        tool_name=name,
+                        key_prefix=actor.key_prefix if actor else None,
+                        request_id=current_request_id(),
+                    )
+                    result_raw["text"] = guard_res.text
         finally:
+            reset_tool_output_guarded(guarded_token)
             reset_execution_context(token)
     except HTTPException as exc:
         if getattr(exc, "_mcp_pin_enforced", False):

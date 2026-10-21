@@ -37,6 +37,8 @@ def _isolated_settings(monkeypatch, **overrides) -> Settings:
         "GROQ_MODEL",
         "LLM_TIMEOUT_SECONDS",
         "NOTES_AGENT_API_KEY",
+        "INJECTION_GUARD_MODE",
+        "LLM_CALL_RETENTION_DAYS",
     ):
         monkeypatch.delenv(key, raising=False)
     for key, value in overrides.items():
@@ -122,3 +124,34 @@ def test_settings_do_not_create_directories(monkeypatch, tmp_path):
     assert not notes.exists()
     assert not database.exists()
     assert not database.parent.exists()
+
+
+def test_injection_guard_mode_settings(monkeypatch):
+    settings = _isolated_settings(monkeypatch)
+    assert settings.injection_guard_mode == "warn"
+    assert settings.llm_call_retention_days == 30
+
+    enforce_settings = _isolated_settings(monkeypatch, INJECTION_GUARD_MODE="enforce")
+    assert enforce_settings.injection_guard_mode == "enforce"
+
+    off_settings = _isolated_settings(monkeypatch, INJECTION_GUARD_MODE="off")
+    assert off_settings.injection_guard_mode == "off"
+
+    retention_settings = _isolated_settings(monkeypatch, LLM_CALL_RETENTION_DAYS="60")
+    assert retention_settings.llm_call_retention_days == 60
+
+    with pytest.raises(ValueError):
+        _isolated_settings(monkeypatch, INJECTION_GUARD_MODE="invalid_mode")
+
+    with pytest.raises(
+        ValueError, match="INJECTION_GUARD_MODE=off is not allowed in production"
+    ):
+        _isolated_settings(
+            monkeypatch,
+            ENVIRONMENT="production",
+            API_KEY_PEPPER="production-test-pepper",
+            SANDBOX_MODE="docker",
+            SANDBOX_NETWORK="none",
+            SANDBOX_RUN_AS="1000:1000",
+            INJECTION_GUARD_MODE="off",
+        )

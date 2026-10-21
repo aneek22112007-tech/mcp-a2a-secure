@@ -15,6 +15,13 @@ from app.auth.throttle import auth_failure_throttle
 
 class DummyVerifier(ApiKeyVerifier):
     async def verify(self, raw_key: str) -> Principal | None:
+        if raw_key == "mcpg_admin":
+            return Principal(
+                api_key_id="admin",
+                client_id="admin",
+                key_prefix="mcpg_admin",
+                scopes=frozenset({"admin"}),
+            )
         if raw_key == "mcpg_test":
             return Principal(
                 api_key_id="test",
@@ -149,3 +156,15 @@ def safe_scan_gate():
     set_scan_gate(NullScanGate())
     yield
     set_scan_gate(previous)
+
+
+@pytest.fixture(autouse=True)
+def reset_mcp_session_manager():
+    from app.mcp_server import mcp
+
+    manager = mcp.session_manager
+    if getattr(manager, "_has_started", False):
+        manager._has_started = False
+    yield
+    if getattr(manager, "_has_started", False):
+        manager._has_started = False

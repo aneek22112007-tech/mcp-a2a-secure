@@ -11,9 +11,13 @@ from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from app.audit.redaction import args_fingerprint
+from app.audit.redaction import args_fingerprint, current_request_id
 from app.config import settings
-from app.sandbox.context import ExecutionContext, resolve_execution_context
+from app.sandbox.context import (
+    ExecutionContext,
+    resolve_execution_context,
+    set_tool_output_guarded,
+)
 from app.sandbox.errors import (
     SandboxBusyError,
     SandboxError,
@@ -287,7 +291,7 @@ async def run_tool(
         deadline_token = _deadline_var.set(deadline)
         try:
             try:
-                return await _execute_bound(
+                result = await _execute_bound(
                     executor,
                     tool_name,
                     args,
@@ -303,48 +307,61 @@ async def run_tool(
         finally:
             _run_id_var.reset(id_token)
             _deadline_var.reset(deadline_token)
+    else:
+        if remaining <= 0:
+            stats.busy += 1
+            await _record_start(start)
+            await finish(RUN_STATUS_REJECTED, error_type=ERROR_BUSY)
+            raise SandboxBusyError()
 
-    if remaining <= 0:
-        stats.busy += 1
-        await _record_start(start)
-        await finish(RUN_STATUS_REJECTED, error_type=ERROR_BUSY)
-        raise SandboxBusyError()
-
-    try:
-        await asyncio.wait_for(sem.acquire(), timeout=remaining)
-        acquired = True
-    except TimeoutError:
-        stats.busy += 1
-        await _record_start(start)
-        await finish(RUN_STATUS_REJECTED, error_type=ERROR_BUSY)
-        raise SandboxBusyError() from None
-
-    stats.active += 1
-    await _record_start(start)
-    id_token = _run_id_var.set(run_id)
-    deadline_token = _deadline_var.set(deadline)
-    try:
         try:
-            result = await _execute_bound(
-                executor,
-                tool_name,
-                args,
-                context,
-                run_id,
-                deadline,
-                finish,
-                stats,
-            )
+            await asyncio.wait_for(sem.acquire(), timeout=remaining)
+            acquired = True
+        except TimeoutError:
+            stats.busy += 1
+            await _record_start(start)
+            await finish(RUN_STATUS_REJECTED, error_type=ERROR_BUSY)
+            raise SandboxBusyError() from None
+
+        stats.active += 1
+        await _record_start(start)
+        id_token = _run_id_var.set(run_id)
+        deadline_token = _deadline_var.set(deadline)
+        try:
+            try:
+                result = await _execute_bound(
+                    executor,
+                    tool_name,
+                    args,
+                    context,
+                    run_id,
+                    deadline,
+                    finish,
+                    stats,
+                )
+            finally:
+                if not recorded:
+                    await finish(RUN_STATUS_ABANDONED, error_type=ERROR_TOOL_INTERNAL)
         finally:
-            if not recorded:
-                await finish(RUN_STATUS_ABANDONED, error_type=ERROR_TOOL_INTERNAL)
-        return result
-    finally:
-        _run_id_var.reset(id_token)
-        _deadline_var.reset(deadline_token)
-        stats.active -= 1
-        if acquired:
-            sem.release()
+            _run_id_var.reset(id_token)
+            _deadline_var.reset(deadline_token)
+            stats.active -= 1
+            if acquired:
+                sem.release()
+
+    set_tool_output_guarded(True)
+    if isinstance(result, str):
+        from app.guard import check_tool_output
+
+        guard_res = check_tool_output(
+            result,
+            tool_name=tool_name,
+            key_prefix=context.key_prefix,
+            request_id=context.request_id or current_request_id(),
+        )
+        result = guard_res.text
+
+    return result
 
 
 async def _execute_bound(

@@ -27,6 +27,12 @@ from app.auth.verifier import (
 )
 from app.config import settings
 from app.errors import register_error_handlers
+from app.llm.recording import (
+    DbLLMCallRecorder,
+    LLMCallRecorder,
+    get_recorder,
+    set_recorder,
+)
 from app.mcp_server import ensure_notes_dir, mcp
 from app.middleware import (
     BodySizeLimitMiddleware,
@@ -41,7 +47,9 @@ from app.rate_limit import McpRateLimitMiddleware, rate_limit_dependency
 from app.routes.agents import router as agents_router
 from app.routes.api_keys import router as api_keys_router
 from app.routes.audit import router as audit_router
+from app.routes.guard import router as guard_router
 from app.routes.llm import router as llm_router
+from app.routes.llm_calls import router as llm_calls_router
 from app.routes.metrics import router as metrics_router
 from app.routes.notes import router as notes_router
 from app.routes.pins import router as pins_router
@@ -71,6 +79,9 @@ async def lifespan(app: FastAPI):
 
     if isinstance(get_scan_gate(), NullScanGate):
         set_scan_gate(DbScanGate())
+
+    if type(get_recorder()) is LLMCallRecorder:
+        set_recorder(DbLLMCallRecorder())
 
     install_pinned_tool_list()
     if settings.tool_pinning_bootstrap_approve:
@@ -176,6 +187,8 @@ app.include_router(pins_router)
 app.include_router(scanner_router)
 app.include_router(agents_router)
 app.include_router(llm_router)
+app.include_router(llm_calls_router)
+app.include_router(guard_router)
 
 
 @app.get("/health")

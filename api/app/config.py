@@ -182,6 +182,29 @@ class Settings(BaseSettings):
         default=None,
         description="MCP Guard API key the notes agent sends to /mcp/.",
     )
+    injection_guard_mode: Literal["off", "warn", "enforce"] = Field(
+        default="warn",
+        validation_alias=AliasChoices("INJECTION_GUARD_MODE", "injection_guard_mode"),
+        description=(
+            "off skips injection guard, warn audits and continues, "
+            "enforce blocks high severity and cleans medium severity."
+        ),
+    )
+    llm_call_retention_days: int = Field(
+        default=30,
+        gt=0,
+        validation_alias=AliasChoices(
+            "LLM_CALL_RETENTION_DAYS", "llm_call_retention_days"
+        ),
+        description="Retention period in days for records in the llm_calls table.",
+    )
+
+    @field_validator("injection_guard_mode", mode="before")
+    @classmethod
+    def strip_and_lower_guard_mode(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
 
     @field_validator("environment", mode="before")
     @classmethod
@@ -292,6 +315,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SANDBOX_RUN_AS uid and gid must be greater than 0 in production"
             )
+        if self.injection_guard_mode == "off":
+            raise ValueError("INJECTION_GUARD_MODE=off is not allowed in production")
 
     @property
     def parsed_trusted_proxies(self) -> tuple:
