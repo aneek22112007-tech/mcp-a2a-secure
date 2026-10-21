@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import app.database as app_db
-from app.llm.recording import LLMCallRecord, LLMCallRecorder
+from app.llm.recording import DbLLMCallRecorder, LLMCallRecord, LLMCallRecorder
 from app.main import app
 from app.models import Base
 from app.models.llm_calls import LLMCall
@@ -45,8 +45,32 @@ async def http_client():
         yield client
 
 
-async def test_llm_call_recorder_persists_row(test_db: AsyncSession):
+async def test_default_llm_call_recorder_is_log_only(test_db: AsyncSession):
     recorder = LLMCallRecorder()
+    now = datetime.now(UTC)
+
+    record = LLMCallRecord(
+        provider="ollama",
+        model="qwen3.5:9b",
+        purpose="notes_agent.plan",
+        status="ok",
+        latency_ms=120,
+        input_tokens=45,
+        output_tokens=18,
+        fell_back=False,
+        key_prefix="mcpg_test",
+        request_id="req-12345",
+        error=None,
+        created_at=now,
+    )
+    await recorder.record(record)
+
+    _, total = await list_llm_calls(test_db)
+    assert total == 0
+
+
+async def test_db_llm_call_recorder_persists_row(test_db: AsyncSession):
+    recorder = DbLLMCallRecorder()
     now = datetime.now(UTC)
 
     record = LLMCallRecord(
@@ -70,11 +94,14 @@ async def test_llm_call_recorder_persists_row(test_db: AsyncSession):
     call = calls[0]
     assert call.provider == "ollama"
     assert call.model == "qwen3.5:9b"
+    assert call.purpose == "notes_agent.plan"
+    assert call.error is None
     assert call.status == "ok"
     assert call.latency_ms == 120.0
     assert call.latency == 120.0
     assert call.input_tokens == 45
     assert call.output_tokens == 18
+    assert call.fell_back is False
     assert call.is_fallback is False
     assert call.key_prefix == "mcpg_test"
     assert call.request_id == "req-12345"
@@ -82,8 +109,8 @@ async def test_llm_call_recorder_persists_row(test_db: AsyncSession):
     assert call.timestamp == now
 
 
-async def test_llm_call_recorder_none_tokens_default_to_zero(test_db: AsyncSession):
-    recorder = LLMCallRecorder()
+async def test_db_llm_call_recorder_nullable_tokens_and_error(test_db: AsyncSession):
+    recorder = DbLLMCallRecorder()
     now = datetime.now(UTC)
 
     record = LLMCallRecord(
@@ -105,8 +132,11 @@ async def test_llm_call_recorder_none_tokens_default_to_zero(test_db: AsyncSessi
     calls, total = await list_llm_calls(test_db)
     assert total == 1
     call = calls[0]
-    assert call.input_tokens == 0
-    assert call.output_tokens == 0
+    assert call.purpose == "notes_agent.summarize"
+    assert call.error == "APITimeoutError"
+    assert call.input_tokens is None
+    assert call.output_tokens is None
+    assert call.fell_back is True
     assert call.is_fallback is True
     assert call.key_prefix == ""
     assert call.request_id == ""
@@ -139,7 +169,9 @@ async def test_admin_authorization(test_db: AsyncSession, http_client: AsyncClie
     assert "metrics" in body
 
 
-async def test_filtering_and_pagination(test_db: AsyncSession, http_client: AsyncClient):
+async def test_filtering_and_pagination(
+    test_db: AsyncSession, http_client: AsyncClient
+):
     # Insert rows directly
     now = datetime.now(UTC)
     for i in range(10):
@@ -226,13 +258,28 @@ async def test_metrics_computation(test_db: AsyncSession, http_client: AsyncClie
     # Call 3: 300ms, fallback
     now = datetime.now(UTC)
     c1 = LLMCall(
-        model="m1", provider="ollama", latency_ms=100.0, status="ok", is_fallback=False, created_at=now
+        model="m1",
+        provider="ollama",
+        latency_ms=100.0,
+        status="ok",
+        is_fallback=False,
+        created_at=now,
     )
     c2 = LLMCall(
-        model="m2", provider="ollama", latency_ms=200.0, status="ok", is_fallback=False, created_at=now
+        model="m2",
+        provider="ollama",
+        latency_ms=200.0,
+        status="ok",
+        is_fallback=False,
+        created_at=now,
     )
     c3 = LLMCall(
-        model="m3", provider="groq", latency_ms=300.0, status="fallback", is_fallback=True, created_at=now
+        model="m3",
+        provider="groq",
+        latency_ms=300.0,
+        status="fallback",
+        is_fallback=True,
+        created_at=now,
     )
     test_db.add_all([c1, c2, c3])
     await test_db.commit()
@@ -282,16 +329,25 @@ async def test_30_day_retention_cleanup(test_db: AsyncSession):
     assert calls_after[0].model == "recent-model"
 
 
-async def test_global_metrics_endpoint_includes_llm(test_db: AsyncSession, http_client: AsyncClient):
+async def test_global_metrics_endpoint_includes_llm(
+    test_db: AsyncSession, http_client: AsyncClient
+):
     # Add one call
     now = datetime.now(UTC)
     call = LLMCall(
-        model="m1", provider="ollama", latency_ms=150.0, status="ok", is_fallback=False, created_at=now
+        model="m1",
+        provider="ollama",
+        latency_ms=150.0,
+        status="ok",
+        is_fallback=False,
+        created_at=now,
     )
     test_db.add(call)
     await test_db.commit()
 
-    resp = await http_client.get("/api/metrics", headers={"Authorization": "Bearer mcpg_admin"})
+    resp = await http_client.get(
+        "/api/metrics", headers={"Authorization": "Bearer mcpg_admin"}
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert "llm" in data

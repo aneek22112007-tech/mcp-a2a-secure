@@ -71,10 +71,12 @@ async def run_retention_cleanup() -> None:
         logger.exception("Failed to run sandbox retention cleanup")
 
     try:
-        llm_deleted = await cleanup_old_llm_calls(retention_days=30)
+        llm_deleted = await cleanup_old_llm_calls(
+            retention_days=settings.llm_call_retention_days
+        )
         if llm_deleted > 0:
             logger.info(
-                f"Deleted {llm_deleted} LLM call records older than 30 days."
+                f"Deleted {llm_deleted} LLM call records older than {settings.llm_call_retention_days} days."
             )
 
             await record_event(
@@ -88,7 +90,6 @@ async def run_retention_cleanup() -> None:
             )
     except Exception:
         logger.exception("Failed to run LLM calls retention cleanup")
-
 
 
 async def retention_scheduler_task() -> None:

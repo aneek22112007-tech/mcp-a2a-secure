@@ -31,8 +31,12 @@ _G1_PATTERNS = [
     re.compile(r"(?i)\boverride\s+system\s+(?:instructions|directives|prompts)\b"),
     re.compile(r"(?i)\b(?:new|updated)\s+system\s+instructions\s*:"),
     re.compile(r"(?i)\byou\s+are\s+now\s+in\s+developer\s+mode\b"),
-    re.compile(r"(?i)\byou\s+are\s+now\s+(?:DAN|unfiltered|jailbroken|an\s+unrestricted\s+ai)\b"),
-    re.compile(r"(?i)\bfrom\s+now\s+on,?\s+you\s+(?:must\s+)?(?:act|operate|behave)\s+as\b"),
+    re.compile(
+        r"(?i)\byou\s+are\s+now\s+(?:DAN|unfiltered|jailbroken|an\s+unrestricted\s+ai)\b"
+    ),
+    re.compile(
+        r"(?i)\bfrom\s+now\s+on,?\s+you\s+(?:must\s+)?(?:act|operate|behave)\s+as\b"
+    ),
 ]
 
 # ---------------------------------------------------------------------------
@@ -57,13 +61,13 @@ _SECRET_TERMS = (
     r"(?:API_KEY|OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY|JWT_SECRET|SECRET_KEY|"
     r"PRIVATE_KEY|ACCESS_KEY|BEARER_TOKEN|TOKEN|SECRET|PASSWORD|\.env|CREDENTIALS)"
 )
-_LEAK_VERBS = (
-    r"(?:leak|reveal|print|output|display|show|send|exfiltrate|dump|echo|read|extract|transmit|expose)"
-)
+_LEAK_VERBS = r"(?:leak|reveal|print|output|display|show|send|exfiltrate|dump|echo|read|extract|transmit|expose)"
 
 _G3_PATTERNS = [
     re.compile(rf"(?i)\b{_LEAK_VERBS}\b[^\n\r]*?(\b{_SECRET_TERMS}\b)"),
-    re.compile(r"\b[A-Za-z0-9_]*(?:API_KEY|SECRET_KEY|JWT_SECRET)[A-Za-z0-9_]*\s*=\s*['\"][^'\"]{8,}['\"]"),
+    re.compile(
+        r"\b[A-Za-z0-9_]*(?:API_KEY|SECRET_KEY|JWT_SECRET)[A-Za-z0-9_]*\s*=\s*['\"][^'\"]{8,}['\"]"
+    ),
     re.compile(r"mcpg_[A-Za-z0-9_-]{16,}"),
     re.compile(r"ak_live_[A-Za-z0-9]{16,}"),
     re.compile(r"sk-[A-Za-z0-9]{20,}"),
@@ -77,7 +81,9 @@ _G3_PATTERNS = [
 _HEX_CHAIN_RE = re.compile(r"(?:\\x[0-9a-fA-F]{2}){4,}")
 _ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
 _B64_INSTRUCTION_RE = re.compile(r"(?i)\b(?:base64\s+decode|echo\s+.*\|\s*base64)\b")
-_B64_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{24,}={0,2}(?![A-Za-z0-9+/=])")
+_B64_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{24,}={0,2}(?![A-Za-z0-9+/=])"
+)
 
 # ---------------------------------------------------------------------------
 # G5: Exfiltration Links (high)
@@ -86,7 +92,9 @@ _G5_PATTERNS = [
     # Markdown image beacons
     re.compile(r"!\[.*?\]\((?:https?:)?//[^\s)]+\)"),
     # Sensitive exfiltration query parameters
-    re.compile(r"https?://[^\s)]+[?&](?:key|token|secret|data|env|dump|creds|password)=[^\s)]*"),
+    re.compile(
+        r"https?://[^\s)]+[?&](?:key|token|secret|data|env|dump|creds|password)=[^\s)]*"
+    ),
     # Known exfiltration domains
     re.compile(
         r"(?i)https?://(?:[a-zA-Z0-9-]+\.)*(?:webhook\.site|requestbin|ngrok[a-zA-Z0-9-]*\.[a-z]+|"
@@ -94,7 +102,9 @@ _G5_PATTERNS = [
     ),
     # curl / wget / fetch exfiltration commands
     re.compile(r"(?i)\b(?:curl|wget|fetch)\s+-[XFd].*?https?://[^\s]+"),
-    re.compile(r"(?i)\b(?:curl|wget|fetch)\s+[^\n\r]*?https?://[^\s]+.*?(?:\$|\bdata\b|\bkey\b)"),
+    re.compile(
+        r"(?i)\b(?:curl|wget|fetch)\s+[^\n\r]*?https?://[^\s]+.*?(?:\$|\bdata\b|\bkey\b)"
+    ),
 ]
 
 # ---------------------------------------------------------------------------

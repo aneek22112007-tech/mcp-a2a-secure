@@ -16,7 +16,9 @@ class GuardFinding(BaseModel):
     name: str = Field(..., description="Name or category of the rule")
     severity: Literal["medium", "high"] = Field(..., description="Rule severity level")
     description: str = Field(..., description="Description of the security finding")
-    snippet: str = Field(..., description="Redacted snippet showing where the pattern matched")
+    snippet: str = Field(
+        ..., description="Redacted snippet showing where the pattern matched"
+    )
 
 
 class GuardResult(BaseModel):
@@ -24,10 +26,16 @@ class GuardResult(BaseModel):
 
     model_config = ConfigDict(extra="ignore", arbitrary_types_allowed=True)
 
-    allowed: bool = Field(..., description="True if output is permitted to pass through")
+    allowed: bool = Field(
+        ..., description="True if output is permitted to pass through"
+    )
     blocked: bool = Field(..., description="True if output was blocked in enforce mode")
-    cleaned: bool = Field(..., description="True if medium severity output was sanitized")
-    mode: Literal["off", "warn", "enforce"] = Field(..., description="Active guard mode")
+    cleaned: bool = Field(
+        ..., description="True if medium severity output was sanitized"
+    )
+    mode: Literal["off", "warn", "enforce"] = Field(
+        ..., description="Active guard mode"
+    )
     action: Literal["allow", "logged", "cleaned", "blocked"] = Field(
         ..., description="Action taken by the guard"
     )

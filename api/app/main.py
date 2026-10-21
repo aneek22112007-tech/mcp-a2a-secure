@@ -27,6 +27,12 @@ from app.auth.verifier import (
 )
 from app.config import settings
 from app.errors import register_error_handlers
+from app.llm.recording import (
+    DbLLMCallRecorder,
+    LLMCallRecorder,
+    get_recorder,
+    set_recorder,
+)
 from app.mcp_server import ensure_notes_dir, mcp
 from app.middleware import (
     BodySizeLimitMiddleware,
@@ -73,6 +79,9 @@ async def lifespan(app: FastAPI):
 
     if isinstance(get_scan_gate(), NullScanGate):
         set_scan_gate(DbScanGate())
+
+    if type(get_recorder()) is LLMCallRecorder:
+        set_recorder(DbLLMCallRecorder())
 
     install_pinned_tool_list()
     if settings.tool_pinning_bootstrap_approve:

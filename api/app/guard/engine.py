@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from app.audit.events import (
-    ACTION_GUARD_INJECTION,
+    ACTION_TOOL_OUTPUT_INJECTION,
     AUDIT_DECISION_ALLOWED,
     AUDIT_DECISION_DENIED,
     STATUS_DENIED,
@@ -25,27 +25,16 @@ logger = logging.getLogger(__name__)
 
 def check_tool_output(
     text: str,
-    *args: Any,
-    tool_name: str = "test_tool",
+    *,
+    tool_name: str,
     key_prefix: str | None = None,
     request_id: str | None = None,
-    **kwargs: Any,
 ) -> GuardResult:
     """Evaluate tool output text against prompt injection rules G1–G6.
 
     Contract:
         check_tool_output(text, *, tool_name, key_prefix, request_id) -> GuardResult
     """
-
-    if args and isinstance(args[0], str):
-        tool_name = args[0]
-    if "tool_name" in kwargs and isinstance(kwargs["tool_name"], str):
-        tool_name = kwargs["tool_name"]
-    if "key_prefix" in kwargs:
-        key_prefix = kwargs["key_prefix"]
-    if "request_id" in kwargs:
-        request_id = kwargs["request_id"]
-
     mode = settings.injection_guard_mode
     if mode == "off":
         return GuardResult(
@@ -94,9 +83,7 @@ def check_tool_output(
             blocked = True
             cleaned = False
             action = "blocked"
-            result_text = (
-                f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
-            )
+            result_text = f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
         else:
             allowed = True
             blocked = False
@@ -152,7 +139,7 @@ def _write_guard_audit(
     )
 
     record = AuditRecord(
-        action=ACTION_GUARD_INJECTION,
+        action=ACTION_TOOL_OUTPUT_INJECTION,
         decision=AUDIT_DECISION_DENIED if blocked else AUDIT_DECISION_ALLOWED,
         status=STATUS_DENIED if blocked else (STATUS_OK if not cleaned else "cleaned"),
         tool_name=tool_name,
@@ -169,5 +156,7 @@ def _write_guard_audit(
         try:
             return asyncio.run(record_event(record, required=False))
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to write guard audit record type=%s", type(exc).__name__)
+            logger.error(
+                "Failed to write guard audit record type=%s", type(exc).__name__
+            )
             return None

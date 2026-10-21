@@ -356,6 +356,30 @@ async def call_tool(
 
             duration_ms = round((time.monotonic() - t0) * 1000, 2)
             result_raw = _normalise(result_raw)
+            if isinstance(result_raw, str):
+                from app.guard import check_tool_output
+
+                guard_res = check_tool_output(
+                    result_raw,
+                    tool_name=name,
+                    key_prefix=actor.key_prefix if actor else None,
+                    request_id=current_request_id(),
+                )
+                result_raw = guard_res.text
+            elif (
+                isinstance(result_raw, dict)
+                and "text" in result_raw
+                and isinstance(result_raw["text"], str)
+            ):
+                from app.guard import check_tool_output
+
+                guard_res = check_tool_output(
+                    result_raw["text"],
+                    tool_name=name,
+                    key_prefix=actor.key_prefix if actor else None,
+                    request_id=current_request_id(),
+                )
+                result_raw["text"] = guard_res.text
         finally:
             reset_execution_context(token)
     except HTTPException as exc:

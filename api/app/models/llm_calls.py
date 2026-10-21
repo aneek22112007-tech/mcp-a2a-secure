@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, Float, Index, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, synonym
 
 from app.models.base import Base, utc_now
 from app.models.types import UTCDateTime
@@ -28,11 +28,13 @@ class LLMCall(Base):
     )
     model: Mapped[str] = mapped_column(String(100), nullable=False)
     provider: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    purpose: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     status: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
-    is_fallback: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    fell_back: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     key_prefix: Mapped[str | None] = mapped_column(
         String(20), nullable=True, default="", index=True
     )
@@ -42,6 +44,8 @@ class LLMCall(Base):
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, nullable=False, index=True
     )
+
+    is_fallback = synonym("fell_back")
 
     @property
     def latency(self) -> float:

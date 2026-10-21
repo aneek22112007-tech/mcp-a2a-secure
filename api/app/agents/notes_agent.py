@@ -230,7 +230,9 @@ def _compile(gateway: NotesGateway, backend: LLMBackend):
                 request_id=state.get("request_id"),
             )
             output_text = guard_res.text
-            if guard_res.blocked:
+            if guard_res.blocked or output_text.startswith(
+                "[BLOCKED: Tool output blocked by injection guard"
+            ):
                 record = _record(
                     name,
                     prepared,

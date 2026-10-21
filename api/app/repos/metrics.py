@@ -22,6 +22,11 @@ async def get_metrics_summary(session: AsyncSession) -> dict:
         "in_process_limiter": {
             "active_buckets": len(limiter._buckets),
         },
+        "injection_guard": {
+            "hits": 0,
+            "blocked": 0,
+            "sanitized": 0,
+        },
     }
 
     try:
@@ -187,5 +192,49 @@ async def get_metrics_summary(session: AsyncSession) -> dict:
             "average_latency": 0.0,
             "fallback_rate": 0.0,
         }
+
+    try:
+        from datetime import UTC, datetime, timedelta
+
+        from app.audit.events import (
+            ACTION_TOOL_OUTPUT_INJECTION,
+            AUDIT_DECISION_DENIED,
+            STATUS_DENIED,
+        )
+
+        since_24h = datetime.now(UTC) - timedelta(hours=24)
+        guard_stmt = select(
+            func.count().label("hits"),
+            func.count(
+                case(
+                    (
+                        (AuditEvent.decision == AUDIT_DECISION_DENIED)
+                        | (AuditEvent.status == STATUS_DENIED),
+                        1,
+                    )
+                )
+            ).label("blocked"),
+            func.count(
+                case(
+                    (
+                        (AuditEvent.status == "cleaned")
+                        | AuditEvent.reason.like("%action=cleaned%"),
+                        1,
+                    )
+                )
+            ).label("sanitized"),
+        ).where(
+            AuditEvent.action.in_([ACTION_TOOL_OUTPUT_INJECTION, "guard.injection"]),
+            AuditEvent.created_at >= since_24h,
+        )
+        guard_res = await session.execute(guard_stmt)
+        guard_row = guard_res.one()
+        result["injection_guard"] = {
+            "hits": guard_row.hits or 0,
+            "blocked": guard_row.blocked or 0,
+            "sanitized": guard_row.sanitized or 0,
+        }
+    except Exception:
+        logger.exception("Failed to query injection_guard metrics from database")
 
     return result

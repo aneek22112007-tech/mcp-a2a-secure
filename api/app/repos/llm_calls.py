@@ -40,10 +40,7 @@ async def list_llm_calls(
     total = total_res.scalar_one() or 0
 
     query = (
-        select(LLMCall)
-        .order_by(LLMCall.created_at.desc())
-        .limit(limit)
-        .offset(offset)
+        select(LLMCall).order_by(LLMCall.created_at.desc()).limit(limit).offset(offset)
     )
     if filters:
         query = query.where(*filters)
@@ -70,7 +67,7 @@ async def get_llm_metrics(
     if key_prefix:
         filters.append(LLMCall.key_prefix == key_prefix)
 
-    fallback_cond = (LLMCall.is_fallback.is_(True)) | (LLMCall.status == "fallback")
+    fallback_cond = (LLMCall.fell_back.is_(True)) | (LLMCall.status == "fallback")
 
     stmt = select(
         func.count().label("call_count"),
@@ -85,7 +82,11 @@ async def get_llm_metrics(
     row = res.one()
 
     call_count = row.call_count or 0
-    avg_latency = round(float(row.avg_latency), 2) if (row.avg_latency is not None and call_count > 0) else 0.0
+    avg_latency = (
+        round(float(row.avg_latency), 2)
+        if (row.avg_latency is not None and call_count > 0)
+        else 0.0
+    )
     fallback_count = row.fallback_count or 0
     fallback_rate = round(fallback_count / call_count, 4) if call_count > 0 else 0.0
 

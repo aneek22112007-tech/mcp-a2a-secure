@@ -36,7 +36,7 @@ class LLMCallRecord:
 
 
 class LLMCallRecorder:
-    """Log each LLM call and persist to the llm_calls database table."""
+    """Log each LLM call."""
 
     async def record(self, rec: LLMCallRecord) -> None:
         logger.info(
@@ -55,6 +55,13 @@ class LLMCallRecorder:
             safe_reason(rec.request_id) or "-",
             safe_reason(rec.error) or "-",
         )
+
+
+class DbLLMCallRecorder(LLMCallRecorder):
+    """Log each LLM call and persist to the llm_calls database table."""
+
+    async def record(self, rec: LLMCallRecord) -> None:
+        await super().record(rec)
 
         request_id = rec.request_id
         if not request_id:
@@ -82,11 +89,13 @@ class LLMCallRecorder:
                 call_row = LLMCall(
                     model=rec.model or "unknown",
                     provider=rec.provider or "unknown",
-                    input_tokens=rec.input_tokens if rec.input_tokens is not None else 0,
-                    output_tokens=rec.output_tokens if rec.output_tokens is not None else 0,
+                    purpose=rec.purpose[:50] if rec.purpose else "",
+                    error=rec.error[:500] if rec.error else None,
+                    input_tokens=rec.input_tokens,
+                    output_tokens=rec.output_tokens,
                     latency_ms=float(rec.latency_ms),
                     status=rec.status or "unknown",
-                    is_fallback=bool(rec.fell_back),
+                    fell_back=bool(rec.fell_back),
                     key_prefix=key_prefix or "",
                     request_id=request_id or "",
                     created_at=created_at,
@@ -94,7 +103,9 @@ class LLMCallRecorder:
                 session.add(call_row)
                 await session.commit()
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to persist LLM call record type=%s", type(exc).__name__)
+            logger.error(
+                "Failed to persist LLM call record type=%s", type(exc).__name__
+            )
 
 
 class SupportsLLMRecord(Protocol):
