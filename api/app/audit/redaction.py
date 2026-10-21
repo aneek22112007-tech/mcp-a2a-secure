@@ -58,28 +58,26 @@ def safe_tool_name(name: object) -> str | None:
 
 
 def current_request_id(scope: dict | None = None) -> str | None:
-    """Return the request id from the middleware context, then the ASGI scope."""
+    """Return the request id from the ASGI scope, then the middleware context."""
 
+    if scope is not None:
+        stored = scope.get("mcp_guard.request_id")
+        if isinstance(stored, str) and stored:
+            return stored
     current = request_id_context.get()
     if current:
         return current
-    if scope is None:
-        return None
-    stored = scope.get("mcp_guard.request_id")
-    if isinstance(stored, str) and stored:
-        return stored
     return None
 
 
 def current_client_ip(scope: dict | None = None) -> str | None:
-    """Return the client IP from the middleware context, then the ASGI scope."""
+    """Return the client IP from the ASGI scope, then the middleware context."""
 
+    if scope is not None:
+        stored = scope.get("mcp_guard.client_ip")
+        if isinstance(stored, str) and stored:
+            return stored
     current = client_ip_context.get()
     if current:
         return current
-    if scope is None:
-        return None
-    stored = scope.get("mcp_guard.client_ip")
-    if isinstance(stored, str) and stored:
-        return stored
     return None

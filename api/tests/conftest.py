@@ -156,3 +156,15 @@ def safe_scan_gate():
     set_scan_gate(NullScanGate())
     yield
     set_scan_gate(previous)
+
+
+@pytest.fixture(autouse=True)
+def reset_mcp_session_manager():
+    from app.mcp_server import mcp
+
+    manager = mcp.session_manager
+    if getattr(manager, "_has_started", False):
+        manager._has_started = False
+    yield
+    if getattr(manager, "_has_started", False):
+        manager._has_started = False

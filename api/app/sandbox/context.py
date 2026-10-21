@@ -44,6 +44,24 @@ def current_execution_context() -> ExecutionContext | None:
     return _execution_context.get()
 
 
+_tool_output_guarded: ContextVar[bool] = ContextVar(
+    "mcp_guard_tool_output_guarded",
+    default=False,
+)
+
+
+def is_tool_output_guarded() -> bool:
+    return _tool_output_guarded.get()
+
+
+def set_tool_output_guarded(guarded: bool) -> Token[bool]:
+    return _tool_output_guarded.set(guarded)
+
+
+def reset_tool_output_guarded(token: Token[bool]) -> None:
+    _tool_output_guarded.reset(token)
+
+
 def _empty_mcp_context() -> ExecutionContext:
     return ExecutionContext(
         transport=TRANSPORT_MCP,
