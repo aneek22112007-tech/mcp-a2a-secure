@@ -171,4 +171,21 @@ async def get_metrics_summary(session: AsyncSession) -> dict:
         logger.exception("Failed to query sandbox metrics from database")
         result["sandbox"]["available"] = False
 
+    try:
+        from app.repos.llm_calls import get_llm_metrics
+
+        llm_metrics = await get_llm_metrics(session)
+        result["llm"] = {
+            "available": True,
+            **llm_metrics,
+        }
+    except Exception:
+        logger.exception("Failed to query llm metrics from database")
+        result["llm"] = {
+            "available": False,
+            "call_count": 0,
+            "average_latency": 0.0,
+            "fallback_rate": 0.0,
+        }
+
     return result

@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Protocol
 
-from app.audit.redaction import safe_reason
+from app.audit.redaction import current_request_id, safe_reason
+from app.sandbox.context import current_execution_context
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class LLMCallRecord:
 
 
 class LLMCallRecorder:
-    """Log each LLM call. Does not write to the database."""
+    """Log each LLM call and persist to the llm_calls database table."""
 
     async def record(self, rec: LLMCallRecord) -> None:
         logger.info(
@@ -54,6 +55,46 @@ class LLMCallRecorder:
             safe_reason(rec.request_id) or "-",
             safe_reason(rec.error) or "-",
         )
+
+        request_id = rec.request_id
+        if not request_id:
+            request_id = current_request_id()
+        if not request_id:
+            ctx = current_execution_context()
+            if ctx:
+                request_id = ctx.request_id
+
+        key_prefix = rec.key_prefix
+        if not key_prefix:
+            ctx = current_execution_context()
+            if ctx:
+                key_prefix = ctx.key_prefix
+
+        created_at = rec.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+
+        try:
+            from app import database
+            from app.models.llm_calls import LLMCall
+
+            async with database.async_session_maker() as session:
+                call_row = LLMCall(
+                    model=rec.model or "unknown",
+                    provider=rec.provider or "unknown",
+                    input_tokens=rec.input_tokens if rec.input_tokens is not None else 0,
+                    output_tokens=rec.output_tokens if rec.output_tokens is not None else 0,
+                    latency_ms=float(rec.latency_ms),
+                    status=rec.status or "unknown",
+                    is_fallback=bool(rec.fell_back),
+                    key_prefix=key_prefix or "",
+                    request_id=request_id or "",
+                    created_at=created_at,
+                )
+                session.add(call_row)
+                await session.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Failed to persist LLM call record type=%s", type(exc).__name__)
 
 
 class SupportsLLMRecord(Protocol):
