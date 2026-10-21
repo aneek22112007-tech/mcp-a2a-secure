@@ -37,6 +37,7 @@ def _isolated_settings(monkeypatch, **overrides) -> Settings:
         "GROQ_MODEL",
         "LLM_TIMEOUT_SECONDS",
         "NOTES_AGENT_API_KEY",
+        "INJECTION_GUARD_MODE",
     ):
         monkeypatch.delenv(key, raising=False)
     for key, value in overrides.items():
@@ -122,3 +123,18 @@ def test_settings_do_not_create_directories(monkeypatch, tmp_path):
     assert not notes.exists()
     assert not database.exists()
     assert not database.parent.exists()
+
+
+def test_injection_guard_mode_settings(monkeypatch):
+    settings = _isolated_settings(monkeypatch)
+    assert settings.injection_guard_mode == "enforce"
+
+    warn_settings = _isolated_settings(monkeypatch, INJECTION_GUARD_MODE="warn")
+    assert warn_settings.injection_guard_mode == "warn"
+
+    off_settings = _isolated_settings(monkeypatch, INJECTION_GUARD_MODE="off")
+    assert off_settings.injection_guard_mode == "off"
+
+    with pytest.raises(ValueError):
+        _isolated_settings(monkeypatch, INJECTION_GUARD_MODE="invalid_mode")
+

@@ -15,6 +15,13 @@ from app.auth.throttle import auth_failure_throttle
 
 class DummyVerifier(ApiKeyVerifier):
     async def verify(self, raw_key: str) -> Principal | None:
+        if raw_key == "mcpg_admin":
+            return Principal(
+                api_key_id="admin",
+                client_id="admin",
+                key_prefix="mcpg_admin",
+                scopes=frozenset({"admin"}),
+            )
         if raw_key == "mcpg_test":
             return Principal(
                 api_key_id="test",
