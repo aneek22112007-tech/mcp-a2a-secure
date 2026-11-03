@@ -130,3 +130,23 @@ body {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Responsive fixes */
+html, body { overflow-x: clip; }
+[id] { scroll-margin-top: 80px; }
+@media (max-width: 720px) {
+  .protocol-ticker {
+    grid-template-columns: 1fr !important;
+    justify-items: center;
+    text-align: center;
+    gap: 1.25rem !important;
+  }
+  .protocol-ticker > div { text-align: center !important; align-items: center; }
+}
+@media (max-width: 900px) {
+  .auth-visual { display: none !important; }
+  .auth-main { max-width: none !important; border-right: none !important; }
+}
+@media (max-width: 480px) {
+  .auth-main { padding: 2rem 1.25rem !important; }
+}
