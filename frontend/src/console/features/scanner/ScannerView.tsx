@@ -94,10 +94,10 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--c-text)', margin: 0 }}>
+          <h1 className="page-title">
             Scanner
           </h1>
-          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '2px 0 0' }}>
+          <p className="page-sub">
             Static rule-based checks on tool schemas.
           </p>
         </div>
