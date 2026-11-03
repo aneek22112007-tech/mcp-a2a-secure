@@ -11,7 +11,7 @@ import {
 } from './client';
 import { useEffect, useState } from 'react';
 import { createAuditStream } from './client';
-import { isConsolePoll } from '../utils/helpers';
+import { isConsolePoll, percentile } from '../utils/helpers';
 
 // ── Query keys ────────────────────────────────────────────────────────
 export const QK = {
@@ -311,6 +311,8 @@ export interface ActivitySeries {
   current: Omit<ActivityBucket, 't'>;
   previous: Omit<ActivityBucket, 't'>;
   sampled: number;
+  /** Tool call latency over the 30 minute window, from audit duration_ms. */
+  latency: { p50: number | null; p95: number | null; samples: number; byTool: Record<string, { p50: number | null; p95: number | null; samples: number }> };
 }
 
 const BUCKET_MS = 60_000;
@@ -328,10 +330,16 @@ export function buildActivitySeries(events: AuditEvent[], now = Date.now()): Act
   const half = BUCKETS / 2;
   const current = emptyCounts();
   const previous = emptyCounts();
+  const durations: number[] = [];
+  const toolDur: Record<string, number[]> = {};
   for (const evt of events) {
     if (isConsolePoll(evt)) continue;
     const ts = new Date(evt.created_at).getTime();
     if (!(ts >= start && ts < end)) continue;
+    if (evt.action === 'tool.call' && typeof evt.duration_ms === 'number') {
+      durations.push(evt.duration_ms);
+      if (evt.tool_name) (toolDur[evt.tool_name] ??= []).push(evt.duration_ms);
+    }
     const idx = Math.floor((ts - start) / BUCKET_MS);
     const denied = evt.decision === 'denied';
     const rl = evt.status_code === 429 || evt.action.startsWith('rate_limit');
@@ -343,7 +351,14 @@ export function buildActivitySeries(events: AuditEvent[], now = Date.now()): Act
       if (guard) target.guard += 1;
     }
   }
-  return { buckets, current, previous, sampled: events.length };
+  const byTool: ActivitySeries['latency']['byTool'] = {};
+  for (const [tool, list] of Object.entries(toolDur)) {
+    byTool[tool] = { p50: percentile(list, 50), p95: percentile(list, 95), samples: list.length };
+  }
+  return {
+    buckets, current, previous, sampled: events.length,
+    latency: { p50: percentile(durations, 50), p95: percentile(durations, 95), samples: durations.length, byTool },
+  };
 }
 
 export function useActivitySeries(enabled = true) {

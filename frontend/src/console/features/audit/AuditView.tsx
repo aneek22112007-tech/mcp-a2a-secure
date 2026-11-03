@@ -4,7 +4,8 @@ import {
   FileText, Filter, ChevronDown, ChevronUp, ChevronRight, X, Search,
 } from 'lucide-react';
 import { QK, useAuditStream } from '../../api/hooks';
-import { consoleApi, type AuditEvent, type AuditPage } from '../../api/client';
+import { consoleApi, getApiBase, type AuditEvent, type AuditPage } from '../../api/client';
+import { trafficCommands } from '../../utils/helpers';
 import {
   LoadingPanel, ErrorPanel, EmptyState, StreamDot,
   Pager, Drawer, DetailRow, ConsoleErrorBoundary, CopyButton,
@@ -501,7 +502,9 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
           <ErrorPanel message="Failed to load audit events" onRetry={() => void refetch()} />
         ) : displayItems.length === 0 ? (
           <EmptyState
-            label={query ? `No events on this page match “${search.trim()}”.` : hasFilters ? 'No audit events match the current filters.' : 'No audit events yet. Calls through the gateway show up here live.'}
+            label={query ? `No events on this page match “${search.trim()}”.` : hasFilters ? 'No audit events match the current filters.' : 'No audit events yet'}
+            hint={query || hasFilters ? undefined : 'Every gateway call is written here and streamed live. Send one with any key to see it:'}
+            command={query || hasFilters ? undefined : trafficCommands(getApiBase()).restCall}
             icon={FileText}
           />
         ) : (

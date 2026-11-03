@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import NumberFlow from '@number-flow/react';
-import { Activity, Shield, ShieldAlert, AlertTriangle, Clock, Server, Box, FileText, Play } from 'lucide-react';
+import { Activity, Gauge, Shield, ShieldAlert, AlertTriangle, Clock, Server, Box, FileText, Play } from 'lucide-react';
 import { useMetrics, useHealth, useStatus, useAuditStream, useAudit, usePins, useActivitySeries } from '../../api/hooks';
 import { KpiCard, SkeletonPage } from '../../components/premium';
 import { ErrorPanel, StreamDot, EmptyState } from '../../components/ui';
@@ -11,8 +11,9 @@ import {
   fmtTimestamp, fmtDuration, fmtUptime, decisionBadgeClass,
   getPinBadge, PIN_BADGE_CLASS, PIN_BADGE_LABEL,
   sandboxStatusBadgeClass, auditRowClass, isConsolePoll,
+  fmtPercent, plural, trafficCommands,
 } from '../../utils/helpers';
-import type { MetricsResponse, AuditEvent, ToolPin } from '../../api/client';
+import { getApiBase, type MetricsResponse, type AuditEvent, type ToolPin } from '../../api/client';
 import { DEMO_METRICS, DEMO_AUDIT_EVENTS, DEMO_PINS } from '../../demo/demoData';
 import { useReducedMotion } from '../../../hooks/useReducedMotion';
 
@@ -40,7 +41,7 @@ function Count({ value, color }: { value: number; color: string }) {
   }
   return (
     <span className="stat-card-value" style={{ color }}>
-      <NumberFlow value={value} format={{ notation: 'compact' }} />
+      <NumberFlow value={value} format={{ useGrouping: true }} />
     </span>
   );
 }
@@ -146,30 +147,28 @@ export function OverviewView({ isDemo }: OverviewProps) {
       <header className="page-header">
         <div>
           <h1 className="page-title">Overview</h1>
-          {!isDemo && (
-            <p className="page-sub">
-              {health ? health.app : 'Backend status unknown'}
-              {probe?.uptime_seconds != null && ` · uptime ${fmtUptime(probe.uptime_seconds)}`}
-            </p>
-          )}
+          <p className="page-sub">
+            Gateway traffic, policy decisions and tool health.
+            {!isDemo && health && ` ${health.app}`}
+            {!isDemo && probe?.uptime_seconds != null && ` · up ${fmtUptime(probe.uptime_seconds)}`}
+          </p>
         </div>
-        {!isDemo && <StreamDot state={streamState} />}
+        <a className="btn btn-primary" href="#/audit">Open Live Audit</a>
       </header>
 
       <div className="kpi-row">
         {[
-          { label: 'Total Requests', value: totals.total, icon: Activity, tone: 'var(--c-amber)', key: 'total' as const, up: true, wide: true, foot: 'all time' },
-          { label: 'Successful', value: totals.successful, icon: Shield, tone: 'var(--c-allow)', key: 'allowed' as const, up: true, foot: totals.total ? `${Math.round((totals.successful / totals.total) * 100)}% of all` : undefined },
-          { label: 'Denied', value: totals.denied, icon: AlertTriangle, tone: 'var(--c-deny)', key: 'denied' as const, up: false, foot: 'auth, scope and policy' },
-          { label: 'Rate Limited', value: totals.rate_limit_rejections, icon: Clock, tone: 'var(--c-review)', key: 'rateLimited' as const, up: false, foot: '429 responses' },
-          { label: 'Guard Hits', value: metrics?.injection_guard?.hits ?? 0, icon: ShieldAlert, tone: 'var(--c-high)', key: 'guard' as const, up: false, foot: metrics?.injection_guard ? `${metrics.injection_guard.blocked} blocked · ${metrics.injection_guard.sanitized} sanitized` : 'injection guard' },
-        ].map(({ label, value, icon: Icon, tone, key, up, wide, foot }) => (
+          { label: 'Requests', value: totals.total, icon: Activity, tone: 'var(--c-info)', key: 'total' as const, up: true, foot: 'all time' },
+          { label: 'Allowed', value: totals.successful, icon: Shield, tone: 'var(--c-allow)', key: 'allowed' as const, up: true, foot: totals.total ? `${fmtPercent(totals.successful / totals.total)} of requests` : undefined },
+          { label: 'Denied', value: totals.denied, icon: AlertTriangle, tone: 'var(--c-deny)', key: 'denied' as const, up: false, foot: 'auth, scope, policy' },
+          { label: 'Rate limited', value: totals.rate_limit_rejections, icon: Clock, tone: 'var(--c-review)', key: 'rateLimited' as const, up: false, foot: 'HTTP 429' },
+          { label: 'Guard blocks', value: metrics?.injection_guard?.blocked ?? 0, icon: ShieldAlert, tone: 'var(--c-high)', key: 'guard' as const, up: false, foot: metrics?.injection_guard ? plural(metrics.injection_guard.hits, 'hit') : 'injection guard' },
+        ].map(({ label, value, icon: Icon, tone, key, up, foot }) => (
           <KpiCard
             key={label}
             label={label}
             icon={<Icon size={13} />}
             tone={tone}
-            wide={wide}
             value={<Count value={value} color="var(--c-text)" />}
             series={series ? series.buckets.map(bk => bk[key]) : undefined}
             current={series?.current[key]}
@@ -178,6 +177,17 @@ export function OverviewView({ isDemo }: OverviewProps) {
             foot={foot}
           />
         ))}
+        {!isDemo && (
+          <KpiCard
+            label="Tool latency"
+            icon={<Gauge size={13} />}
+            tone="var(--c-info)"
+            value={<span>{series?.latency.p95 != null ? fmtDuration(series.latency.p95) : '—'}<span className="kpi-unit"> p95</span></span>}
+            foot={series?.latency.samples
+              ? `p50 ${fmtDuration(series.latency.p50)} · ${plural(series.latency.samples, 'call')}, 30 min`
+              : 'no tool calls in 30 min'}
+          />
+        )}
       </div>
 
       <section className="panel panel-pad">
@@ -196,7 +206,11 @@ export function OverviewView({ isDemo }: OverviewProps) {
           </div>
           <div className="events-scroll">
             {events.length === 0 ? (
-              <EmptyState label="Waiting for events…" />
+              <EmptyState
+                label="No gateway events yet"
+                hint="Events appear here as soon as a client calls the gateway. Try a call with any key:"
+                command={trafficCommands(getApiBase()).restCall}
+              />
             ) : (
               <table className="data-table">
                 <thead>

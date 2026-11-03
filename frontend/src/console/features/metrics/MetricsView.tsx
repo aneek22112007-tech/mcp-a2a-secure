@@ -7,9 +7,9 @@ import { Activity, Database, Gauge, ShieldAlert, Cpu, BarChart2 } from 'lucide-r
 import { useMetrics, useActivitySeries } from '../../api/hooks';
 import { ErrorPanel, EmptyState, ConsoleErrorBoundary } from '../../components/ui';
 import { SkeletonPage } from '../../components/premium';
-import { fmtDuration, fmtNumber, fmtPercent, fmtTimestamp } from '../../utils/helpers';
+import { fmtDuration, fmtNumber, fmtPercent, fmtTimestamp, trafficCommands } from '../../utils/helpers';
 import { DEMO_METRICS } from '../../demo/demoData';
-import type { MetricsResponse } from '../../api/client';
+import { getApiBase, type MetricsResponse } from '../../api/client';
 
 interface MetricsViewProps { isDemo: boolean }
 
@@ -210,7 +210,7 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
               </AreaChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyState label={`No gateway calls in the last ${range} minutes.`} hint="Console polls are left out. Calls from agents and keys show up here within 15 seconds." icon={Activity} />
+            <EmptyState label={`No gateway calls in the last ${range} minutes.`} hint="Console polls are left out. Calls from agents and keys show up within 15 seconds:" command={trafficCommands(getApiBase()).restCall} icon={Activity} />
           )}
         </div>
       )}
@@ -268,7 +268,7 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <EmptyState label="No tool call data yet." icon={Cpu} />
+            <EmptyState label="No tool calls yet" hint="Run the notes agent or call a tool over MCP:" command={trafficCommands(getApiBase()).agent} icon={Cpu} />
           )}
         </div>
 
@@ -289,6 +289,37 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
           )}
         </div>
       </div>
+
+      {!isDemo && (
+        <div className="panel" style={{ padding: 20 }}>
+          <PanelTitle label="Tool latency, last 30 minutes" right={<span className="muted-sm">from audit duration_ms</span>} />
+          {series && series.latency.samples > 0 ? (
+            <table className="data-table">
+              <thead>
+                <tr><th>Tool</th><th className="num">Calls</th><th className="num">p50</th><th className="num">p95</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>All tools</strong></td>
+                  <td className="num">{fmtNumber(series.latency.samples)}</td>
+                  <td className="num">{fmtDuration(series.latency.p50)}</td>
+                  <td className="num">{fmtDuration(series.latency.p95)}</td>
+                </tr>
+                {Object.entries(series.latency.byTool).sort((a, b) => (b[1].p95 ?? 0) - (a[1].p95 ?? 0)).map(([tool, l]) => (
+                  <tr key={tool}>
+                    <td className="mono">{tool}</td>
+                    <td className="num">{fmtNumber(l.samples)}</td>
+                    <td className="num">{fmtDuration(l.p50)}</td>
+                    <td className="num">{fmtDuration(l.p95)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <EmptyState label="No tool calls in the last 30 minutes" hint="Percentiles need at least one tool call:" command={trafficCommands(getApiBase()).agent} icon={Gauge} />
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div className="panel" style={{ padding: 20 }}>

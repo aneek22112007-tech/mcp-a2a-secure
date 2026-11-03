@@ -10,7 +10,8 @@ import {
   sandboxStatusBadgeClass,
 } from '../../utils/helpers';
 import { DEMO_SANDBOX_RUNS } from '../../demo/demoData';
-import type { SandboxRun } from '../../api/client';
+import { getApiBase, type SandboxRun } from '../../api/client';
+import { trafficCommands } from '../../utils/helpers';
 
 interface SandboxViewProps { isDemo: boolean }
 
@@ -155,7 +156,7 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
         ) : !isDemo && isError ? (
           <ErrorPanel message="Failed to load sandbox runs" onRetry={() => void refetch()} />
         ) : runs.length === 0 ? (
-          <EmptyState label="No sandbox runs yet. Invoke tools through /mcp/ to generate runs." icon={Box} />
+          <EmptyState label="No sandbox runs yet" hint="Each tool call runs in the sandbox. Call a tool to record a run:" command={trafficCommands(getApiBase()).sandbox} icon={Box} />
         ) : (
           <>
             <div style={{ overflowX: 'auto' }}>

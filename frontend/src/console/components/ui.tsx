@@ -157,16 +157,24 @@ export function StreamDot({ state }: { state: StreamState }) {
 // ── Empty state ───────────────────────────────────────────────────────
 type LucideIcon = React.FC<{ size?: number; style?: React.CSSProperties }>;
 
-export function EmptyState({ label, icon: Icon = Info, hint }: {
+export function EmptyState({ label, icon: Icon = Info, hint, command }: {
   label: string;
   icon?: LucideIcon;
   hint?: string;
+  /** A real shell command that produces data for this panel. */
+  command?: string;
 }) {
   return (
     <div className="empty-state-premium" role="status">
-      <span className="empty-icon" aria-hidden><Icon size={18} /></span>
-      <span style={{ fontSize: 13, color: 'var(--c-text-muted)', fontWeight: 500 }}>{label}</span>
-      {hint && <span style={{ fontSize: 12, color: 'var(--c-text-dim)', maxWidth: 420 }}>{hint}</span>}
+      <span className="empty-icon" aria-hidden><Icon size={16} /></span>
+      <span style={{ fontSize: 13, color: 'var(--c-text)', fontWeight: 500 }}>{label}</span>
+      {hint && <span style={{ fontSize: 12, color: 'var(--c-text-muted)', maxWidth: 460 }}>{hint}</span>}
+      {command && (
+        <div className="cmd-block">
+          <code className="mono">{command}</code>
+          <CopyButton value={command} label="Copy" />
+        </div>
+      )}
     </div>
   );
 }
