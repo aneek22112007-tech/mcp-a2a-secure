@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import NumberFlow from '@number-flow/react';
-import { Activity, Shield, AlertTriangle, Clock, Server, Box, FileText, Play } from 'lucide-react';
-import { useMetrics, useHealth, useStatus, useAuditStream, useAudit, usePins } from '../../api/hooks';
-import { LoadingPanel, ErrorPanel, StreamDot, EmptyState } from '../../components/ui';
+import { Activity, Shield, ShieldAlert, AlertTriangle, Clock, Server, Box, FileText, Play } from 'lucide-react';
+import { useMetrics, useHealth, useStatus, useAuditStream, useAudit, usePins, useActivitySeries } from '../../api/hooks';
+import { KpiCard, SkeletonPage } from '../../components/premium';
+import { ErrorPanel, StreamDot, EmptyState } from '../../components/ui';
 import { PipelineStrip } from '../../components/Pipeline';
 import { lightsMatched, pipelineLights, type StageLight } from '../../components/pipelineLogic';
 import { DEMO_SEQUENCE, waitForCaption, type AttackResult } from '../attack/runners';
@@ -74,6 +75,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
   const { data: livePins } = usePins(!isDemo);
   const { data: auditPage } = useAudit({ limit: 50 }, !isDemo);
   const { events: liveEvents, state: streamState } = useAuditStream(20, !isDemo);
+  const { data: series } = useActivitySeries(!isDemo);
   const [demoResults, setDemoResults] = useState<Record<string, AttackResult>>({});
   const [demoRunning, setDemoRunning] = useState<string | null>(null);
   const [demoError, setDemoError] = useState('');
@@ -88,7 +90,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
   const pins = isDemo ? DEMO_PINS : (livePins?.items ?? []);
   const summary = pinCounts(pins);
 
-  if (!isDemo && isLoading && !metrics && !gaveUp) return <LoadingPanel label="Loading metrics…" />;
+  if (!isDemo && isLoading && !metrics && !gaveUp) return <SkeletonPage label="Loading metrics…" cards={5} />;
   if (!isDemo && (isError || gaveUp) && !metrics) {
     return (
       <ErrorPanel
@@ -154,20 +156,27 @@ export function OverviewView({ isDemo }: OverviewProps) {
         {!isDemo && <StreamDot state={streamState} />}
       </header>
 
-      <div className="stat-row">
+      <div className="kpi-row">
         {[
-          { label: 'Total Requests', value: totals.total, icon: Activity, color: 'var(--c-text)', wide: true },
-          { label: 'Successful', value: totals.successful, icon: Shield, color: 'var(--c-allow)', wide: false },
-          { label: 'Denied', value: totals.denied, icon: AlertTriangle, color: 'var(--c-deny)', wide: false },
-          { label: 'Rate Limited', value: totals.rate_limit_rejections, icon: Clock, color: 'var(--c-review)', wide: false },
-        ].map(({ label, value, icon: Icon, color, wide }) => (
-          <div key={label} className={`stat-card ${wide ? 'stat-card-wide' : ''}`}>
-            <div className="row-between">
-              <span className="stat-card-label">{label}</span>
-              <Icon size={14} aria-hidden />
-            </div>
-            <Count value={value} color={color} />
-          </div>
+          { label: 'Total Requests', value: totals.total, icon: Activity, tone: 'var(--c-amber)', key: 'total' as const, up: true, wide: true, foot: 'all time' },
+          { label: 'Successful', value: totals.successful, icon: Shield, tone: 'var(--c-allow)', key: 'allowed' as const, up: true, foot: totals.total ? `${Math.round((totals.successful / totals.total) * 100)}% of all` : undefined },
+          { label: 'Denied', value: totals.denied, icon: AlertTriangle, tone: 'var(--c-deny)', key: 'denied' as const, up: false, foot: 'auth, scope and policy' },
+          { label: 'Rate Limited', value: totals.rate_limit_rejections, icon: Clock, tone: 'var(--c-review)', key: 'rateLimited' as const, up: false, foot: '429 responses' },
+          { label: 'Guard Hits', value: metrics?.injection_guard?.hits ?? 0, icon: ShieldAlert, tone: 'var(--c-high)', key: 'guard' as const, up: false, foot: metrics?.injection_guard ? `${metrics.injection_guard.blocked} blocked · ${metrics.injection_guard.sanitized} sanitized` : 'injection guard' },
+        ].map(({ label, value, icon: Icon, tone, key, up, wide, foot }) => (
+          <KpiCard
+            key={label}
+            label={label}
+            icon={<Icon size={13} />}
+            tone={tone}
+            wide={wide}
+            value={<Count value={value} color="var(--c-text)" />}
+            series={series ? series.buckets.map(bk => bk[key]) : undefined}
+            current={series?.current[key]}
+            previous={series?.previous[key]}
+            goodWhenUp={up}
+            foot={foot}
+          />
         ))}
       </div>
 
