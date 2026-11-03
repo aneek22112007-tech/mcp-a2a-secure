@@ -9,8 +9,9 @@ import {
   type AuditEvent,
   type StreamState,
 } from './client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createAuditStream } from './client';
+import { isConsolePoll } from '../utils/helpers';
 
 // ── Query keys ────────────────────────────────────────────────────────
 export const QK = {
@@ -99,38 +100,92 @@ export function useAudit(params: Parameters<typeof consoleApi.listAudit>[0], ena
 }
 
 // ── Audit SSE Stream ──────────────────────────────────────────────────
+/**
+ * One shared SSE connection for the whole console. Every view that calls
+ * useAuditStream subscribes to the same hub, so switching views no longer
+ * tears the stream down and reconnects, and a new view starts with the
+ * events already received.
+ */
+const HUB_BUFFER = 200;
+const hub = {
+  refs: 0,
+  events: [] as AuditEvent[],
+  state: 'connecting' as StreamState,
+  stop: null as (() => void) | null,
+  controller: null as AbortController | null,
+  closeTimer: 0 as ReturnType<typeof setTimeout> | 0,
+  listeners: new Set<() => void>(),
+};
+
+function hubEmit() {
+  for (const fn of hub.listeners) fn();
+}
+
+function hubAcquire() {
+  hub.refs += 1;
+  if (hub.closeTimer) {
+    clearTimeout(hub.closeTimer);
+    hub.closeTimer = 0;
+  }
+  if (hub.stop) return;
+  const controller = new AbortController();
+  hub.controller = controller;
+  hub.state = 'connecting';
+  hub.stop = createAuditStream({
+    onEvent: (evt) => {
+      if (hub.events.some(e => e.id === evt.id)) return;
+      hub.events = [evt, ...hub.events].slice(0, HUB_BUFFER);
+      hubEmit();
+    },
+    onStateChange: (st) => {
+      hub.state = st;
+      hubEmit();
+    },
+    signal: controller.signal,
+  });
+}
+
+function hubRelease() {
+  hub.refs = Math.max(0, hub.refs - 1);
+  if (hub.refs > 0 || hub.closeTimer) return;
+  // Short grace period so a view swap does not drop the connection.
+  hub.closeTimer = setTimeout(() => {
+    hub.closeTimer = 0;
+    if (hub.refs > 0) return;
+    hub.controller?.abort();
+    hub.stop?.();
+    hub.stop = null;
+    hub.controller = null;
+    hub.state = 'connecting';
+  }, 1500);
+}
+
 export function useAuditStream(maxEvents = 100, enabled = true) {
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [state, setState] = useState<StreamState>('connecting');
-  const abortRef = useRef<AbortController | null>(null);
-  const stopRef  = useRef<(() => void) | null>(null);
+  const [, force] = useState(0);
+  const [clearedAt, setClearedAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    const stop = createAuditStream({
-      onEvent: (evt) => {
-        setEvents(prev => {
-          const next = [evt, ...prev];
-          return next.length > maxEvents ? next.slice(0, maxEvents) : next;
-        });
-      },
-      onStateChange: setState,
-      signal: controller.signal,
-    });
-    stopRef.current = stop;
-
+    const fn = () => force(n => n + 1);
+    hub.listeners.add(fn);
+    hubAcquire();
+    fn();
     return () => {
-      controller.abort();
-      stop();
+      hub.listeners.delete(fn);
+      hubRelease();
     };
-  }, [enabled, maxEvents]);
+  }, [enabled]);
 
-  const clear = () => setEvents([]);
+  let events = enabled ? hub.events : [];
+  if (clearedAt) {
+    const idx = events.findIndex(e => e.id === clearedAt);
+    events = idx === -1 ? events : events.slice(0, idx);
+  }
+  events = events.slice(0, maxEvents);
 
-  return { events, state: enabled ? state : ('offline' as StreamState), clear };
+  const clear = () => setClearedAt(hub.events[0]?.id ?? null);
+
+  return { events, state: enabled ? hub.state : ('offline' as StreamState), clear };
 }
 
 // ── Pins ──────────────────────────────────────────────────────────────
@@ -237,6 +292,77 @@ export function useSandboxHealth(enabled = true) {
     queryKey: QK.sandboxHealth,
     queryFn:  () => consoleApi.sandboxHealth(),
     refetchInterval: 30_000,
+    enabled,
+  });
+}
+
+// ── Audit activity series (for KPI sparklines) ────────────────────────
+export interface ActivityBucket {
+  t: number;
+  total: number;
+  allowed: number;
+  denied: number;
+  rateLimited: number;
+  guard: number;
+}
+
+export interface ActivitySeries {
+  buckets: ActivityBucket[];
+  current: Omit<ActivityBucket, 't'>;
+  previous: Omit<ActivityBucket, 't'>;
+  sampled: number;
+}
+
+const BUCKET_MS = 60_000;
+const BUCKETS = 30;
+
+function emptyCounts(): Omit<ActivityBucket, 't'> {
+  return { total: 0, allowed: 0, denied: 0, rateLimited: 0, guard: 0 };
+}
+
+/** Real audit rows from the last 30 minutes, bucketed per minute. Console polls are skipped. */
+export function buildActivitySeries(events: AuditEvent[], now = Date.now()): ActivitySeries {
+  const end = Math.ceil(now / BUCKET_MS) * BUCKET_MS;
+  const start = end - BUCKETS * BUCKET_MS;
+  const buckets: ActivityBucket[] = Array.from({ length: BUCKETS }, (_, i) => ({ t: start + i * BUCKET_MS, ...emptyCounts() }));
+  const half = BUCKETS / 2;
+  const current = emptyCounts();
+  const previous = emptyCounts();
+  for (const evt of events) {
+    if (isConsolePoll(evt)) continue;
+    const ts = new Date(evt.created_at).getTime();
+    if (!(ts >= start && ts < end)) continue;
+    const idx = Math.floor((ts - start) / BUCKET_MS);
+    const denied = evt.decision === 'denied';
+    const rl = evt.status_code === 429 || evt.action.startsWith('rate_limit');
+    const guard = evt.action.startsWith('tool.output.injection') || evt.action.startsWith('guard');
+    for (const target of [buckets[idx], idx >= half ? current : previous]) {
+      target.total += 1;
+      if (denied) target.denied += 1; else target.allowed += 1;
+      if (rl) target.rateLimited += 1;
+      if (guard) target.guard += 1;
+    }
+  }
+  return { buckets, current, previous, sampled: events.length };
+}
+
+export function useActivitySeries(enabled = true) {
+  return useQuery({
+    queryKey: ['audit', 'activity-series'],
+    queryFn: async () => {
+      const all: AuditEvent[] = [];
+      let offset = 0;
+      for (let page = 0; page < 5; page += 1) {
+        const res = await consoleApi.listAudit({ limit: 100, offset });
+        all.push(...res.items);
+        const last = res.items[res.items.length - 1];
+        if (res.next_offset == null || !last) break;
+        if (Date.now() - new Date(last.created_at).getTime() > BUCKETS * BUCKET_MS) break;
+        offset = res.next_offset;
+      }
+      return buildActivitySeries(all);
+    },
+    refetchInterval: 15_000,
     enabled,
   });
 }
