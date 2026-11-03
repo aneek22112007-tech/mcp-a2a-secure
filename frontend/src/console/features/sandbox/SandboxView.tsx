@@ -10,7 +10,8 @@ import {
   sandboxStatusBadgeClass,
 } from '../../utils/helpers';
 import { DEMO_SANDBOX_RUNS } from '../../demo/demoData';
-import type { SandboxRun } from '../../api/client';
+import { getApiBase, type SandboxRun } from '../../api/client';
+import { trafficCommands } from '../../utils/helpers';
 
 interface SandboxViewProps { isDemo: boolean }
 
@@ -45,10 +46,10 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--c-text)', margin: 0 }}>
+          <h1 className="page-title">
             Sandbox
           </h1>
-          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '2px 0 0' }}>
+          <p className="page-sub">
             Tool execution runs and isolation health.
           </p>
         </div>
@@ -73,8 +74,8 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
             },
             {
               label: 'Status',
-              value: health?.available ?? true ? 'available' : 'unavailable',
-              badge: health?.available ?? true ? 'badge-allow' : 'badge-deny',
+              value: health == null ? 'unknown' : health.available ? 'available' : 'unavailable',
+              badge: health == null ? 'badge-muted' : health.available ? 'badge-allow' : 'badge-deny',
             },
             {
               label: 'Active runs',
@@ -83,7 +84,7 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
             },
             {
               label: 'Max concurrent',
-              value: String(health?.max_concurrent ?? 4),
+              value: health?.max_concurrent != null ? String(health.max_concurrent) : '—',
               mono: true,
             },
             {
@@ -102,7 +103,7 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
             <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span className="section-label">{label}</span>
               {badge
-                ? <span className={`badge ${badge}`}>{value}</span>
+                ? <span className={`badge ${badge}`} style={{ alignSelf: 'flex-start' }}>{value}</span>
                 : <span className={mono ? 'mono' : ''} style={{ fontSize: 12 }}>{value}</span>}
             </div>
           ))}
@@ -155,7 +156,7 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
         ) : !isDemo && isError ? (
           <ErrorPanel message="Failed to load sandbox runs" onRetry={() => void refetch()} />
         ) : runs.length === 0 ? (
-          <EmptyState label="No sandbox runs yet. Invoke tools through /mcp/ to generate runs." icon={Box} />
+          <EmptyState label="No sandbox runs yet" hint="Each tool call runs in the sandbox. Call a tool to record a run:" command={trafficCommands(getApiBase()).sandbox} icon={Box} />
         ) : (
           <>
             <div style={{ overflowX: 'auto' }}>

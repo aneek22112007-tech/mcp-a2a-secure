@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDialogA11y } from '../../components/a11y';
 import { useQuery } from '@tanstack/react-query';
 import { Key, Plus, Trash2, TestTube, Copy, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useCreateKey, useRevokeKey } from '../../api/hooks';
@@ -22,6 +23,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
   const [extraIds, setExtraIds] = useState<string[]>([]);
   const [extraInput, setExtraInput] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const createRef = useDialogA11y(showCreate, () => setShowCreate(false));
   const [rawKey, setRawKey] = useState<string | null>(null);
   const [rawKeyCopied, setRawKeyCopied] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
@@ -126,10 +128,10 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
       {/* Title */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--c-text)', margin: 0 }}>
+          <h1 className="page-title">
             API Keys
           </h1>
-          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '2px 0 0' }}>
+          <p className="page-sub">
             Create, inspect, and revoke bearer keys.
           </p>
         </div>
@@ -327,6 +329,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
       {/* Create key modal */}
       {showCreate && (
         <div
+          className="modal-overlay"
           style={{
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
@@ -337,8 +340,10 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
           aria-labelledby="create-key-title"
         >
           <div
-            className="panel"
-            style={{ width: 420, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}
+            ref={createRef}
+            tabIndex={-1}
+            className="panel modal-panel"
+            style={{ width: 440, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}
             onClick={e => e.stopPropagation()}
           >
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -369,6 +374,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
                 value={formName}
                 onChange={e => setFormName(e.target.value)}
                 placeholder="e.g. CI agent read-only"
+                data-autofocus
               />
             </div>
 

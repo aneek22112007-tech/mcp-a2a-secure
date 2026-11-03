@@ -52,6 +52,7 @@ export default function SecurityScannerSection() {
 
   return (
     <section
+      id="scanner"
       ref={sectionRef}
       aria-label="Security Scanner"
       style={{

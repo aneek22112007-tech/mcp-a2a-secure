@@ -549,3 +549,27 @@
 [data-sonner-toaster] {
   font-family: var(--font-sans) !important;
 }
+
+/* ── Responsive layout ───────────────────────────────────────────────── */
+.shell-main { min-width: 0; }
+.console-page { min-width: 0; }
+.shell-main .panel { min-width: 0; max-width: 100%; }
+.shell-main .panel:has(> .data-table),
+.shell-main .panel:has(> div > .data-table) { overflow-x: auto; }
+.brand span, .strip-ok, .strip-bad { white-space: nowrap; }
+.page-header, .row-between, .panel-head { flex-wrap: wrap; }
+
+@media (max-width: 720px) {
+  .status-strip { gap: 8px; padding: 0 10px; overflow: hidden; }
+  .strip-base, .strip-key, .strip-rule { display: none; }
+  .rail, .is-collapsed .rail { width: var(--rail-w-collapsed); }
+  .rail-items { padding: 8px 6px; }
+  .rail-btn { justify-content: center; padding: 8px; }
+  .rail-btn span { display: none; }
+  .rail-toggle { display: none; }
+  .console-page { padding: 12px 12px 24px; }
+  .mcp-warn { text-align: left; max-width: none; }
+}
+/* Page headers in each view: let title and actions wrap on narrow screens */
+.console-page > :first-child,
+.console-page > :first-child > div { flex-wrap: wrap; row-gap: 10px; }
