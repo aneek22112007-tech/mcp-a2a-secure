@@ -32,7 +32,7 @@ export function Sparkline({
     >
       <defs>
         <linearGradient id={`sg-${gid}`} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.32" />
+          <stop offset="0%" stopColor={color} stopOpacity="0.14" />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>

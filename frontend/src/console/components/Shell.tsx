@@ -3,17 +3,19 @@ import { useDialogA11y } from './a11y';
 import {
   Shield, LayoutDashboard, Key, FileText, BarChart2,
   Pin, Search, Box, Zap, HelpCircle, ChevronLeft, ChevronRight,
-  WifiOff, Wifi, Database, RefreshCw, PanelLeft, Keyboard, LogOut, Command as CommandIcon,
+  Database, RefreshCw, PanelLeft, Keyboard, LogOut, Command as CommandIcon,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { StreamDot } from './ui';
+import { EnvSelector, HealthPill, KeyMenu, SubHeader } from './Chrome';
+import { useHealth } from '../api/hooks';
 import { CommandPalette, type Command } from './CommandPalette';
 import { Kbd } from './premium';
 import type { ViewId } from './views';
 import { forgetApiKey, getApiBase, getKeyPrefix } from '../api/client';
 import type { StreamState } from '../api/client';
-import { CONSOLE_TZ, CONSOLE_TZ_LABEL, MOD_KEY } from '../utils/helpers';
+import { CONSOLE_TZ, CONSOLE_TZ_LABEL, MOD_KEY, envFromBase } from '../utils/helpers';
 
 export type { ViewId } from './views';
 
@@ -39,10 +41,11 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'sandbox', label: 'Sandbox', icon: Box, scope: 'sandbox:read', group: 'Protect', key: 'x', desc: 'Isolated tool runs and their limits' },
   { id: 'attack', label: 'Attack Simulator', icon: Zap, group: 'Protect', key: 't', desc: 'Fire real attacks at the gateway' },
   { id: 'keys', label: 'API Keys', icon: Key, scope: 'admin', group: 'Manage', key: 'k', desc: 'Create, rotate and revoke keys' },
-  { id: 'planned', label: 'Planned', icon: HelpCircle, group: 'Roadmap', key: 'r', desc: 'What is coming next' },
+  { id: 'planned', label: 'Roadmap', icon: HelpCircle, group: 'Manage', key: 'r', desc: 'Live features and what is planned' },
 ];
 
 const COLLAPSE_KEY = 'mcpg.console.rail-collapsed';
+const DENSITY_KEY = 'mcpg.console.density';
 
 function isTypingTarget(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
@@ -129,12 +132,25 @@ export function ConsoleShell({
     try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; }
   });
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [density, setDensity] = useState<'comfortable' | 'compact'>(() => {
+    try { return localStorage.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable'; } catch { return 'comfortable'; }
+  });
+  const { data: health, isError: healthError } = useHealth(!isDemo);
+  const healthState: 'ok' | 'degraded' | 'down' | 'unknown' = !backendUp || healthError
+    ? 'down'
+    : health?.status === 'ok'
+      ? (streamState === 'offline' ? 'degraded' : 'ok')
+      : health ? 'degraded' : 'unknown';
   const [helpOpen, setHelpOpen] = useState(false);
   const qc = useQueryClient();
   const keyPrefix = getKeyPrefix();
   const base = getApiBase();
   const pendingG = useRef<number>(0);
   const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(DENSITY_KEY, density); } catch { /* storage blocked */ }
+  }, [density]);
 
   useEffect(() => {
     try { localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0'); } catch { /* storage blocked */ }
@@ -210,39 +226,18 @@ export function ConsoleShell({
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const groups = ['Monitor', 'Protect', 'Manage', 'Roadmap'] as const;
+  const groups = ['Monitor', 'Protect', 'Manage'] as const;
 
   return (
-    <div className={`mcpg-console ${collapsed ? 'is-collapsed' : ''}`}>
+    <div className={`mcpg-console ${collapsed ? 'is-collapsed' : ''} density-${density}`}>
       <a href="#main-content" className="skip-link">Skip to content</a>
       <header className="status-strip">
         <div className="brand">
-          <span className="brand-mark" aria-hidden><Shield size={13} /></span>
+          <span className="brand-mark" aria-hidden><Shield size={12} /></span>
           <span>MCP Guard</span>
-          <span className="brand-tag">Console</span>
         </div>
-        <span className="strip-rule" aria-hidden />
-
-        {!isDemo && (
-          <div className={backendUp ? 'strip-ok' : 'strip-bad'}>
-            {backendUp ? <Wifi size={12} aria-hidden /> : <WifiOff size={12} aria-hidden />}
-            {backendUp ? 'Backend online' : 'Backend offline'}
-          </div>
-        )}
-
-        {!isDemo && (
-          <>
-            <span className="strip-rule" aria-hidden />
-            <StreamDot state={streamState} />
-          </>
-        )}
-
-        {keyPrefix && !isDemo && (
-          <>
-            <span className="strip-rule" aria-hidden />
-            <span className="strip-key" title="Connected key prefix"><Key size={12} aria-hidden /><span className="mono">{keyPrefix}…</span></span>
-          </>
-        )}
+        <span className="strip-slash" aria-hidden>/</span>
+        <EnvSelector base={base} />
 
         <span className="strip-spacer" />
 
@@ -257,6 +252,8 @@ export function ConsoleShell({
           <span className="palette-trigger-keys"><Kbd>{MOD_KEY}</Kbd><Kbd>K</Kbd></span>
         </button>
 
+        <span className="strip-spacer" />
+
         {isDemo && (
           <span className="badge badge-review" role="status" aria-label="Demo data, backend offline">
             <Database size={11} aria-hidden />
@@ -264,15 +261,20 @@ export function ConsoleShell({
           </span>
         )}
 
+        {!isDemo && (
+          <HealthPill
+            state={healthState}
+            title={healthState === 'ok' ? `GET /health ok · live stream ${streamState}` : healthState === 'degraded' ? `Backend up, live stream ${streamState}` : 'GET /health failed'}
+          />
+        )}
+        {!isDemo && <StreamDot state={streamState} />}
         <IstClock />
-        <span className="mono strip-base" title={`API base URL: ${base}`}>{base.replace(/^https?:\/\//, '')}</span>
-
-        <button className="btn btn-ghost btn-sm" onClick={() => setHelpOpen(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
-          <Keyboard size={13} aria-hidden />
-        </button>
-        <button className="btn btn-ghost btn-sm" onClick={handleForget} aria-label="Forget API key and disconnect">
-          Forget key
-        </button>
+        <KeyMenu
+          prefix={isDemo ? null : keyPrefix}
+          scopes={scopes}
+          onShortcuts={() => setHelpOpen(true)}
+          onForget={handleForget}
+        />
       </header>
 
       <div className="shell-body">
@@ -323,6 +325,13 @@ export function ConsoleShell({
           </button>
         </nav>
         <main id="main-content" ref={mainRef} className="scroll-y shell-main" tabIndex={-1} aria-label={activeItem.label}>
+          <SubHeader
+            crumbs={[envFromBase(base).name, activeItem.group, activeItem.label]}
+            onRefresh={refreshAll}
+            density={density}
+            onDensity={setDensity}
+            isDemo={isDemo}
+          />
           {children}
         </main>
       </div>
