@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDialogA11y } from '../../components/a11y';
 import {
   Pin, RefreshCw, CheckCircle, XCircle, AlertTriangle, Info,
 } from 'lucide-react';
@@ -30,6 +31,7 @@ function PinStatusIcon({ pin }: { pin: ToolPin }) {
 
 function PinsViewInner({ isDemo }: PinsViewProps) {
   const [approveTarget, setApproveTarget] = useState<ToolPin | null>(null);
+  const approveRef = useDialogA11y(!!approveTarget, () => setApproveTarget(null));
   const [revokeTarget, setRevokeTarget] = useState<ToolPin | null>(null);
   const [note, setNote] = useState('');
   const [pinningModeHint] = useState<'off' | 'warn' | 'enforce'>('enforce');
@@ -82,10 +84,10 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--c-text)', margin: 0 }}>
+          <h1 className="page-title">
             Tool Pinning
           </h1>
-          <p style={{ fontSize: 11, color: 'var(--c-text-muted)', margin: '2px 0 0' }}>
+          <p className="page-sub">
             Schema fingerprints — approve or revoke tool definitions.
           </p>
         </div>
@@ -250,6 +252,8 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
       {/* Approve confirm */}
       {approveTarget && (
         <div
+          className="modal-overlay"
+          onClick={() => setApproveTarget(null)}
           style={{
             position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
@@ -259,8 +263,11 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
           aria-label="Approve pin"
         >
           <div
-            className="panel"
-            style={{ width: 400, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}
+            ref={approveRef}
+            tabIndex={-1}
+            onClick={e => e.stopPropagation()}
+            className="panel modal-panel"
+            style={{ width: 420, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}
           >
             <div style={{ display: 'flex', gap: 8, color: 'var(--c-allow)', alignItems: 'center' }}>
               <CheckCircle size={16} />
@@ -280,6 +287,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
                 value={note}
                 onChange={e => setNote(e.target.value)}
                 placeholder="Reason for approval…"
+                data-autofocus
                 maxLength={500}
               />
             </div>

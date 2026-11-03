@@ -1,5 +1,6 @@
 /** Shared console UI components */
 import React, { useState, useCallback, type ReactNode } from 'react';
+import { useDialogA11y } from './a11y';
 import { Copy, Check, AlertTriangle, Info, Loader2 } from 'lucide-react';
 import { copyToClipboard } from '../utils/helpers';
 import type { StreamState } from '../api/client';
@@ -156,24 +157,16 @@ export function StreamDot({ state }: { state: StreamState }) {
 // ── Empty state ───────────────────────────────────────────────────────
 type LucideIcon = React.FC<{ size?: number; style?: React.CSSProperties }>;
 
-export function EmptyState({ label, icon: Icon = Info }: {
+export function EmptyState({ label, icon: Icon = Info, hint }: {
   label: string;
   icon?: LucideIcon;
+  hint?: string;
 }) {
   return (
-    <div
-      style={{
-        padding: '40px 20px',
-        textAlign: 'center',
-        color: 'var(--c-text-dim)',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: 8,
-      }}
-    >
-      <Icon size={20} />
-      <span style={{ fontSize: 12 }}>{label}</span>
+    <div className="empty-state-premium" role="status">
+      <span className="empty-icon" aria-hidden><Icon size={18} /></span>
+      <span style={{ fontSize: 13, color: 'var(--c-text-muted)', fontWeight: 500 }}>{label}</span>
+      {hint && <span style={{ fontSize: 12, color: 'var(--c-text-dim)', maxWidth: 420 }}>{hint}</span>}
     </div>
   );
 }
@@ -181,19 +174,15 @@ export function EmptyState({ label, icon: Icon = Info }: {
 // ── Loading panel ─────────────────────────────────────────────────────
 export function LoadingPanel({ label = 'Loading…' }: { label?: string }) {
   return (
-    <div
-      style={{
-        padding: '32px 20px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        color: 'var(--c-text-muted)',
-        fontSize: 12,
-      }}
-    >
-      <Spinner />
-      {label}
+    <div className="loading-skeleton" role="status" aria-live="polite" aria-busy="true">
+      <div className="loading-skeleton-label"><Spinner /> {label}</div>
+      {[72, 88, 64, 80].map((w, i) => (
+        <div key={i} className="loading-skeleton-row">
+          <span className="skeleton" style={{ width: 84 }} />
+          <span className="skeleton" style={{ width: `${w}%` }} />
+          <span className="skeleton" style={{ width: 64 }} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -247,9 +236,11 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const panelRef = useDialogA11y(open, onCancel);
   if (!open) return null;
   return (
     <div
+      className="modal-overlay"
       style={{
         position: 'fixed',
         inset: 0,
@@ -265,8 +256,10 @@ export function ConfirmDialog({
       aria-labelledby="confirm-title"
     >
       <div
-        className="panel"
-        style={{ width: 360, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}
+        ref={panelRef}
+        tabIndex={-1}
+        className="panel modal-panel"
+        style={{ width: 380, padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}
         onClick={e => e.stopPropagation()}
       >
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: danger ? 'var(--c-deny)' : 'var(--c-text)' }}>
@@ -275,7 +268,7 @@ export function ConfirmDialog({
         </div>
         <p style={{ fontSize: 13, color: 'var(--c-text-muted)', lineHeight: 1.5 }}>{body}</p>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+          <button className="btn btn-ghost" onClick={onCancel} data-autofocus>Cancel</button>
           <button
             className={danger ? 'btn btn-danger' : 'btn btn-primary'}
             onClick={onConfirm}
@@ -348,9 +341,11 @@ export function Drawer({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const panelRef = useDialogA11y(open, onClose);
   if (!open) return null;
   return (
     <div
+      className="modal-overlay modal-overlay-side"
       style={{
         position: 'fixed',
         inset: 0,
@@ -361,12 +356,15 @@ export function Drawer({
       <div
         style={{ flex: 1, background: 'rgba(0,0,0,0.4)' }}
         onClick={onClose}
-        aria-label="Close drawer"
+        aria-hidden="true"
       />
       <div
-        className="panel scroll-y"
+        ref={panelRef}
+        tabIndex={-1}
+        aria-modal="true"
+        className="panel scroll-y drawer-panel"
         style={{
-          width: 480,
+          width: 'min(560px, 92vw)',
           height: '100%',
           borderLeft: '1px solid var(--c-border)',
           borderRadius: 0,
