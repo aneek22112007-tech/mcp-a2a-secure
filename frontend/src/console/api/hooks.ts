@@ -106,10 +106,7 @@ export function useAuditStream(maxEvents = 100, enabled = true) {
   const stopRef  = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (!enabled) {
-      setState('offline');
-      return;
-    }
+    if (!enabled) return;
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -133,7 +130,7 @@ export function useAuditStream(maxEvents = 100, enabled = true) {
 
   const clear = () => setEvents([]);
 
-  return { events, state, clear };
+  return { events, state: enabled ? state : ('offline' as StreamState), clear };
 }
 
 // ── Pins ──────────────────────────────────────────────────────────────

@@ -22,12 +22,12 @@ interface OverviewProps {
 function useGaveUp(active: boolean): boolean {
   const [gaveUp, setGaveUp] = useState(false);
   useEffect(() => {
-    if (!active) {
-      setGaveUp(false);
-      return;
-    }
+    if (!active) return;
     const timer = window.setTimeout(() => setGaveUp(true), 5000);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      setGaveUp(false);
+    };
   }, [active]);
   return active && gaveUp;
 }
