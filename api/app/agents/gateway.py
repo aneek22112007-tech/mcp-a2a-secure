@@ -70,6 +70,7 @@ class McpGatewaySession:
         *,
         timeout: float | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         self._url = _mcp_url(url)
         self._timeout = timeout if timeout is not None else _gateway_timeout()
@@ -79,6 +80,8 @@ class McpGatewaySession:
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         }
+        if headers:
+            self._headers.update(headers)
         self._client: httpx.AsyncClient | None = None
         self._next_id = 1
 
