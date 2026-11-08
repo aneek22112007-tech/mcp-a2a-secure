@@ -277,6 +277,14 @@ export interface MetricsResponse {
   busiest_keys: BusyKey[];
   in_process_limiter: { active_buckets: number };
   sandbox: SandboxMetrics;
+  injection_guard?: { hits: number; blocked: number; sanitized: number };
+  llm?: {
+    available: boolean;
+    call_count: number;
+    avg_latency_ms: number;
+    fallback_rate: number;
+    fallback_count: number;
+  };
 }
 
 export interface ToolPin {

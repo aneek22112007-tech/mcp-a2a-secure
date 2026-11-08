@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
 import { Suspense, lazy } from 'react'
 
 // Route-level code splitting — each route is a separate chunk
@@ -30,6 +30,38 @@ function RouteFallback() {
   )
 }
 
+function NotFound() {
+  return (
+    <main
+      style={{
+        minHeight: '100vh',
+        background: '#000',
+        color: '#fff',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '1rem',
+        padding: '2rem',
+        textAlign: 'center',
+        fontFamily: 'var(--font-body)',
+      }}
+    >
+      <span style={{ color: '#FE6E44', letterSpacing: '0.2em', fontSize: '0.75rem' }}>404</span>
+      <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(1.75rem, 5vw, 3rem)', margin: 0 }}>
+        Page not found
+      </h1>
+      <p style={{ color: 'rgba(255,255,255,0.6)', margin: 0 }}>
+        The page you are looking for does not exist.
+      </p>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+        <Link to="/" className="pill-solid">Home</Link>
+        <Link to="/console" className="pill-outline">Console</Link>
+      </div>
+    </main>
+  )
+}
+
 import { GoogleOAuthProvider } from '@react-oauth/google'
 
 const GOOGLE_CLIENT_ID = '1092162384024-e054dc9roeg3vfk513gffc5nbnuh3376.apps.googleusercontent.com';
@@ -58,6 +90,7 @@ function App() {
           />
           <Route path="/dashboard" element={<ConsoleApp />} />
           <Route path="/console" element={<ConsoleApp />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
     </Router>

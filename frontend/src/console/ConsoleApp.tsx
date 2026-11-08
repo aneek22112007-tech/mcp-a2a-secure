@@ -2,11 +2,13 @@
  * ConsoleApp — connect state, live/demo switch, and view routing.
  */
 import './styles/console.css';
+import './styles/premium.css';
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { ConnectScreen } from './features/connect/ConnectScreen';
-import { ConsoleShell, type ViewId } from './components/Shell';
+import { ConsoleShell } from './components/Shell';
+import { VIEW_IDS, type ViewId } from './components/views';
 import { useAuditStream } from './api/hooks';
 import { consoleApi, detectAccess, forgetApiKey, getApiKey } from './api/client';
 import { LoadingPanel } from './components/ui';
@@ -54,6 +56,11 @@ interface Session {
   scopes: string[];
 }
 
+function readHashView(): ViewId {
+  const id = window.location.hash.replace(/^#\/?/, '') as ViewId;
+  return VIEW_IDS.includes(id) ? id : 'overview';
+}
+
 function ConsoleBody({
   session,
   isDemo,
@@ -63,7 +70,26 @@ function ConsoleBody({
   isDemo: boolean;
   backendUp: boolean;
 }) {
-  const [view, setView] = useState<ViewId>('overview');
+  const [view, setViewState] = useState<ViewId>(readHashView);
+
+  // Keep the active view in the URL hash so refresh and deep links work.
+  useEffect(() => {
+    const onHash = () => setViewState(readHashView());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const setView = (next: ViewId) => {
+    setViewState(next);
+    const hash = `#/${next}`;
+    if (window.location.hash !== hash) window.history.pushState(null, '', hash);
+  };
+
+  useEffect(() => {
+    const label = view.charAt(0).toUpperCase() + view.slice(1);
+    document.title = `${label} · MCP Guard Console`;
+  }, [view]);
+
   const { state: streamState } = useAuditStream(100, !isDemo && backendUp);
 
   return (

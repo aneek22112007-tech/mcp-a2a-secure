@@ -43,7 +43,7 @@ export default function Nav() {
     >
       {/* Logo / Wordmark */}
       <a
-        href="#"
+        href="#hero"
         aria-label="MCP·A2A home"
         style={{
           fontFamily: 'var(--font-display)',

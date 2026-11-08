@@ -18,7 +18,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, isSignUp }) =>
       overflow: 'hidden',
     }}>
       {/* Left Column: Form */}
-      <main style={{
+      <main className="auth-main" style={{
         width: '100%',
         maxWidth: '500px',
         display: 'flex',
@@ -75,6 +75,8 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, isSignUp }) =>
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
         }}>
           {isSignUp ? (
             <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'var(--font-body)' }}>
@@ -89,7 +91,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, isSignUp }) =>
           )}
           <span style={{
             fontSize: '0.6rem',
-            color: 'rgba(255,255,255,0.2)',
+            color: 'rgba(255,255,255,0.35)',
             fontFamily: 'var(--font-body)',
             letterSpacing: '0.12em',
             textTransform: 'uppercase',
@@ -98,7 +100,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, isSignUp }) =>
       </main>
 
       {/* Right Column: 3D Visual */}
-      <div style={{
+      <div className="auth-visual" aria-hidden="true" style={{
         flex: 1,
         position: 'relative',
         background: '#000',
@@ -136,7 +138,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, isSignUp }) =>
           display: 'flex',
           alignItems: 'center',
           gap: '0.4rem',
-          color: 'rgba(255,255,255,0.2)',
+          color: 'rgba(255,255,255,0.4)',
           fontSize: '0.6rem',
           fontFamily: 'var(--font-body)',
           letterSpacing: '0.1em',

@@ -3,23 +3,45 @@ import { type AuditEvent, type ToolPin } from '../api/client';
 
 // ── Formatting ────────────────────────────────────────────────────────
 
-export function fmtTimestamp(iso: string): string {
+/** All console times are shown in India Standard Time. */
+export const CONSOLE_TZ = 'Asia/Kolkata';
+export const CONSOLE_TZ_LABEL = 'IST';
+
+const timeFmt = new Intl.DateTimeFormat('en-GB', {
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: CONSOLE_TZ,
+});
+const dateFmt = new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit', month: 'short', year: 'numeric', timeZone: CONSOLE_TZ,
+});
+
+function parseIso(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
   const d = new Date(iso);
-  return d.toLocaleTimeString('en-GB', {
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-    hour12: false,
-  });
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
+export function fmtTimestamp(iso: string | null | undefined): string {
+  const d = parseIso(iso);
+  return d ? timeFmt.format(d) : '—';
 }
 
-export function fmtDatetime(iso: string): string {
-  return `${fmtDate(iso)}  ${fmtTimestamp(iso)}`;
+export function fmtDate(iso: string | null | undefined): string {
+  const d = parseIso(iso);
+  return d ? dateFmt.format(d) : '—';
+}
+
+export function fmtDatetime(iso: string | null | undefined): string {
+  const d = parseIso(iso);
+  return d ? `${dateFmt.format(d)}, ${timeFmt.format(d)} ${CONSOLE_TZ_LABEL}` : '—';
+}
+
+const numberFmt = new Intl.NumberFormat('en-US');
+export function fmtNumber(n: number | null | undefined): string {
+  return n == null || !Number.isFinite(n) ? '—' : numberFmt.format(n);
+}
+
+export function fmtPercent(n: number | null | undefined, digits = 1): string {
+  return n == null || !Number.isFinite(n) ? '—' : `${(n * 100).toFixed(digits).replace(/\.0$/, '')}%`;
 }
 
 export function fmtDuration(ms: number | null | undefined): string {
@@ -65,9 +87,12 @@ export function shortenHash(h: string | null | undefined, len = 16): string {
   return h.length > len ? h.slice(0, len) + '…' : h;
 }
 
-export function elapsedSince(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const s = Math.floor(diff / 1000);
+export function elapsedSince(iso: string | null | undefined): string {
+  const d = parseIso(iso);
+  if (!d) return '—';
+  const diff = Date.now() - d.getTime();
+  const s = Math.max(0, Math.floor(diff / 1000));
+  if (s < 5) return 'just now';
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ago`;
@@ -178,3 +203,39 @@ export const ALL_SCOPES = [
 ] as const;
 
 export type Scope = typeof ALL_SCOPES[number];
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+export const MOD_KEY = IS_MAC ? '⌘' : 'Ctrl';
+
+export function envFromBase(base: string): { name: string; host: string } {
+  let host = base;
+  try { host = new URL(base).host; } catch { /* keep raw */ }
+  const h = host.split(':')[0];
+  const local = h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h.endsWith('.local');
+  return { name: local ? 'local' : h.split('.')[0], host };
+}
+
+
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${fmtNumber(n)} ${n === 1 ? one : many}`;
+}
+
+/** Nearest-rank percentile. Returns null for an empty list. */
+export function percentile(values: number[], p: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
+  return sorted[rank];
+}
+
+/** Real commands shown in empty states. The key stays a shell variable; it is never filled in. */
+export function trafficCommands(base: string) {
+  const b = base.replace(/\/$/, '');
+  return {
+    restCall: `curl -s -H "Authorization: Bearer $MCPG_API_KEY" ${b}/api/notes`,
+    mcpCall: `curl -s -X POST ${b}/mcp/ -H "Authorization: Bearer $MCPG_API_KEY" -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`,
+    agent: 'cd api && uv run python scripts/run_notes_agent.py "list my notes"',
+    scan: `curl -s -X POST -H "Authorization: Bearer $MCPG_API_KEY" ${b}/api/scanner/run`,
+    sandbox: `curl -s -H "Authorization: Bearer $MCPG_API_KEY" ${b}/api/notes`,
+  };
+}

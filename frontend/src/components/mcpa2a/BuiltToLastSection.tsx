@@ -132,6 +132,7 @@ export default function BuiltToLastSection() {
         {/* Main ticker row */}
         <div
           aria-label="Protocol status ticker"
+          className="protocol-ticker"
           style={{
             display: 'grid',
             gridTemplateColumns: '1fr auto 1fr',
@@ -215,12 +216,12 @@ export default function BuiltToLastSection() {
             </div>
 
             <a
-              href="#demo"
+              href="/console"
               className="pill-solid"
-              aria-label="Request a demo"
+              aria-label="Open the live console"
               style={{ fontSize: '0.65rem', padding: '0.6rem 1.5rem' }}
             >
-              Request a Demo
+              Open Live Console
             </a>
           </div>
 

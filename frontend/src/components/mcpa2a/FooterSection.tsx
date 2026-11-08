@@ -122,7 +122,7 @@ export default function FooterSection() {
         }}>
           {/* GitHub — outline pill */}
           <a
-            href="https://github.com"
+            href="https://github.com/aneek22112007-tech/mcp-a2a-secure"
             target="_blank"
             rel="noopener noreferrer"
             className="pill-outline"
@@ -134,12 +134,12 @@ export default function FooterSection() {
 
           {/* REQUEST A DEMO — solid orange pill */}
           <a
-            href="#demo"
+            href="/console"
             className="pill-solid"
-            aria-label="Request a demo"
+            aria-label="Open the live console"
             style={{ flex: '0 0 auto' }}
           >
-            Request a Demo
+            Open Live Console
           </a>
 
           {/* DOCS — outline pill */}
