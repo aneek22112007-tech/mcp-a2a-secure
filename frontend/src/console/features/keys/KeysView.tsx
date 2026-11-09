@@ -62,6 +62,7 @@ function KeysViewInner({ offline, clientIds }: KeysViewProps) {
   const refetch = () => { void discovered.refetch(); void keysQuery.refetch(); };
 
   const handleCreate = async () => {
+    if (offline) return;
     if (!formClientId || !formName) {
       toast.error('Client ID and name are required.');
       return;
@@ -83,7 +84,7 @@ function KeysViewInner({ offline, clientIds }: KeysViewProps) {
   };
 
   const handleRevoke = async () => {
-    if (!revokeTarget) return;
+    if (offline || !revokeTarget) return;
     try {
       await revokeKey.mutateAsync(revokeTarget.id);
       toast.success(`Key ${revokeTarget.key_prefix}… revoked`);
@@ -95,6 +96,7 @@ function KeysViewInner({ offline, clientIds }: KeysViewProps) {
   };
 
   const handleTest = async (key: ApiKey) => {
+    if (offline) return;
     try {
       // Use the raw prefix as a test — we don't have the full key, so we
       // can only test keys we just created. For already-created keys we
@@ -295,7 +297,8 @@ function KeysViewInner({ offline, clientIds }: KeysViewProps) {
                         <button
                           className="btn btn-ghost btn-sm"
                           onClick={() => void handleTest(k)}
-                          title="Test this key"
+                          disabled={offline}
+                          title={offline ? 'Actions disabled while offline' : 'Test this key'}
                           aria-label={`Test key ${k.key_prefix}`}
                         >
                           <TestTube size={11} />
@@ -407,7 +410,7 @@ function KeysViewInner({ offline, clientIds }: KeysViewProps) {
               <button
                 className="btn btn-primary"
                 onClick={handleCreate}
-                disabled={createKey.isPending}
+                disabled={offline || createKey.isPending}
               >
                 {createKey.isPending ? 'Creating…' : 'Create Key'}
               </button>

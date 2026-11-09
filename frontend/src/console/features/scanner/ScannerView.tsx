@@ -46,6 +46,7 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
   const findings: ScanFinding[] = data?.items ?? [];
 
   const handleScanAll = async () => {
+    if (offline) return;
     try {
       const res = await scanAll.mutateAsync();
       setLastScan(res);
@@ -56,7 +57,7 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
   };
 
   const handleScanTool = async () => {
-    if (!selectedTool) return;
+    if (offline || !selectedTool) return;
     try {
       const res = await scanTool.mutateAsync(selectedTool);
       setLastScan(res);
@@ -67,6 +68,7 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
   };
 
   const handleResolve = async (id: string, toolName: string) => {
+    if (offline) return;
     try {
       await resolveFinding.mutateAsync(id);
       toast.success(`Resolved finding for ${toolName}`);

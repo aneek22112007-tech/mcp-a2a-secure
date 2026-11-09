@@ -43,6 +43,7 @@ function PinsViewInner({ offline }: PinsViewProps) {
   const pins: ToolPin[] = data?.items ?? [];
 
   const handleSync = async () => {
+    if (offline) return;
     try {
       const res = await syncPins.mutateAsync();
       toast.success(`Sync complete — ${res.updated.length} pin(s) updated`);
@@ -52,7 +53,7 @@ function PinsViewInner({ offline }: PinsViewProps) {
   };
 
   const handleApprove = async () => {
-    if (!approveTarget) return;
+    if (offline || !approveTarget) return;
     try {
       await approvePin.mutateAsync({ tool_name: approveTarget.tool_name, note: note || undefined });
       toast.success(`Approved pin for ${approveTarget.tool_name}`);
@@ -65,7 +66,7 @@ function PinsViewInner({ offline }: PinsViewProps) {
   };
 
   const handleRevoke = async () => {
-    if (!revokeTarget) return;
+    if (offline || !revokeTarget) return;
     try {
       await revokePin.mutateAsync({ tool_name: revokeTarget.tool_name, note: note || undefined });
       toast.success(`Revoked pin for ${revokeTarget.tool_name}`);
@@ -292,7 +293,7 @@ function PinsViewInner({ offline }: PinsViewProps) {
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => { setApproveTarget(null); setNote(''); }}>Cancel</button>
-              <button className="btn btn-success" onClick={handleApprove} disabled={approvePin.isPending}>
+              <button className="btn btn-success" onClick={handleApprove} disabled={offline || approvePin.isPending}>
                 {approvePin.isPending ? 'Approving…' : 'Approve'}
               </button>
             </div>
