@@ -6,9 +6,7 @@ streamable-HTTP event streams, are not rewritten.
 
 from __future__ import annotations
 
-import json
-
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.audit.events import (
     STATUS_DENIED,
@@ -18,10 +16,26 @@ from app.audit.redaction import current_client_ip, current_request_id, safe_tool
 from app.audit.sink import record_event
 from app.auth.principal import Principal
 from app.config import settings
+from app.mcp_jsonrpc import (
+    body_bytes,
+    buffer_body,
+    is_json,
+    replay,
+    tools_calls,
+)
 from app.middleware import _send_error
 from app.models.audit_events import AUDIT_DECISION_DENIED
 from app.pins.types import MODE_OFF, MODE_WARN, PIN_REASON_MISSING
 from app.services.pins import PinDecision, evaluate_tool, pin_audit_action
+
+__all__ = [
+    "McpToolPinMiddleware",
+    "body_bytes",
+    "buffer_body",
+    "is_json",
+    "replay",
+    "tools_calls",
+]
 
 
 class McpToolPinMiddleware:
@@ -42,21 +56,13 @@ class McpToolPinMiddleware:
             await self.app(scope, receive, send)
             return
 
-        buffered: list[Message] = []
-        while True:
-            message = await receive()
-            kind = message["type"]
-            if kind == "http.disconnect":
-                return
-            buffered.append(message)
-            if kind != "http.request":
-                break
-            if not message.get("more_body", False):
-                break
+        buffered = await buffer_body(receive)
+        if buffered is None:
+            return
 
-        calls = _tools_calls(scope, buffered)
+        calls = tools_calls(scope, buffered)
         if not calls:
-            await self.app(scope, _replay(buffered, receive), send)
+            await self.app(scope, replay(buffered, receive), send)
             return
 
         blocked = False
@@ -80,21 +86,7 @@ class McpToolPinMiddleware:
             )
             return
 
-        await self.app(scope, _replay(buffered, receive), send)
-
-
-def _replay(buffered: list[Message], receive: Receive):
-    index = 0
-
-    async def replay() -> Message:
-        nonlocal index
-        if index < len(buffered):
-            message = buffered[index]
-            index += 1
-            return message
-        return await receive()
-
-    return replay
+        await self.app(scope, replay(buffered, receive), send)
 
 
 async def _decision_for(name: object) -> PinDecision:
@@ -131,49 +123,3 @@ async def _audit_pin(scope: Scope, name: object, decision: PinDecision) -> None:
         ),
         required=False,
     )
-
-
-def _tools_calls(scope: Scope, buffered: list[Message]) -> list[dict]:
-    if not _is_json(scope):
-        return []
-    try:
-        payload = json.loads(_body_bytes(buffered))
-    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
-        return []
-    if isinstance(payload, dict):
-        messages = [payload]
-    elif isinstance(payload, list):
-        messages = payload
-    else:
-        return []
-    calls: list[dict] = []
-    for item in messages:
-        if isinstance(item, dict) and item.get("method") == "tools/call":
-            calls.append(item)
-    return calls
-
-
-def _is_json(scope: Scope) -> bool:
-    for key, value in scope.get("headers", []):
-        if key.lower() != b"content-type":
-            continue
-        try:
-            text = value.decode("latin-1")
-        except UnicodeDecodeError:
-            continue
-        if "application/json" in text.lower():
-            return True
-    return False
-
-
-def _body_bytes(buffered: list[Message]) -> bytes:
-    parts: list[bytes] = []
-    for message in buffered:
-        if message["type"] != "http.request":
-            continue
-        body = message.get("body", b"") or b""
-        if isinstance(body, bytearray):
-            body = bytes(body)
-        if isinstance(body, bytes):
-            parts.append(body)
-    return b"".join(parts)
