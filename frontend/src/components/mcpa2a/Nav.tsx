@@ -3,11 +3,11 @@ import { Menu, X } from 'lucide-react'
 import { useUIStore } from '../../store/uiStore'
 import { Link } from 'react-router-dom'
 
-const NAV_LINKS = [
+const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: 'Protocol', href: '#protocol' },
   { label: 'Scanner', href: '#scanner' },
   { label: 'Architecture', href: '#architecture' },
-  { label: 'Docs', href: '#docs' },
+  { label: 'Docs', href: 'https://github.com/aneek22112007-tech/mcp-a2a-secure#readme', external: true },
 ]
 
 export default function Nav() {
@@ -71,6 +71,7 @@ export default function Nav() {
           <a
             key={link.label}
             href={link.href}
+            {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
             style={{
               fontFamily: 'var(--font-body)',
               fontSize: '0.7rem',
@@ -138,8 +139,21 @@ export default function Nav() {
         </Link>
         <Link
           to="/signup"
-          className="bg-green-400 text-black px-4 py-2 rounded-md font-bold text-xs tracking-wider"
-          style={{ fontSize: '0.65rem' }}
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: '0.65rem',
+            fontWeight: 700,
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            color: '#fff',
+            background: 'var(--accent)',
+            padding: '0.55rem 1.1rem',
+            borderRadius: '999px',
+            textDecoration: 'none',
+            transition: 'background 0.2s',
+          }}
+          onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = 'var(--accent-light)')}
+          onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = 'var(--accent)')}
         >
           GET STARTED ↗
         </Link>
@@ -203,6 +217,7 @@ export default function Nav() {
             <a
               key={link.label}
               href={link.href}
+              {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
               onClick={() => setNavOpen(false)}
               style={{
                 fontFamily: 'var(--font-display)',
@@ -228,7 +243,7 @@ export default function Nav() {
           <Link to="/signin" className="pill-outline" onClick={() => setNavOpen(false)}>
             Sign In
           </Link>
-          <Link to="/signup" className="bg-green-400 text-black px-6 py-3 rounded-md font-bold text-sm tracking-wider" onClick={() => setNavOpen(false)}>
+          <Link to="/signup" className="pill-solid" onClick={() => setNavOpen(false)}>
             GET STARTED ↗
           </Link>
         </div>
