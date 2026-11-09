@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+MAX_NOTE_BYTES = 100 * 1024
+
 
 class NoteNameError(ValueError):
     """A note name failed the allowlist or the resolved-path check."""
@@ -52,6 +54,9 @@ def read_note(notes_dir: Path, name: str) -> str:
 
 def write_note(notes_dir: Path, name: str, content: str) -> str:
     """Create or overwrite a note and return ``saved {name}``."""
+
+    if len(content.encode("utf-8")) > MAX_NOTE_BYTES:
+        raise ValueError("note content exceeds 100 KiB")
 
     path = resolve_note_path(notes_dir, name)
     path.parent.mkdir(parents=True, exist_ok=True)
