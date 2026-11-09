@@ -83,7 +83,7 @@ Overview counts requests from `GET /api/metrics` and pin totals from `GET /api/p
 
 API Keys lists every client id found in the audit log. Live Audit hides the console's own `GET /api` allow rows until you turn on "Show console GET /api polls". The scanner button is "Scan all tools".
 
-If `GET /health` fails, the console switches to the demo dataset and shows "DEMO DATA (backend offline)". The Live and backend-ok text is hidden. When health succeeds again, it returns to live data. A request that does not finish within 5 seconds shows an error instead of a spinner.
+If `GET /health` fails, the console enters an offline state. It never falls back to fabricated demo data; instead, it continues displaying the last genuine backend data cached by React Query alongside an honest offline indicator ("Backend offline. Showing the last data received at HH:MM IST."). The timestamp reflects the actual last successful data update from the backend, or shows that no data has been loaded yet if the cache is empty. The health pill and stream status indicator remain visible to reflect current connection health. Actions that perform backend mutations (creating/revoking API keys, running scans, approving/revoking pins, and running attack sequences) are disabled while offline. When the backend becomes reachable again, queries resume and actions are re-enabled. A request that does not finish within 5 seconds shows an error instead of a spinner.
 
 ## What was not changed
 
