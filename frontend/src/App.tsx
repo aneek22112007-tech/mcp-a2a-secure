@@ -1,8 +1,9 @@
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
 import { Suspense, lazy } from 'react'
 
-// Route-level code splitting — each route is a separate chunk
-// Landing page gets ZERO dashboard/3D code; dashboard gets ZERO landing animation code
+// Route-level code splitting: each route is a separate chunk.
+// The landing page loads three.js only for its lazy background scene (after
+// first paint); the console never loads landing animation code.
 const McpA2aPage = lazy(() => import('./pages/McpA2aPage'))
 const SignIn = lazy(() =>
   import('./components/auth/SignIn').then(m => ({ default: m.SignIn }))
