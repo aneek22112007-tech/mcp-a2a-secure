@@ -29,16 +29,18 @@ const LIVE: Item[] = [
       { label: 'Agent tool calls in Live Audit', href: '#/audit' },
     ],
   },
-];
-
-const UPCOMING: Item[] = [
   {
     icon: Layers,
     title: 'A2A delegation',
     description:
       'Agent-to-agent calls with scope attenuation at each hop and a delegation chain recorded in the audit log.',
-    target: 'Block 7',
+    links: [
+      { label: 'a2a.* events in Live Audit', href: '#/audit' },
+    ],
   },
+];
+
+const UPCOMING: Item[] = [
   {
     icon: ScanSearch,
     title: 'AI-assisted scanner',
