@@ -87,8 +87,11 @@ def check_tool_output(
         else:
             current_text = text
             current_matches = matches
-            blocked_by_rescan = False
-            still_changing = False
+            allowed = False
+            blocked = True
+            cleaned = False
+            action = "blocked"
+            result_text = f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
 
             for _attempt in range(3):
                 new_text = sanitize_medium_text(current_text, current_matches)
@@ -101,10 +104,6 @@ def check_tool_output(
                     None,
                 )
                 if re_high_rule is not None:
-                    allowed = False
-                    blocked = True
-                    cleaned = False
-                    action = "blocked"
                     highest_severity = "high"
                     highest_rule_id = re_high_rule
                     result_text = f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
@@ -114,40 +113,24 @@ def check_tool_output(
                         for f in findings
                         if f.rule_id not in {rf.rule_id for rf in re_findings}
                     ]
-                    blocked_by_rescan = True
                     break
 
-                # If no findings remain, cleaning was completely successful
+                # Output can be allowed ONLY when a fresh scan confirms NO remaining findings
                 if not re_findings:
-                    current_text = new_text
-                    still_changing = False
-                    break
-
-                # If text did not change despite findings, stop further passes
-                if new_text == current_text:
-                    current_text = new_text
-                    still_changing = False
-                    break
-
-                # Text changed and still has findings; continue to next attempt
-                current_text = new_text
-                current_matches = re_matches
-                still_changing = True
-
-            if not blocked_by_rescan:
-                if still_changing:
-                    # Text remained changing after 3 attempts; block rather than returning unsafe text
-                    allowed = False
-                    blocked = True
-                    cleaned = False
-                    action = "blocked"
-                    result_text = f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
-                else:
                     allowed = True
                     blocked = False
                     cleaned = True
                     action = "cleaned"
-                    result_text = current_text
+                    result_text = new_text
+                    break
+
+                # If text did not change while findings remain, sanitization made no progress -> fail closed
+                if new_text == current_text:
+                    break
+
+                # Text changed but findings remain; advance to next attempt if within limit
+                current_text = new_text
+                current_matches = re_matches
 
     result = GuardResult(
         allowed=allowed,

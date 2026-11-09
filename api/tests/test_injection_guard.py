@@ -886,3 +886,25 @@ def test_rescan_succeeds_multi_pass_within_three_attempts(monkeypatch):
     assert res.cleaned is True
     assert res.action == "cleaned"
     assert res.text == "Fully sanitized clean text documentation"
+
+
+def test_rescan_blocks_when_sanitizer_makes_no_progress_with_remaining_findings(
+    monkeypatch,
+):
+    """If sanitization makes no progress (unchanged text) while findings remain, block output."""
+    monkeypatch.setattr(settings, "injection_guard_mode", "enforce")
+    text = "Initial text with \u200b invisible char"
+
+    # Simulate a sanitizer that returns unchanged text without removing the medium finding
+    def mock_no_progress(t, m):
+        return t
+
+    monkeypatch.setattr(guard_engine, "sanitize_medium_text", mock_no_progress)
+
+    res = check_tool_output(text, tool_name="read_note")
+    # Must fail closed and block the output
+    assert res.allowed is False
+    assert res.blocked is True
+    assert res.cleaned is False
+    assert res.action == "blocked"
+    assert "[BLOCKED: Tool output blocked by injection guard" in res.text
