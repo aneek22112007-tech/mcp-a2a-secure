@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { useQueryClient, useIsFetching } from '@tanstack/react-query';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useIsFetching } from '@tanstack/react-query';
+import { useLastUpdated } from '../api/hooks';
 import { Check, ChevronDown, ChevronRight, Copy, Keyboard, LogOut, RefreshCw, Rows3, Rows4 } from 'lucide-react';
 import { copyToClipboard, fmtTimestamp, CONSOLE_TZ_LABEL, envFromBase } from '../utils/helpers';
 
@@ -99,16 +100,6 @@ export function HealthPill({ state, title }: { state: 'ok' | 'degraded' | 'down'
       <span className="health-dot" aria-hidden />
       {label}
     </span>
-  );
-}
-
-// ── Last updated ──────────────────────────────────────────────────────
-function useLastUpdated(): number {
-  const qc = useQueryClient();
-  const cache = qc.getQueryCache();
-  return useSyncExternalStore(
-    cb => cache.subscribe(cb),
-    () => cache.getAll().reduce((m, q) => Math.max(m, q.state.dataUpdatedAt), 0),
   );
 }
 

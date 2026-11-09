@@ -3,13 +3,14 @@ import { useDialogA11y } from './a11y';
 import {
   Shield, LayoutDashboard, Key, FileText, BarChart2,
   Pin, Search, Box, Zap, HelpCircle, ChevronLeft, ChevronRight,
-  Database, RefreshCw, PanelLeft, Keyboard, LogOut, Command as CommandIcon,
+  RefreshCw, PanelLeft, Keyboard, LogOut, Command as CommandIcon,
+  WifiOff,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { StreamDot } from './ui';
 import { EnvSelector, HealthPill, KeyMenu, SubHeader } from './Chrome';
-import { useHealth } from '../api/hooks';
+import { useHealth, useLastUpdated } from '../api/hooks';
 import { CommandPalette, type Command } from './CommandPalette';
 import { Kbd } from './premium';
 import type { ViewId } from './views';
@@ -135,7 +136,8 @@ export function ConsoleShell({
   const [density, setDensity] = useState<'comfortable' | 'compact'>(() => {
     try { return localStorage.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable'; } catch { return 'comfortable'; }
   });
-  const { data: health, isError: healthError } = useHealth(!offline);
+  const { data: health, isError: healthError } = useHealth();
+  const lastUpdated = useLastUpdated();
   const healthState: 'ok' | 'degraded' | 'down' | 'unknown' = !backendUp || healthError
     ? 'down'
     : health?.status === 'ok'
@@ -255,19 +257,19 @@ export function ConsoleShell({
         <span className="strip-spacer" />
 
         {offline && (
-          <span className="badge badge-review" role="status" aria-label="Demo data, backend offline">
-            <Database size={11} aria-hidden />
-            DEMO DATA (backend offline)
+          <span className="badge badge-review" role="status" aria-label="Backend offline">
+            <WifiOff size={11} aria-hidden />
+            {lastUpdated
+              ? `Backend offline. Showing the last data received at ${clockFmt.format(new Date(lastUpdated))} ${CONSOLE_TZ_LABEL}.`
+              : 'Backend offline. No data loaded yet.'}
           </span>
         )}
 
-        {!offline && (
-          <HealthPill
-            state={healthState}
-            title={healthState === 'ok' ? `GET /health ok · live stream ${streamState}` : healthState === 'degraded' ? `Backend up, live stream ${streamState}` : 'GET /health failed'}
-          />
-        )}
-        {!offline && <StreamDot state={streamState} />}
+        <HealthPill
+          state={healthState}
+          title={healthState === 'ok' ? `GET /health ok · live stream ${streamState}` : healthState === 'degraded' ? `Backend up, live stream ${streamState}` : 'GET /health failed'}
+        />
+        <StreamDot state={streamState} />
         <IstClock />
         <KeyMenu
           prefix={keyPrefix}
