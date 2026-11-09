@@ -6,6 +6,7 @@ The manager:
 3. Persists the task lifecycle (pending → running → completed/failed/blocked/cancelled).
 4. Records delegation, worker.start, and completion/failure audit events linked by task_id.
 5. Executes a LangGraph graph (plan -> delegate -> collect) using the existing LLMBackend.
+   The plan text is passed to the worker together with the task.
 6. The worker opens an authenticated session against ``/mcp/`` with the worker key.
 
 The manager does **not** call any tool directly. It delegates and waits.
@@ -26,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
@@ -42,6 +44,7 @@ from app.agents.a2a.worker import (
     WorkerOutcome,
     run_worker,
 )
+from app.agents.notes_agent import MAX_TASK_CHARS
 from app.audit.events import AUDIT_DECISION_ALLOWED, AUDIT_DECISION_DENIED, AuditRecord
 from app.audit.sink import record_event
 from app.auth.principal import Principal
@@ -78,6 +81,11 @@ ACTION_A2A_DENIED = "a2a.denied"
 
 # Hard deadline for the whole A2A task (manager + worker combined)
 _TASK_DEADLINE_S = 120.0
+
+# Limits for the manager plan passed to the worker
+_MAX_PLAN_CHARS = 2_000
+_MIN_PLAN_CHARS = 40
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 
 class ManagerNotConfiguredError(RuntimeError):
@@ -129,7 +137,7 @@ def _compile_manager_graph(backend: LLMBackend):
     async def delegate(state: ManagerGraphState) -> dict[str, Any]:
         worker_outcome = await run_worker(
             state["task_id"],
-            state["task_input"],
+            _worker_instruction(state["task_input"], state.get("plan")),
             state["delegation"],
             request_id=state["task_id"],
         )
@@ -156,6 +164,29 @@ def _compile_manager_graph(backend: LLMBackend):
     graph.add_edge("delegate", "collect")
     graph.add_edge("collect", END)
     return graph.compile()
+
+
+def _worker_instruction(task_input: str, plan: str | None) -> str:
+    """Combine the user's task with the manager's plan for the worker.
+
+    The plan is clipped so the whole instruction stays within the worker's
+    MAX_TASK_CHARS limit. If there is no room or no plan, the task is sent
+    unchanged. The user's task stays authoritative; the plan is guidance.
+    """
+    cleaned_plan = _THINK_RE.sub("", plan or "").strip()
+    if not cleaned_plan:
+        return task_input
+    header = "Task:\n"
+    middle = "\n\nManager plan (guidance only; follow the task above):\n"
+    budget = min(
+        _MAX_PLAN_CHARS,
+        MAX_TASK_CHARS - len(header) - len(task_input) - len(middle),
+    )
+    if budget < _MIN_PLAN_CHARS:
+        return task_input
+    if len(cleaned_plan) > budget:
+        cleaned_plan = cleaned_plan[: budget - 3].rstrip() + "..."
+    return f"{header}{task_input}{middle}{cleaned_plan}"
 
 
 async def run_manager(
