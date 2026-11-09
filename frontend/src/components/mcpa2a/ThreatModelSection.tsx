@@ -81,7 +81,7 @@ export default function ThreatModelSection() {
     <section
       aria-label="Threat Model"
       style={{
-        background: '#040405',
+        background: 'rgba(4,4,5,0.62)',
         padding: '8rem 2.5rem',
         display: 'flex',
         flexDirection: 'column',
@@ -89,8 +89,8 @@ export default function ThreatModelSection() {
         gap: '4rem',
       }}
     >
-      <div style={{ textAlign: 'center', maxWidth: '800px' }}>
-        <h2 style={{
+      <div style={{ textAlign: 'center', maxWidth: '1100px', width: '100%' }}>
+        <h2 className="section-heading" style={{
           fontFamily: 'var(--font-display)',
           fontSize: 'clamp(2rem, 5vw, 4rem)',
           fontWeight: 900,
@@ -99,7 +99,7 @@ export default function ThreatModelSection() {
           marginBottom: '1rem',
           lineHeight: 1.1,
         }}>
-          Every Mitigation Traces Back<br />To A Threat And A Test
+          Every Mitigation Traces Back To A Threat And A Test
         </h2>
       </div>
 

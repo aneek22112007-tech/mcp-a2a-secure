@@ -201,13 +201,20 @@ export default function TileShatterSection() {
           <blockquote
             style={{
               fontFamily: 'var(--font-body)',
-              fontSize: 'clamp(0.9rem, 2.5vw, 1.25rem)',
+              fontSize: 'clamp(1.15rem, 2.2vw, 1.6rem)',
+              fontWeight: 500,
               color: '#fff',
               fontStyle: 'italic',
-              maxWidth: '640px',
+              maxWidth: '760px',
               textAlign: 'center',
-              lineHeight: 1.75,
-              textShadow: '0 2px 20px rgba(0,0,0,0.8)',
+              textWrap: 'balance',
+              lineHeight: 1.6,
+              padding: '1.75rem 2.25rem',
+              background: 'rgba(0,0,0,0.72)',
+              border: '1px solid rgba(254,110,68,0.35)',
+              borderRadius: '12px',
+              backdropFilter: 'blur(6px)',
+              textShadow: '0 2px 12px rgba(0,0,0,0.6)',
             }}
           >
             "The model is not the security boundary. The policy layer, schema checks,

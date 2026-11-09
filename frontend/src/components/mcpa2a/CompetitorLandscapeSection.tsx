@@ -66,7 +66,7 @@ export default function CompetitorLandscapeSection() {
       ref={sectionRef}
       aria-label="Competitor Landscape"
       style={{
-        background: '#0A0A0B',
+        background: 'rgba(10,10,11,0.6)',
         padding: '6rem 2.5rem',
         display: 'flex',
         flexDirection: 'column',
@@ -74,8 +74,8 @@ export default function CompetitorLandscapeSection() {
         gap: '4rem',
       }}
     >
-      <div style={{ textAlign: 'center', maxWidth: '800px' }}>
-        <h2 style={{
+      <div style={{ textAlign: 'center', maxWidth: '1100px', width: '100%' }}>
+        <h2 className="section-heading" style={{
           fontFamily: 'var(--font-display)',
           fontSize: 'clamp(2rem, 5vw, 4rem)',
           fontWeight: 900,
