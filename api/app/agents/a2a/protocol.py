@@ -6,6 +6,7 @@ using the official ``a2a`` Python package.
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from a2a.types import (
@@ -30,6 +31,11 @@ from app.models.a2a_tasks import (
     A2A_STATUS_RUNNING,
     A2ATask,
 )
+
+try:
+    A2A_SDK_VERSION: str = version("a2a-sdk")
+except PackageNotFoundError:  # pragma: no cover - dependency is required
+    A2A_SDK_VERSION = "unknown"
 
 _STATUS_MAP: dict[str, TaskState.ValueType] = {
     A2A_STATUS_PENDING: TaskState.TASK_STATE_SUBMITTED,

@@ -29,7 +29,7 @@ from app.agents.a2a.manager import (
     ManagerOutcome,
     run_manager,
 )
-from app.agents.a2a.protocol import a2a_task_dict, agent_card_dict
+from app.agents.a2a.protocol import A2A_SDK_VERSION, a2a_task_dict, agent_card_dict
 from app.agents.a2a.worker import WorkerNotConfiguredError
 from app.agents.notes_agent import MAX_TASK_CHARS, TaskError
 from app.audit.redaction import current_request_id
@@ -77,11 +77,14 @@ class ToolCallOut(BaseModel):
 
 
 class A2ATaskCapabilities(BaseModel):
-    """Agent discovery / capabilities envelope (A2A protocol)."""
+    """Discovery envelope for the delegated notes worker.
+
+    ``a2a_sdk`` is the installed a2a-sdk version used for the task and
+    agent-card shapes.
+    """
 
     agent_name: str = "mcp-guard-notes-worker"
-    protocol: str = "mcp-guard-a2a/1"
-    a2a_sdk: str = "a2a-sdk/1.3"
+    a2a_sdk: str = Field(default_factory=lambda: A2A_SDK_VERSION)
     max_hops: int = 1
     allowed_tools: list[str] = ["list_notes", "read_note", "write_note"]
     max_task_chars: int = MAX_TASK_CHARS
