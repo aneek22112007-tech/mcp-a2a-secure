@@ -5,12 +5,11 @@ import { ConsoleApiError } from '../../api/client';
 
 interface ConnectProps {
   onConnected: (clientId: string, scopes: string[]) => void;
-  onUseDemo?: () => void;
 }
 
 type ConnectState = 'idle' | 'checking' | 'success' | 'error';
 
-export function ConnectScreen({ onConnected, onUseDemo }: ConnectProps) {
+export function ConnectScreen({ onConnected }: ConnectProps) {
   const [baseUrl, setBaseUrl] = useState(getApiBase());
   const [key, setKey] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -149,12 +148,6 @@ export function ConnectScreen({ onConnected, onUseDemo }: ConnectProps) {
           <button className="btn btn-primary connect-submit" onClick={() => void handleConnect()} disabled={state === 'checking' || state === 'success'}>
             {state === 'checking' ? <><Loader2 size={14} className="spin" aria-hidden /> Checking…</> : <><Shield size={14} aria-hidden /> Connect</>}
           </button>
-
-          {onUseDemo && (
-            <button type="button" className="btn btn-ghost" onClick={onUseDemo}>
-              View with demo data
-            </button>
-          )}
         </div>
 
         <p className="connect-foot">Backend URL <span className="mono">{getApiBase()}</span></p>
