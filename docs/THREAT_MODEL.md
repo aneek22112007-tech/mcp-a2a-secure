@@ -83,6 +83,7 @@
 | Threat | Component | Current Mitigation | Evidence | Gap |
 |--------|-----------|-------------------|----------|-----|
 | Unauthenticated note write | `PUT /api/notes/{name}` | API-key auth and the `notes:write` scope | `api/app/auth/`, `api/app/auth/scopes.py` | Covered. A caller without a valid key gets 401. A key without `notes:write` gets 403. |
+| Unauthorized MCP tool call | `/mcp` `tools/call` | `McpToolScopeMiddleware` enforces per-tool scopes via `TOOL_SCOPES` (`notes:read` for `list_notes`/`read_note`, `notes:write` for `write_note`). Unmapped tools fail closed. | `api/app/mcp_tool_scope.py`, `api/app/auth/scopes.py:TOOL_SCOPES` | Covered. A key without the required tool scope gets 403 `FORBIDDEN` with `WWW-Authenticate`. Unmapped tools are denied with 403. |
 | Request ID spoofing | Middleware | IDs validated against `[A-Za-z0-9._:-]{0,64}` regex; overlong IDs replaced with UUID4 | `middleware.py:_REQUEST_ID_RE`, `test_hardening.py::test_overlong_and_invalid_request_ids_are_replaced` | Low — IDs are informational, not trusted for auth. |
 | A2A agent impersonation | (planned) | **[PROPOSED]** — not implemented | No signing code present | Gap pending implementation. |
 
