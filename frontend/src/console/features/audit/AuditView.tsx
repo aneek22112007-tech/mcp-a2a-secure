@@ -16,7 +16,7 @@ import {
 } from '../../utils/helpers';
 import { DEMO_AUDIT_EVENTS } from '../../demo/demoData';
 
-interface AuditViewProps { isDemo: boolean }
+interface AuditViewProps { offline: boolean }
 
 const AUDIT_SCAN_PAGES = 20;
 const AUDIT_RAW_LIMIT = 100;
@@ -239,7 +239,7 @@ function useDebounced<T>(value: T, ms = 300): T {
   return v;
 }
 
-function AuditViewInner({ isDemo }: AuditViewProps) {
+function AuditViewInner({ offline }: AuditViewProps) {
   const [cursors, setCursors] = useState<number[]>([0]);
   const [pageIndex, setPageIndex] = useState(0);
   const limit = 50;
@@ -288,7 +288,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
   });
 
   // SSE live stream
-  const { events: streamEvents, state: streamState } = useAuditStream(50, !isDemo);
+  const { events: streamEvents, state: streamState } = useAuditStream(50, !offline);
 
   const resetPage = useCallback(() => {
     setCursors([0]);
@@ -309,7 +309,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
     queryFn: () => showConsolePolls ? consoleApi.listAudit(queryParams) : listAuditUntilReal(queryParams),
     refetchInterval: 10_000,
     retry: 0,
-    enabled: !isDemo,
+    enabled: !offline,
   });
 
   const clearFilters = useCallback(() => {
@@ -322,7 +322,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
 
   const hasFilters = !!(filterAction || filterDecision || filterTool || filterPrefix);
 
-  const pageItems: AuditEvent[] = isDemo
+  const pageItems: AuditEvent[] = offline
     ? DEMO_AUDIT_EVENTS
     : (data?.items ?? []);
   const liveEvents = showConsolePolls
@@ -332,7 +332,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
     ? pageItems
     : pageItems.filter(evt => !isConsolePoll(evt));
 
-  const showLiveStrip = !isDemo && !hasFilters && pageIndex === 0;
+  const showLiveStrip = !offline && !hasFilters && pageIndex === 0;
   const query = search.trim().toLowerCase();
   const displayItems = (showLiveStrip
     ? dedupeEvents([...liveEvents.slice(0, 5), ...visiblePage]).slice(0, limit)
@@ -349,7 +349,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
         <div>
           <h1 className="page-title">Live Audit</h1>
           <p className="page-sub">
-            {isDemo
+            {offline
               ? `${displayItems.length} demo events`
               : data
                 ? `${displayItems.length} events on this page · ${deniedOnPage} denied · times in IST`
@@ -357,7 +357,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          {!isDemo && <StreamDot state={streamState} />}
+          {!offline && <StreamDot state={streamState} />}
           <label className="toggle">
             <input
               type="checkbox"
@@ -496,9 +496,9 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
 
       {/* Table */}
       <div className="panel">
-        {!isDemo && isLoading && !data ? (
+        {!offline && isLoading && !data ? (
           <LoadingPanel label="Loading audit events…" />
-        ) : !isDemo && isError ? (
+        ) : !offline && isError ? (
           <ErrorPanel message="Failed to load audit events" onRetry={() => void refetch()} />
         ) : displayItems.length === 0 ? (
           <EmptyState
@@ -537,7 +537,7 @@ function AuditViewInner({ isDemo }: AuditViewProps) {
                 </tbody>
               </table>
             </div>
-            {!isDemo && data && (
+            {!offline && data && (
               <Pager
                 offset={pageIndex * limit}
                 limit={limit}

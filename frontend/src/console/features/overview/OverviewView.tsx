@@ -18,7 +18,7 @@ import { DEMO_METRICS, DEMO_AUDIT_EVENTS, DEMO_PINS } from '../../demo/demoData'
 import { useReducedMotion } from '../../../hooks/useReducedMotion';
 
 interface OverviewProps {
-  isDemo: boolean;
+  offline: boolean;
 }
 
 function useGaveUp(active: boolean): boolean {
@@ -69,30 +69,30 @@ function pinCounts(pins: ToolPin[]) {
   return counts;
 }
 
-export function OverviewView({ isDemo }: OverviewProps) {
-  const { data: liveMetrics, isLoading, isError, refetch } = useMetrics(!isDemo);
-  const { data: health } = useHealth(!isDemo);
-  const { data: status } = useStatus(!isDemo);
-  const { data: livePins } = usePins(!isDemo);
-  const { data: auditPage } = useAudit({ limit: 50 }, !isDemo);
-  const { events: liveEvents, state: streamState } = useAuditStream(20, !isDemo);
-  const { data: series } = useActivitySeries(!isDemo);
+export function OverviewView({ offline }: OverviewProps) {
+  const { data: liveMetrics, isLoading, isError, refetch } = useMetrics(!offline);
+  const { data: health } = useHealth(!offline);
+  const { data: status } = useStatus(!offline);
+  const { data: livePins } = usePins(!offline);
+  const { data: auditPage } = useAudit({ limit: 50 }, !offline);
+  const { events: liveEvents, state: streamState } = useAuditStream(20, !offline);
+  const { data: series } = useActivitySeries(!offline);
   const [demoResults, setDemoResults] = useState<Record<string, AttackResult>>({});
   const [demoRunning, setDemoRunning] = useState<string | null>(null);
   const [demoError, setDemoError] = useState('');
   const [lights, setLights] = useState<StageLight[]>(() => pipelineLights('', 0));
-  const gaveUp = useGaveUp(!isDemo && isLoading && !liveMetrics);
+  const gaveUp = useGaveUp(!offline && isLoading && !liveMetrics);
 
-  const metrics: MetricsResponse | undefined = isDemo ? DEMO_METRICS : liveMetrics;
-  const probe = isDemo ? undefined : status;
-  const events: AuditEvent[] = isDemo
+  const metrics: MetricsResponse | undefined = offline ? DEMO_METRICS : liveMetrics;
+  const probe = offline ? undefined : status;
+  const events: AuditEvent[] = offline
     ? DEMO_AUDIT_EVENTS
     : mergeEvents(liveEvents, auditPage?.items ?? []);
-  const pins = isDemo ? DEMO_PINS : (livePins?.items ?? []);
+  const pins = offline ? DEMO_PINS : (livePins?.items ?? []);
   const summary = pinCounts(pins);
 
-  if (!isDemo && isLoading && !metrics && !gaveUp) return <SkeletonPage label="Loading metrics…" cards={5} />;
-  if (!isDemo && (isError || gaveUp) && !metrics) {
+  if (!offline && isLoading && !metrics && !gaveUp) return <SkeletonPage label="Loading metrics…" cards={5} />;
+  if (!offline && (isError || gaveUp) && !metrics) {
     return (
       <ErrorPanel
         message={gaveUp && !isError ? 'Metrics timed out after 5 seconds.' : 'Failed to load metrics'}
@@ -103,7 +103,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
 
   const totals = metrics?.totals ?? { total: 0, successful: 0, denied: 0, error: 0, rate_limit_rejections: 0 };
   const sandbox = metrics?.sandbox;
-  const mcpUnconfigured = !isDemo && status?.mcp === 'offline' && status.error === 'mcp_unavailable';
+  const mcpUnconfigured = !offline && status?.mcp === 'offline' && status.error === 'mcp_unavailable';
 
   const rememberLights = (result: AttackResult) => {
     const next = pipelineLights(result.stage, result.status);
@@ -111,7 +111,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
   };
 
   const runSequence = async () => {
-    if (isDemo || demoRunning) return;
+    if (offline || demoRunning) return;
     setDemoError('');
     setDemoResults({});
     for (let index = 0; index < DEMO_SEQUENCE.length; index += 1) {
@@ -149,8 +149,8 @@ export function OverviewView({ isDemo }: OverviewProps) {
           <h1 className="page-title">Overview</h1>
           <p className="page-sub">
             Gateway traffic, policy decisions and tool health.
-            {!isDemo && health && ` ${health.app}`}
-            {!isDemo && probe?.uptime_seconds != null && ` · up ${fmtUptime(probe.uptime_seconds)}`}
+            {!offline && health && ` ${health.app}`}
+            {!offline && probe?.uptime_seconds != null && ` · up ${fmtUptime(probe.uptime_seconds)}`}
           </p>
         </div>
         <a className="btn btn-primary" href="#/audit">Open Live Audit</a>
@@ -177,7 +177,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
             foot={foot}
           />
         ))}
-        {!isDemo && (
+        {!offline && (
           <KpiCard
             label="Tool latency"
             icon={<Gauge size={13} />}
@@ -202,7 +202,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
               <FileText size={14} aria-hidden />
               Live Events
             </span>
-            {!isDemo && <StreamDot state={streamState} />}
+            {!offline && <StreamDot state={streamState} />}
           </div>
           <div className="events-scroll">
             {events.length === 0 ? (
@@ -225,7 +225,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
                 </thead>
                 <tbody>
                   {events.slice(0, 18).map((evt, idx) => (
-                    <tr key={evt.id} className={idx === 0 && !isDemo ? 'row-enter' : ''}>
+                    <tr key={evt.id} className={idx === 0 && !offline ? 'row-enter' : ''}>
                       <td className="mono nowrap">{fmtTimestamp(evt.created_at)}</td>
                       <td className={`mono ${auditRowClass(evt)}`}>{evt.action}</td>
                       <td><span className={`badge ${decisionBadgeClass(evt.decision)}`}>{evt.decision}</span></td>
@@ -243,7 +243,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
         <section className="panel demo-panel">
           <div className="panel-head">
             <span className="section-label">Demo sequence</span>
-            <button className="btn btn-primary btn-sm" onClick={() => void runSequence()} disabled={isDemo || !!demoRunning}>
+            <button className="btn btn-primary btn-sm" onClick={() => void runSequence()} disabled={offline || !!demoRunning}>
               <Play size={12} aria-hidden />
               {demoRunning ? 'Running…' : 'Run demo sequence'}
             </button>
@@ -269,7 +269,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
               );
             })}
           </ol>
-          {isDemo && <p className="page-sub">Demo data is on screen. The sequence sends real requests only while the backend is up.</p>}
+          {offline && <p className="page-sub">Demo data is on screen. The sequence sends real requests only while the backend is up.</p>}
           {demoError && <p className="tone-deny">{demoError}</p>}
         </section>
       </div>
@@ -292,7 +292,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
           <div className="stack">
             <div className="row-between">
               <span className="muted-line"><Server size={12} aria-hidden /> MCP</span>
-              {isDemo ? (
+              {offline ? (
                 <span className="badge badge-muted">demo</span>
               ) : mcpUnconfigured ? (
                 <span className="mcp-warn">MCP not configured: set MCP_SELF_API_KEY</span>

@@ -11,7 +11,7 @@ import { fmtDuration, fmtNumber, fmtPercent, fmtTimestamp, trafficCommands } fro
 import { DEMO_METRICS } from '../../demo/demoData';
 import { getApiBase, type MetricsResponse } from '../../api/client';
 
-interface MetricsViewProps { isDemo: boolean }
+interface MetricsViewProps { offline: boolean }
 
 // Recharts themed to design tokens
 const CHART_COLORS = {
@@ -91,14 +91,14 @@ const RANGES = [
   { id: 30, label: '30m' },
 ] as const;
 
-function MetricsViewInner({ isDemo }: MetricsViewProps) {
-  const { data: live, isLoading, isError, refetch } = useMetrics(!isDemo);
-  const { data: series } = useActivitySeries(!isDemo);
+function MetricsViewInner({ offline }: MetricsViewProps) {
+  const { data: live, isLoading, isError, refetch } = useMetrics(!offline);
+  const { data: series } = useActivitySeries(!offline);
   const [range, setRange] = useState<10 | 30>(30);
-  const metrics: MetricsResponse | undefined = isDemo ? DEMO_METRICS : live;
+  const metrics: MetricsResponse | undefined = offline ? DEMO_METRICS : live;
 
-  if (!isDemo && isLoading && !metrics) return <SkeletonPage label="Loading metrics…" cards={6} />;
-  if (!isDemo && isError && !metrics) {
+  if (!offline && isLoading && !metrics) return <SkeletonPage label="Loading metrics…" cards={6} />;
+  if (!offline && isError && !metrics) {
     return <ErrorPanel message="Failed to load metrics" onRetry={() => void refetch()} />;
   }
 
@@ -166,7 +166,7 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
         />
       </div>
 
-      {!isDemo && (
+      {!offline && (
         <div className="panel" style={{ padding: 20 }}>
           <PanelTitle
             label="Gateway activity per minute"
@@ -290,7 +290,7 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
         </div>
       </div>
 
-      {!isDemo && (
+      {!offline && (
         <div className="panel" style={{ padding: 20 }}>
           <PanelTitle label="Tool latency, last 30 minutes" right={<span className="muted-sm">from audit duration_ms</span>} />
           {series && series.latency.samples > 0 ? (

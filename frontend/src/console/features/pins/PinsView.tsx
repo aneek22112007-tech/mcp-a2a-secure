@@ -16,7 +16,7 @@ import { DEMO_PINS } from '../../demo/demoData';
 import type { ToolPin } from '../../api/client';
 import { toast } from 'sonner';
 
-interface PinsViewProps { isDemo: boolean }
+interface PinsViewProps { offline: boolean }
 
 function PinStatusIcon({ pin }: { pin: ToolPin }) {
   const badge = getPinBadge(pin);
@@ -29,19 +29,19 @@ function PinStatusIcon({ pin }: { pin: ToolPin }) {
   }
 }
 
-function PinsViewInner({ isDemo }: PinsViewProps) {
+function PinsViewInner({ offline }: PinsViewProps) {
   const [approveTarget, setApproveTarget] = useState<ToolPin | null>(null);
   const approveRef = useDialogA11y(!!approveTarget, () => setApproveTarget(null));
   const [revokeTarget, setRevokeTarget] = useState<ToolPin | null>(null);
   const [note, setNote] = useState('');
   const [pinningModeHint] = useState<'off' | 'warn' | 'enforce'>('enforce');
 
-  const { data, isLoading, isError, refetch } = usePins(!isDemo);
+  const { data, isLoading, isError, refetch } = usePins(!offline);
   const syncPins  = useSyncPins();
   const approvePin = useApprovePin();
   const revokePin  = useRevokePin();
 
-  const pins: ToolPin[] = isDemo ? DEMO_PINS : (data?.items ?? []);
+  const pins: ToolPin[] = offline ? DEMO_PINS : (data?.items ?? []);
 
   const handleSync = async () => {
     try {
@@ -95,7 +95,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
           <button
             className="btn btn-ghost btn-sm"
             onClick={handleSync}
-            disabled={isDemo || syncPins.isPending}
+            disabled={offline || syncPins.isPending}
             aria-label="Sync pins from live catalog"
           >
             <RefreshCw size={12} style={syncPins.isPending ? { animation: 'spin 1s linear infinite' } : undefined} />
@@ -145,9 +145,9 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
 
       {/* Pins table */}
       <div className="panel">
-        {!isDemo && isLoading && !data ? (
+        {!offline && isLoading && !data ? (
           <LoadingPanel label="Loading pins…" />
-        ) : !isDemo && isError ? (
+        ) : !offline && isError ? (
           <ErrorPanel message="Failed to load pins" onRetry={() => void refetch()} />
         ) : pins.length === 0 ? (
           <EmptyState label="No tools registered yet. Run Sync to populate." icon={Pin} />
@@ -221,7 +221,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
                           <button
                             className="btn btn-success btn-sm"
                             onClick={() => setApproveTarget(pin)}
-                            disabled={isDemo}
+                            disabled={offline}
                             title={`Approve ${pin.tool_name}`}
                             aria-label={`Approve ${pin.tool_name}`}
                           >
@@ -232,7 +232,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
                           <button
                             className="btn btn-danger btn-sm"
                             onClick={() => setRevokeTarget(pin)}
-                            disabled={isDemo}
+                            disabled={offline}
                             title={`Revoke ${pin.tool_name}`}
                             aria-label={`Revoke ${pin.tool_name}`}
                           >

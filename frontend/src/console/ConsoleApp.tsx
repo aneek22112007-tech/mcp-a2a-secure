@@ -63,11 +63,11 @@ function readHashView(): ViewId {
 
 function ConsoleBody({
   session,
-  isDemo,
+  offline,
   backendUp,
 }: {
   session: Session;
-  isDemo: boolean;
+  offline: boolean;
   backendUp: boolean;
 }) {
   const [view, setViewState] = useState<ViewId>(readHashView);
@@ -90,26 +90,26 @@ function ConsoleBody({
     document.title = `${label} · MCP Guard Console`;
   }, [view]);
 
-  const { state: streamState } = useAuditStream(100, !isDemo && backendUp);
+  const { state: streamState } = useAuditStream(100, !offline && backendUp);
 
   return (
     <ConsoleShell
       activeView={view}
       onViewChange={setView}
-      streamState={isDemo ? 'offline' : streamState}
+      streamState={offline ? 'offline' : streamState}
       scopes={session.scopes}
-      isDemo={isDemo}
+      offline={offline}
       backendUp={backendUp}
     >
       <Suspense fallback={<LoadingPanel />}>
-        {view === 'overview' && <OverviewView isDemo={isDemo} />}
-        {view === 'keys' && <KeysView isDemo={isDemo} clientIds={session.clientId ? [session.clientId] : []} />}
-        {view === 'audit' && <AuditView isDemo={isDemo} />}
-        {view === 'metrics' && <MetricsView isDemo={isDemo} />}
-        {view === 'pins' && <PinsView isDemo={isDemo} />}
-        {view === 'scanner' && <ScannerView isDemo={isDemo} />}
-        {view === 'sandbox' && <SandboxView isDemo={isDemo} />}
-        {view === 'attack' && <AttackView isDemo={isDemo} />}
+        {view === 'overview' && <OverviewView offline={offline} />}
+        {view === 'keys' && <KeysView offline={offline} clientIds={session.clientId ? [session.clientId] : []} />}
+        {view === 'audit' && <AuditView offline={offline} />}
+        {view === 'metrics' && <MetricsView offline={offline} />}
+        {view === 'pins' && <PinsView offline={offline} />}
+        {view === 'scanner' && <ScannerView offline={offline} />}
+        {view === 'sandbox' && <SandboxView offline={offline} />}
+        {view === 'attack' && <AttackView offline={offline} />}
         {view === 'planned' && <PlannedView />}
       </Suspense>
     </ConsoleShell>
@@ -154,7 +154,6 @@ export function ConsoleApp() {
   }, [backendUp, session]);
 
   const offline = backendUp === false;
-  const isDemo = offline;
 
   if (backendUp === null) {
     return (
@@ -179,7 +178,7 @@ export function ConsoleApp() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ConsoleBody session={session} isDemo={isDemo} backendUp={backendUp === true} />
+      <ConsoleBody session={session} offline={offline} backendUp={backendUp === true} />
       <Toaster richColors theme="dark" position="bottom-right" />
     </QueryClientProvider>
   );

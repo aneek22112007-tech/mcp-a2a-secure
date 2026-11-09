@@ -14,12 +14,12 @@ import type { ApiKey } from '../../api/client';
 import { toast } from 'sonner';
 
 interface KeysViewProps {
-  isDemo: boolean;
+  offline: boolean;
   /** Client IDs available (detected from existing keys). */
   clientIds: string[];
 }
 
-function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
+function KeysViewInner({ offline, clientIds }: KeysViewProps) {
   const [extraIds, setExtraIds] = useState<string[]>([]);
   const [extraInput, setExtraInput] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -37,7 +37,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
   const discovered = useQuery({
     queryKey: ['client-ids'],
     queryFn: discoverClientIds,
-    enabled: !isDemo,
+    enabled: !offline,
   });
   const clientIdList = [...new Set([...(discovered.data ?? []), ...clientIds, ...extraIds])].filter(Boolean);
   const keysQuery = useQuery({
@@ -53,14 +53,14 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
       }));
       return batches.flat();
     },
-    enabled: !isDemo && clientIdList.length > 0,
+    enabled: !offline && clientIdList.length > 0,
   });
   const createKey = useCreateKey();
   const revokeKey = useRevokeKey();
 
-  const keys: ApiKey[] = isDemo ? DEMO_KEYS : (keysQuery.data ?? []);
-  const isLoading = !isDemo && (discovered.isLoading || (clientIdList.length > 0 && keysQuery.isLoading));
-  const isError = !isDemo && discovered.isError;
+  const keys: ApiKey[] = offline ? DEMO_KEYS : (keysQuery.data ?? []);
+  const isLoading = !offline && (discovered.isLoading || (clientIdList.length > 0 && keysQuery.isLoading));
+  const isError = !offline && discovered.isError;
   const refetch = () => { void discovered.refetch(); void keysQuery.refetch(); };
 
   const handleCreate = async () => {
@@ -138,7 +138,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
         <button
           className="btn btn-primary"
           onClick={() => setShowCreate(true)}
-          disabled={isDemo}
+          disabled={offline}
           aria-label="Create new API key"
         >
           <Plus size={13} />
@@ -219,8 +219,8 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
       )}
 
       <div className="row-between">
-        <span className="section-label">All clients ({isDemo ? 'demo' : clientIdList.length})</span>
-        {!isDemo && (
+        <span className="section-label">All clients ({offline ? 'demo' : clientIdList.length})</span>
+        {!offline && (
           <form
             className="field-row"
             onSubmit={event => {
@@ -246,9 +246,9 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
 
       {/* Keys table */}
       <div className="panel">
-        {!isDemo && isLoading && keys.length === 0 ? (
+        {!offline && isLoading && keys.length === 0 ? (
           <LoadingPanel label="Loading keys…" />
-        ) : !isDemo && isError && keys.length === 0 ? (
+        ) : !offline && isError && keys.length === 0 ? (
           <ErrorPanel message="Failed to load keys" onRetry={refetch} />
         ) : keys.length === 0 ? (
           <EmptyState label="No client ids in the audit log yet. Paste a client id to load its keys." icon={Key} />
@@ -309,7 +309,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
                           <button
                             className="btn btn-danger btn-sm"
                             onClick={() => setRevokeTarget(k)}
-                            disabled={isDemo}
+                            disabled={offline}
                             title="Revoke key"
                             aria-label={`Revoke key ${k.key_prefix}`}
                           >

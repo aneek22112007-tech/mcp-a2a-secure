@@ -113,13 +113,13 @@ function useLastUpdated(): number {
 }
 
 export function SubHeader({
-  crumbs, onRefresh, density, onDensity, isDemo,
+  crumbs, onRefresh, density, onDensity, offline,
 }: {
   crumbs: string[];
   onRefresh: () => void;
   density: 'comfortable' | 'compact';
   onDensity: (d: 'comfortable' | 'compact') => void;
-  isDemo: boolean;
+  offline: boolean;
 }) {
   const updated = useLastUpdated();
   const fetching = useIsFetching();
@@ -136,7 +136,7 @@ export function SubHeader({
         </ol>
       </nav>
       <div className="subheader-right">
-        {!isDemo && (
+        {!offline && (
           <span className="updated" aria-live="polite">
             {fetching > 0 ? 'Updating…' : updated ? `Updated ${fmtTimestamp(new Date(updated).toISOString())} ${CONSOLE_TZ_LABEL}` : 'Not loaded yet'}
           </span>
@@ -149,7 +149,7 @@ export function SubHeader({
             <Rows4 size={13} aria-hidden />
           </button>
         </div>
-        {!isDemo && (
+        {!offline && (
           <button className="btn btn-ghost btn-sm" onClick={onRefresh} title="Refresh all data (R)">
             <RefreshCw size={12} aria-hidden className={fetching > 0 ? 'spin' : undefined} /> Refresh
           </button>
