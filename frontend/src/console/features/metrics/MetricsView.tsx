@@ -238,7 +238,22 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
             <div><dt>Guard hits</dt><dd>{fmtNumber(guard?.hits ?? 0)}</dd></div>
             <div><dt>Blocked</dt><dd className="tone-deny">{fmtNumber(guard?.blocked ?? 0)}</dd></div>
             <div><dt>Sanitized</dt><dd className="tone-review">{fmtNumber(guard?.sanitized ?? 0)}</dd></div>
-            <div><dt>LLM</dt><dd className={llm?.available ? 'tone-allow' : 'dim'}>{llm ? (llm.available ? 'Available' : 'Unavailable') : '—'}</dd></div>
+            <div>
+              <dt>LLM</dt>
+              <dd className={llm?.enabled ? 'tone-allow' : 'dim'}>
+                {llm
+                  ? llm.enabled
+                    ? `Enabled (${llm.primary_provider || 'ollama'} · ${llm.primary_model})`
+                    : 'Disabled'
+                  : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Groq fallback</dt>
+              <dd className={llm?.fallback_configured ? 'tone-allow' : 'dim'}>
+                {llm ? (llm.fallback_configured ? 'Configured' : 'Not configured') : '—'}
+              </dd>
+            </div>
             <div><dt>LLM calls</dt><dd>{fmtNumber(llm?.call_count ?? 0)}</dd></div>
             <div><dt>Avg latency</dt><dd>{llm && llm.call_count ? fmtDuration(llm.avg_latency_ms) : '—'}</dd></div>
             <div><dt>Fallbacks</dt><dd>{llm ? `${fmtNumber(llm.fallback_count)} (${fmtPercent(llm.fallback_rate)})` : '—'}</dd></div>
