@@ -1,64 +1,77 @@
-# Agent-to-Agent (A2A) Execution through MCP Guard
+# Manager-to-Worker Delegation through MCP Guard
 
-This document describes the manager-to-worker A2A execution pipeline, identity model, delegation scope attenuation, tool permission audit findings, and operational behavior under normal and degraded conditions.
+This document describes how a manager agent delegates a notes task to a worker agent through MCP Guard: the identity model, scope attenuation, task lifecycle, audit events, endpoints, and behaviour when a dependency is unavailable.
 
----
+## What this is, and what it is not
 
-## 1. Architecture & Identity Model
+This is a one-hop manager-to-worker **delegation** pipeline. It uses the task and agent-card **shapes** from the official `a2a-sdk` Python package (`a2a.types.Task`, `TaskState`, `AgentCard`) so task status and discovery data follow the A2A data model.
 
-In MCP Guard, an A2A workflow allows an authenticated **manager** agent to delegate a task to a **worker** agent with a separate, restricted identity.
+It is **not** full A2A protocol support yet. The manager and worker run in the same API process, and the hand-off between them is an in-process call. The following are follow-ups:
 
-```
-+------------------+         POST /api/a2a/tasks/run
-|   User / Client  | ------------------------------------+
-+------------------+                                      |
-                                                          v
-                                              +-----------------------+
-                                              |      A2A Manager      |
-                                              | (Caller identity,     |
-                                              |  e.g. key: b8bb971c)  |
-                                              +-----------------------+
-                                                          |
-                                      Scope Attenuation & | Server-configured
-                                      Task Record (DB)    | Worker Identity
-                                                          v
-                                              +-----------------------+
-                                              |      A2A Worker       |
-                                              | (WORKER_NOTES_API_KEY,|
-                                              |  e.g. key: 1ddb303b)  |
-                                              +-----------------------+
-                                                          |
-                                            Streamable    | Authenticated /mcp/
-                                            HTTP RPC      | (No direct tool calls)
-                                                          v
-                                              +-----------------------+
-                                              |  MCP Guard Gateway    |
-                                              |  POST /mcp/           |
-                                              +-----------------------+
-                                                          |
-                                                          v
-                                              +-----------------------+
-                                              |  Notes Tool Sandbox   |
-                                              |  list_notes/read/write|
-                                              +-----------------------+
-```
-
-### Identity Rules
-1. **Separate Identities**: The manager and worker use completely separate API keys registered in the database.
-2. **Server-Side Worker Identity**: The worker's API key is configured via the environment (`WORKER_NOTES_API_KEY`). The request body **never** accepts worker credentials, upstream URLs, or scope overrides.
-3. **No Secret Leaks**: Raw API keys are never exposed in HTTP responses, audit rows, CLI output, or logs. Only the 8-character public prefix (e.g. `mcpg_1ddb303b_...` -> `1ddb303b`) is stored or displayed for attribution.
+- An agent card with a reachable service `url` and supported interfaces.
+- Serving the card at `/.well-known/agent-card.json`.
+- An A2A task-send endpoint (JSON-RPC `message/send`), so an external A2A client can submit tasks.
 
 ---
 
-## 2. Server-Enforced Scope Attenuation
+## 1. Architecture and identity model
 
-Delegation scope attenuation ensures the worker's effective permissions are strictly a subset of the delegator's effective permissions:
+```
++------------------+   POST /api/a2a/tasks/run (caller = manager identity)
+|  User / Client   | -------------------------------------------+
++------------------+                                            |
+                                                                v
+                                        +--------------------------------------+
+                                        | Manager (LangGraph)                  |
+                                        |  - resolve worker identity           |
+                                        |  - scope attenuation (403 on excess) |
+                                        |  - task row + audit events           |
+                                        |  plan -> delegate -> collect         |
+                                        +--------------------------------------+
+                                                                |
+                                     task + manager plan        |  WORKER_NOTES_API_KEY
+                                                                v
+                                        +--------------------------------------+
+                                        | Worker (notes agent, LangGraph)      |
+                                        |  one authenticated /mcp/ session     |
+                                        |  X-Request-ID = task_id              |
+                                        +--------------------------------------+
+                                                                |
+                                                                v
+                                        +--------------------------------------+
+                                        | MCP Guard /mcp/                      |
+                                        | auth, rate limit, pinning, sandbox,  |
+                                        | injection guard, audit               |
+                                        +--------------------------------------+
+```
 
-$$\text{delegated\_scopes} = \text{manager\_scopes} \cap \text{worker\_scopes} \cap \{\text{notes:read}, \text{notes:write}\}$$
+### Identity rules
+1. **Separate identities.** The manager is the authenticated caller. The worker uses its own API key, stored in the database like any other key.
+2. **Server-side worker identity.** The worker key comes from `WORKER_NOTES_API_KEY` in the server environment. The request body never accepts credentials, upstream URLs, worker identities or scope grants.
+3. **No secret leaks.** Raw keys never appear in responses, audit rows, CLI output or logs. Only the public key prefix (`mcpg_<prefix>_<secret>` -> `<prefix>`) is stored or shown for attribution.
 
-### Crucial Security Principles:
-- `agent:run` **alone never implies** `notes:read` or `notes:write`.
-- If the worker identity is configured with permissions that exceed the manager's effective permissions (e.g., Worker has `notes:write` while Manager only holds `agent:run` and `notes:read`), the server **rejects the delegation upfront** with the project's standard `FORBIDDEN` error shape:
+---
+
+## 2. LangGraph manager
+
+The manager is a LangGraph graph with three nodes:
+
+1. **plan** - one call through the existing `LLMBackend` (purpose `a2a_manager_plan`) that writes a short execution plan for the task.
+2. **delegate** - runs the worker. The worker instruction is the user's task followed by the manager's plan, marked as guidance only. The plan is clipped (at most 2,000 characters) so the whole instruction stays within the worker's 8,000-character task limit; if there is no room, the task is sent alone. No extra LLM call is made for this step.
+3. **collect** - turns the worker outcome into the final task status and result.
+
+The manager never calls tools itself. The whole run has a 120-second deadline.
+
+---
+
+## 3. Server-enforced scope attenuation
+
+```
+delegated_scopes = manager_scopes ∩ worker_scopes ∩ {notes:read, notes:write}
+```
+
+- `agent:run` alone never implies `notes:read` or `notes:write`. An `admin` key counts as holding every scope for this check.
+- If the worker key holds a tool scope the manager does not, the delegation is rejected before any task row or worker session is created:
   ```json
   {
     "error": {
@@ -69,144 +82,129 @@ $$\text{delegated\_scopes} = \text{manager\_scopes} \cap \text{worker\_scopes} \
     }
   }
   ```
-- Excess permissions are rejected with `403 FORBIDDEN`, not silently dropped.
+- If the intersection is empty (for example, manager and worker both hold only `agent:run`), the delegation is also rejected with 403 `FORBIDDEN` before any worker session opens.
+- Both rejections write an `a2a.denied` audit row with status code 403 and error code `FORBIDDEN`.
 
 ---
 
-## 3. Audit of MCP Tool-Level Permission Enforcement (Requirement 9)
+## 4. Dependency: MCP per-tool scope enforcement
 
-### Finding:
-At the `/mcp/` endpoint:
-- `McpBearerAuthMiddleware` (`app/auth/mcp_asgi.py`) validates that the connecting client possesses `MCP_REQUIRED_SCOPE` (`agent:run`).
-- However, currently, the MCP JSON-RPC dispatch layer does **not** perform granular per-tool scope enforcement (such as verifying `notes:write` for `write_note` or `notes:read` for `read_note`).
-- **Impact**: Any valid API key with `agent:run` that connects directly to `/mcp/` can execute `write_note`, even if the key does not possess `notes:write`.
+At `/mcp/`, `McpBearerAuthMiddleware` (`app/auth/mcp_asgi.py`) checks that the connecting key holds `agent:run`. The MCP dispatch layer does **not** yet check per-tool scopes (`notes:write` for `write_note`, `notes:read` for `list_notes` and `read_note`).
 
-### Security Status & Explicit Dependency:
-- In accordance with the project specification: **This PR does NOT claim full end-to-end tool-level authorization is complete at the MCP gateway protocol layer.**
-- Worker scope attenuation is strictly enforced on the server prior to delegation (rejecting excess worker permissions and empty delegations with 403 `FORBIDDEN`). However, worker attenuation is fully enforced at the MCP layer only once per-tool scope checks land in `/mcp/`.
-- Granular per-tool scope verification at the MCP transport layer (`tools/call` inspection for `notes:write`) belongs to a separate dedicated gateway middleware PR and is not bypassed with a client-side check.
+Impact: any key with `agent:run` that connects to `/mcp/` can call `write_note`, even without `notes:write`. That includes the worker key.
+
+- This change does **not** claim end-to-end tool-level authorization at the MCP layer.
+- Attenuation is enforced on the server before delegation (403 on excess or empty scopes). The worker's delegated scopes are fully enforced at the tool layer only once per-tool scope checks land in `/mcp/`.
+- That check belongs in the gateway middleware, in a separate change. It is not replaced by a client-side check here.
 
 ---
 
-## 4. Setup & Configuration
+## 5. Endpoints
 
-### Prerequisites
-1. Set the following in `api/.env`:
+All routes are registered in `ROUTE_SCOPES` (`app/auth/scopes.py`).
+
+| Method and path | Scope | Purpose |
+|---|---|---|
+| `POST /api/a2a/tasks/run` | `agent:run` | Run one delegated task. Body: `{"task": "..."}` (1 to 8,000 characters). |
+| `GET /api/a2a/tasks/{id}` | `agent:run` | Task status and result. Owner-only: only the key that created the task can read it; any other key, including admin, gets 404 `NOT_FOUND`. |
+| `GET /api/a2a/capabilities` | public | Agent name, installed `a2a-sdk` version, max hops (1), allowed tools, max task length, and the agent card. |
+| `GET /api/a2a/agent-card` | public | The worker's agent card, built with `a2a.types.AgentCard` (name, description, version, capabilities, skills). |
+
+`GET /api/a2a/tasks/{id}` also returns an `a2a_task` object: the task as an `a2a.types.Task` (id, status state, and history with the user's task and the agent's result or error).
+
+---
+
+## 6. Task lifecycle and statuses
+
+Each delegation is stored in the `a2a_tasks` table (migration `f3b8c921d47e`). A row starts as `pending`, moves to `running`, and always ends in one terminal status:
+
+| Status | Meaning | A2A task state |
+|---|---|---|
+| `completed` | The worker finished and every tool call succeeded. | `TASK_STATE_COMPLETED` |
+| `failed` | LLM disabled or unavailable, gateway unreachable, a tool call failed, the deadline passed, or an unexpected error. | `TASK_STATE_FAILED` |
+| `blocked` | The gateway denied the worker or one of its tool calls (401, 403, 429, pin block, guard block). | `TASK_STATE_REJECTED` |
+| `cancelled` | The run was cancelled while in progress. | `TASK_STATE_CANCELED` |
+
+A blocked tool call is never reported as `completed`.
+
+---
+
+## 7. Audit events
+
+| Action | When |
+|---|---|
+| `a2a.denied` | Delegation rejected (excess or empty scopes), 403 `FORBIDDEN`. |
+| `a2a.delegate` | Delegation granted and task row created. Reason lists the task id, worker prefix and delegated scopes. |
+| `a2a.worker.start` | The manager starts the run (written after the LLM-enabled check, before the plan step). |
+| `a2a.complete` | Task finished as `completed`. |
+| `a2a.failed` | Task finished as `failed` or `blocked`, including timeouts. Also written when the worker key is not configured (503). |
+| `a2a.cancelled` | Task cancelled. |
+
+The `a2a.*` rows for a task use `request_id = task_id`. The worker sends `X-Request-ID: <task_id>` on its `/mcp/` requests, so the gateway's own audit rows for those calls (`auth.allow`, `mcp.tools_call`) carry the same id. The task row also stores the original HTTP request id as `manager_request_id`.
+
+---
+
+## 8. Setup
+
+1. In `api/.env`:
    ```bash
    LLM_ENABLED=true
-   # Worker API key for notes tasks (must have agent:run and notes:read/write)
+   # Worker key: agent:run plus notes:read (and notes:write only if the manager also has it)
    WORKER_NOTES_API_KEY=mcpg_<worker_prefix>_<secret>
    ```
-2. Apply database migrations:
+2. Apply migrations:
    ```bash
    cd api
    uv run alembic upgrade head
    ```
-
-### Running an A2A Task via CLI
-The CLI runner `scripts/run_a2a_task.py` reads credentials from environment variables:
-```bash
-export MANAGER_API_KEY="mcpg_<manager_prefix>_<secret>"
-export API_BASE_URL="http://127.0.0.1:8000"
-
-uv run python scripts/run_a2a_task.py "list notes"
-```
+3. Run a task from the CLI. The runner reads the manager key from the environment and prints only status, result and correlation ids:
+   ```bash
+   export MANAGER_API_KEY="mcpg_<manager_prefix>_<secret>"
+   export API_BASE_URL="http://127.0.0.1:8000"
+   uv run python scripts/run_a2a_task.py "list my notes"
+   ```
 
 ---
 
-## 5. Observed Real Execution Results
+## 9. Behaviour by scenario
 
-### 1. Successful Read-Only Delegation
-- **Manager Scopes**: `agent:run`, `notes:read`
-- **Worker Scopes**: `agent:run`, `notes:read`
-- **Delegated Scopes**: `["notes:read"]`
-- **Request**:
+### Read delegation
+- Manager scopes: `agent:run`, `notes:read`. Worker scopes: `agent:run`, `notes:read`. Delegated: `["notes:read"]`.
+- Request:
   ```http
   POST /api/a2a/tasks/run
-  Authorization: Bearer mcpg_b8bb971c_...
+  Authorization: Bearer mcpg_<manager_prefix>_<secret>
   Content-Type: application/json
 
   {"task": "list all notes"}
   ```
-- **Observed Behavior**:
-  - Manager verifies worker identity (`1ddb303b`).
-  - Attenuation confirms worker tool permissions (`{notes:read}`) are a subset of manager permissions (`{notes:read}`).
-  - Task record created with `status: "pending"`.
-  - Audit event `a2a.delegate` logged (`request_id = task_id`).
-  - Worker starts execution through `/mcp/` using the worker API key.
-  - Final task lifecycle updated to `completed` and audit event `a2a.complete` logged.
+- Flow: worker identity verified, attenuation passes, task row `pending`, `a2a.delegate`, row `running`, `a2a.worker.start`, manager plan, worker session on `/mcp/` with the worker key, tool calls through the full pipeline, row `completed`, `a2a.complete`.
+- This path needs a working LLM (Ollama, or Groq as fallback).
 
-### 2. Rejection of Excess Worker Permissions
-- **Manager Scopes**: `agent:run`, `notes:read` (read-only manager)
-- **Worker Scopes**: `agent:run`, `notes:read`, `notes:write` (worker has write)
-- **Observed Response**:
-  ```http
-  HTTP/1.1 403 Forbidden
-  Content-Type: application/json
+### Excess worker permissions
+- Manager: `agent:run`, `notes:read`. Worker: `agent:run`, `notes:read`, `notes:write`.
+- Result: 403 `FORBIDDEN`, "worker permissions exceed delegator permissions: notes:write.", and an `a2a.denied` row. No task row is created.
 
-  {
-    "error": {
-      "code": "FORBIDDEN",
-      "message": "Delegation denied: worker permissions exceed delegator permissions: notes:write.",
-      "details": null,
-      "request_id": "f041d0e6-601a-4508-95d3-d40cf7f9134f"
-    }
-  }
-  ```
-- **Audit**: Logged `a2a.denied` with `status: "denied"`, `error_code: "FORBIDDEN"`, and `status_code: 403`.
+### Manager holds only `agent:run`
+- Worker: `agent:run`, `notes:read`. Result: 403 `FORBIDDEN` for `notes:read`.
 
-### 3. Rejection When Manager Has Only `agent:run`
-- **Manager Scopes**: `agent:run` only (no `notes:read` or `notes:write`)
-- **Worker Scopes**: `agent:run`, `notes:read`
-- **Observed Response**:
-  ```http
-  HTTP/1.1 403 Forbidden
-  Content-Type: application/json
+### Empty delegated scopes
+- Manager and worker both hold only `agent:run`. Result: 403 `FORBIDDEN`, "delegated permissions are empty", and an `a2a.denied` row. No worker session is opened.
 
-  {
-    "error": {
-      "code": "FORBIDDEN",
-      "message": "Delegation denied: worker permissions exceed delegator permissions: notes:read.",
-      "details": null,
-      "request_id": "bcbefc9f-cc90-4c21-8954-2e7c66f4d690"
-    }
-  }
-  ```
+### LLM disabled (`LLM_ENABLED=false`)
+- Returns **HTTP 200** with `"status": "failed"` and `"result": "LLM is disabled."`. A task row is created and ends as `failed`, with `a2a.delegate` and `a2a.failed` audit rows.
 
-### 4. Degraded Availability Failures
-- **LLM Disabled (`LLM_ENABLED=false`)**:
-  ```json
-  {
-    "error": {
-      "code": "SERVICE_UNAVAILABLE",
-      "message": "LLM is disabled.",
-      "details": null,
-      "request_id": "102e88d7-cff4-4e6b-a56a-af4822c8b2b7"
-    }
-  }
-  ```
-- **Worker Key Unset (`WORKER_NOTES_API_KEY=""`)**:
-  ```json
-  {
-    "error": {
-      "code": "SERVICE_UNAVAILABLE",
-      "message": "A2A worker is not configured. Set WORKER_NOTES_API_KEY.",
-      "details": null,
-      "request_id": "5883daf3-ad70-4169-aaf4-4a9cb6075824"
-    }
-  }
-  ```
-- **Gateway Unreachable (`GatewayTransportError`)**:
-  Returns HTTP 200 with truthful status `failed` and result detailing transport failure:
-  ```json
-  {
-    "task_id": "a44c5010-e4ec-43a2-a30e-c53ad4d09986",
-    "status": "failed",
-    "result": "MCP gateway unavailable: The gateway could not be reached.",
-    "tool_calls": [],
-    "manager_key_prefix": "b8bb971c",
-    "worker_key_prefix": "1ddb303b",
-    "delegated_scopes": ["notes:read"]
-  }
-  ```
+### LLM unavailable
+- Ollama unreachable and Groq not configured: HTTP 200, `"status": "failed"`, result "Ollama is unreachable and Groq is not configured.", with `a2a.worker.start` and `a2a.failed` rows.
 
+### Deadline exceeded
+- If the run takes longer than 120 seconds: HTTP 200, `"status": "failed"`, result "Task deadline exceeded.", and `a2a.failed` with status `timeout`.
+
+### Worker key not set
+- `WORKER_NOTES_API_KEY` empty or invalid: **HTTP 503** `SERVICE_UNAVAILABLE`, "A2A worker is not configured. Set WORKER_NOTES_API_KEY.", and an `a2a.failed` row. No task row is created.
+
+### Gateway unreachable
+- If the worker cannot reach `/mcp/`: HTTP 200, `"status": "failed"`, result "MCP gateway unavailable: ...". Because the manager's plan step runs first, this path is reached only when the LLM is available.
+
+### Gateway denies a tool call
+- The task ends as `blocked` (A2A state `TASK_STATE_REJECTED`) with a result naming the tool and status code, never `completed`.
