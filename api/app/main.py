@@ -44,6 +44,7 @@ from app.pins.gate import NullScanGate, get_scan_gate, set_scan_gate
 from app.pins.listing import install_pinned_tool_list
 from app.pins.mcp_asgi import McpToolPinMiddleware
 from app.rate_limit import McpRateLimitMiddleware, rate_limit_dependency
+from app.routes.a2a import router as a2a_router
 from app.routes.agents import router as agents_router
 from app.routes.api_keys import router as api_keys_router
 from app.routes.audit import router as audit_router
@@ -189,6 +190,8 @@ app.include_router(agents_router)
 app.include_router(llm_router)
 app.include_router(llm_calls_router)
 app.include_router(guard_router)
+# A2A manager-to-worker delegation
+app.include_router(a2a_router)
 
 
 @app.get("/health")

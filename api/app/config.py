@@ -199,6 +199,16 @@ class Settings(BaseSettings):
         description="Retention period in days for records in the llm_calls table.",
     )
 
+    worker_notes_api_key: SecretStr | None = Field(
+        default=None,
+        description=(
+            "MCP Guard API key for the A2A worker identity.  "
+            "Must be a separate key from NOTES_AGENT_API_KEY with restricted "
+            "scopes (notes:read and/or notes:write, never admin).  "
+            "Required for POST /api/a2a/tasks/run."
+        ),
+    )
+
     @field_validator("injection_guard_mode", mode="before")
     @classmethod
     def strip_and_lower_guard_mode(cls, v: Any) -> Any:
@@ -230,7 +240,9 @@ class Settings(BaseSettings):
             return None
         return v
 
-    @field_validator("groq_api_key", "notes_agent_api_key", mode="before")
+    @field_validator(
+        "groq_api_key", "notes_agent_api_key", "worker_notes_api_key", mode="before"
+    )
     @classmethod
     def blank_optional_secret(cls, value: Any) -> Any:
         if isinstance(value, str) and value.strip() == "":

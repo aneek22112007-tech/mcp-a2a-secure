@@ -56,6 +56,11 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("POST", "/api/keys"): ADMIN,
     ("GET", "/api/keys"): ADMIN,
     ("DELETE", "/api/keys/{key_id}"): ADMIN,
+    # A2A delegation endpoints
+    ("POST", "/api/a2a/tasks/run"): AGENT_RUN,
+    ("GET", "/api/a2a/tasks/{id}"): AGENT_RUN,
+    ("GET", "/api/a2a/capabilities"): None,
+    ("GET", "/api/a2a/agent-card"): None,
 }
 
 
