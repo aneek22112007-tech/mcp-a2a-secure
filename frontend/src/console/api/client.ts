@@ -280,6 +280,10 @@ export interface MetricsResponse {
   injection_guard?: { hits: number; blocked: number; sanitized: number };
   llm?: {
     available: boolean;
+    enabled: boolean;
+    primary_provider: string;
+    primary_model: string;
+    fallback_configured: boolean;
     call_count: number;
     avg_latency_ms: number;
     fallback_rate: number;
