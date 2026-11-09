@@ -9,7 +9,6 @@ import {
   CopyButton, ConsoleErrorBoundary,
 } from '../../components/ui';
 import { fmtDate, ALL_SCOPES, elapsedSince } from '../../utils/helpers';
-import { DEMO_KEYS } from '../../demo/demoData';
 import type { ApiKey } from '../../api/client';
 import { toast } from 'sonner';
 
@@ -37,7 +36,6 @@ function KeysViewInner({ offline, clientIds }: KeysViewProps) {
   const discovered = useQuery({
     queryKey: ['client-ids'],
     queryFn: discoverClientIds,
-    enabled: !offline,
   });
   const clientIdList = [...new Set([...(discovered.data ?? []), ...clientIds, ...extraIds])].filter(Boolean);
   const keysQuery = useQuery({
@@ -53,14 +51,14 @@ function KeysViewInner({ offline, clientIds }: KeysViewProps) {
       }));
       return batches.flat();
     },
-    enabled: !offline && clientIdList.length > 0,
+    enabled: clientIdList.length > 0,
   });
   const createKey = useCreateKey();
   const revokeKey = useRevokeKey();
 
-  const keys: ApiKey[] = offline ? DEMO_KEYS : (keysQuery.data ?? []);
-  const isLoading = !offline && (discovered.isLoading || (clientIdList.length > 0 && keysQuery.isLoading));
-  const isError = !offline && discovered.isError;
+  const keys: ApiKey[] = keysQuery.data ?? [];
+  const isLoading = discovered.isLoading || (clientIdList.length > 0 && keysQuery.isLoading);
+  const isError = discovered.isError;
   const refetch = () => { void discovered.refetch(); void keysQuery.refetch(); };
 
   const handleCreate = async () => {
@@ -219,36 +217,34 @@ function KeysViewInner({ offline, clientIds }: KeysViewProps) {
       )}
 
       <div className="row-between">
-        <span className="section-label">All clients ({offline ? 'demo' : clientIdList.length})</span>
-        {!offline && (
-          <form
-            className="field-row"
-            onSubmit={event => {
-              event.preventDefault();
-              const next = extraInput.trim();
-              if (!next) return;
-              setExtraIds(current => current.includes(next) ? current : [...current, next]);
-              setFormClientId(next);
-              setExtraInput('');
-            }}
-          >
-            <input
-              className="input input-mono"
-              value={extraInput}
-              onChange={event => setExtraInput(event.target.value)}
-              placeholder="Add client id"
-              aria-label="Add client id"
-            />
-            <button className="btn btn-ghost btn-sm" type="submit">Load</button>
-          </form>
-        )}
+        <span className="section-label">All clients ({clientIdList.length})</span>
+        <form
+          className="field-row"
+          onSubmit={event => {
+            event.preventDefault();
+            const next = extraInput.trim();
+            if (!next) return;
+            setExtraIds(current => current.includes(next) ? current : [...current, next]);
+            setFormClientId(next);
+            setExtraInput('');
+          }}
+        >
+          <input
+            className="input input-mono"
+            value={extraInput}
+            onChange={event => setExtraInput(event.target.value)}
+            placeholder="Add client id"
+            aria-label="Add client id"
+          />
+          <button className="btn btn-ghost btn-sm" type="submit">Load</button>
+        </form>
       </div>
 
       {/* Keys table */}
       <div className="panel">
-        {!offline && isLoading && keys.length === 0 ? (
+        {isLoading && keys.length === 0 ? (
           <LoadingPanel label="Loading keys…" />
-        ) : !offline && isError && keys.length === 0 ? (
+        ) : isError && keys.length === 0 ? (
           <ErrorPanel message="Failed to load keys" onRetry={refetch} />
         ) : keys.length === 0 ? (
           <EmptyState label="No client ids in the audit log yet. Paste a client id to load its keys." icon={Key} />

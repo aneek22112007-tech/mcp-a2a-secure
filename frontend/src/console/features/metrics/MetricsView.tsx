@@ -8,7 +8,6 @@ import { useMetrics, useActivitySeries } from '../../api/hooks';
 import { ErrorPanel, EmptyState, ConsoleErrorBoundary } from '../../components/ui';
 import { SkeletonPage } from '../../components/premium';
 import { fmtDuration, fmtNumber, fmtPercent, fmtTimestamp, trafficCommands } from '../../utils/helpers';
-import { DEMO_METRICS } from '../../demo/demoData';
 import { getApiBase, type MetricsResponse } from '../../api/client';
 
 interface MetricsViewProps { offline: boolean }
@@ -91,14 +90,14 @@ const RANGES = [
   { id: 30, label: '30m' },
 ] as const;
 
-function MetricsViewInner({ offline }: MetricsViewProps) {
-  const { data: live, isLoading, isError, refetch } = useMetrics(!offline);
-  const { data: series } = useActivitySeries(!offline);
+function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
+  const { data: live, isLoading, isError, refetch } = useMetrics();
+  const { data: series } = useActivitySeries();
   const [range, setRange] = useState<10 | 30>(30);
-  const metrics: MetricsResponse | undefined = offline ? DEMO_METRICS : live;
+  const metrics: MetricsResponse | undefined = live;
 
-  if (!offline && isLoading && !metrics) return <SkeletonPage label="Loading metrics…" cards={6} />;
-  if (!offline && isError && !metrics) {
+  if (isLoading && !metrics) return <SkeletonPage label="Loading metrics…" cards={6} />;
+  if (isError && !metrics) {
     return <ErrorPanel message="Failed to load metrics" onRetry={() => void refetch()} />;
   }
 
@@ -166,7 +165,6 @@ function MetricsViewInner({ offline }: MetricsViewProps) {
         />
       </div>
 
-      {!offline && (
         <div className="panel" style={{ padding: 20 }}>
           <PanelTitle
             label="Gateway activity per minute"
@@ -213,7 +211,6 @@ function MetricsViewInner({ offline }: MetricsViewProps) {
             <EmptyState label={`No gateway calls in the last ${range} minutes.`} hint="Console polls are left out. Calls from agents and keys show up within 15 seconds:" command={trafficCommands(getApiBase()).restCall} icon={Activity} />
           )}
         </div>
-      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div className="panel" style={{ padding: 20 }}>
@@ -290,7 +287,6 @@ function MetricsViewInner({ offline }: MetricsViewProps) {
         </div>
       </div>
 
-      {!offline && (
         <div className="panel" style={{ padding: 20 }}>
           <PanelTitle label="Tool latency, last 30 minutes" right={<span className="muted-sm">from audit duration_ms</span>} />
           {series && series.latency.samples > 0 ? (
@@ -319,7 +315,6 @@ function MetricsViewInner({ offline }: MetricsViewProps) {
             <EmptyState label="No tool calls in the last 30 minutes" hint="Percentiles need at least one tool call:" command={trafficCommands(getApiBase()).agent} icon={Gauge} />
           )}
         </div>
-      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div className="panel" style={{ padding: 20 }}>

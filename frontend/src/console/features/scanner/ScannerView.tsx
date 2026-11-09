@@ -9,7 +9,6 @@ import {
 import {
   fmtDatetime, severityClass, severityBadgeClass,
 } from '../../utils/helpers';
-import { DEMO_FINDINGS } from '../../demo/demoData';
 import type { ScanFinding } from '../../api/client';
 import { toast } from 'sonner';
 
@@ -33,18 +32,18 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
     scan_id: string; tools_scanned: number; findings_open: number; by_severity: Record<string, number>;
   } | null>(null);
 
-  const { data: pinsData } = usePins(!offline);
+  const { data: pinsData } = usePins();
   const toolNames = (pinsData?.items ?? []).map(p => p.tool_name);
 
-  const { data, isLoading, isError, refetch } = useFindings(
-    { open_only: openOnly, tool_name: selectedTool || undefined },
-    !offline,
-  );
+  const { data, isLoading, isError, refetch } = useFindings({
+    open_only: openOnly,
+    tool_name: selectedTool || undefined,
+  });
   const scanAll    = useScanAll();
   const scanTool   = useScanTool();
   const resolveFinding = useResolveFinding();
 
-  const findings: ScanFinding[] = offline ? DEMO_FINDINGS : (data?.items ?? []);
+  const findings: ScanFinding[] = data?.items ?? [];
 
   const handleScanAll = async () => {
     try {
@@ -196,9 +195,9 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
 
       {/* Findings table */}
       <div className="panel">
-        {!offline && isLoading && !data ? (
+        {isLoading && !data ? (
           <LoadingPanel label="Loading findings…" />
-        ) : !offline && isError ? (
+        ) : isError && !data ? (
           <ErrorPanel message="Failed to load findings" onRetry={() => void refetch()} />
         ) : findings.length === 0 ? (
           <EmptyState

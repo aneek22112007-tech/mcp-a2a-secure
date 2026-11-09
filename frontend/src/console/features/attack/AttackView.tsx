@@ -190,7 +190,7 @@ function AttackViewInner({ offline }: AttackViewProps) {
       {offline && (
         <p className="panel panel-note">
           <Info size={14} aria-hidden />
-          <span>Connect to a live backend to run these requests. Demo mode does not send them.</span>
+          <span>Connect to a live backend to run these requests. Attacks cannot run while offline.</span>
         </p>
       )}
     </div>

@@ -9,13 +9,12 @@ import {
   fmtDatetime, fmtDuration, fmtBytes,
   sandboxStatusBadgeClass,
 } from '../../utils/helpers';
-import { DEMO_SANDBOX_RUNS } from '../../demo/demoData';
 import { getApiBase, type SandboxRun } from '../../api/client';
 import { trafficCommands } from '../../utils/helpers';
 
 interface SandboxViewProps { offline: boolean }
 
-function SandboxViewInner({ offline }: SandboxViewProps) {
+function SandboxViewInner({ offline: _offline }: SandboxViewProps) {
   const [offset, setOffset] = useState(0);
   const limit = 50;
   const [filterTool, setFilterTool] = useState('');
@@ -29,11 +28,11 @@ function SandboxViewInner({ offline }: SandboxViewProps) {
     status: filterStatus || undefined,
   };
 
-  const { data, isLoading, isError, refetch } = useSandboxRuns(params, !offline);
-  const { data: liveHealth } = useSandboxHealth(!offline);
-  const health = offline ? undefined : liveHealth;
+  const { data, isLoading, isError, refetch } = useSandboxRuns(params);
+  const { data: liveHealth } = useSandboxHealth();
+  const health = liveHealth;
 
-  const runs: SandboxRun[] = offline ? DEMO_SANDBOX_RUNS : (data?.items ?? []);
+  const runs: SandboxRun[] = data?.items ?? [];
 
   const STATUSES = [
     '', 'succeeded', 'failed', 'running', 'timeout',
@@ -56,7 +55,7 @@ function SandboxViewInner({ offline }: SandboxViewProps) {
       </div>
 
       {/* Health card */}
-      {(health || offline) && (
+      {health && (
         <div
           className="panel"
           style={{
@@ -151,9 +150,9 @@ function SandboxViewInner({ offline }: SandboxViewProps) {
 
       {/* Runs table */}
       <div className="panel">
-        {!offline && isLoading && !data ? (
+        {isLoading && !data ? (
           <LoadingPanel label="Loading runs…" />
-        ) : !offline && isError ? (
+        ) : isError && !data ? (
           <ErrorPanel message="Failed to load sandbox runs" onRetry={() => void refetch()} />
         ) : runs.length === 0 ? (
           <EmptyState label="No sandbox runs yet" hint="Each tool call runs in the sandbox. Call a tool to record a run:" command={trafficCommands(getApiBase()).sandbox} icon={Box} />
@@ -229,7 +228,7 @@ function SandboxViewInner({ offline }: SandboxViewProps) {
                 </tbody>
               </table>
             </div>
-            {!offline && data && (
+            {data && (
               <Pager
                 offset={offset}
                 limit={limit}

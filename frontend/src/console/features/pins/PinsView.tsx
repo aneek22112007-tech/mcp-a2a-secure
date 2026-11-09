@@ -12,7 +12,6 @@ import {
   fmtDatetime, elapsedSince,
   getPinBadge, PIN_BADGE_CLASS, PIN_BADGE_LABEL,
 } from '../../utils/helpers';
-import { DEMO_PINS } from '../../demo/demoData';
 import type { ToolPin } from '../../api/client';
 import { toast } from 'sonner';
 
@@ -36,12 +35,12 @@ function PinsViewInner({ offline }: PinsViewProps) {
   const [note, setNote] = useState('');
   const [pinningModeHint] = useState<'off' | 'warn' | 'enforce'>('enforce');
 
-  const { data, isLoading, isError, refetch } = usePins(!offline);
+  const { data, isLoading, isError, refetch } = usePins();
   const syncPins  = useSyncPins();
   const approvePin = useApprovePin();
   const revokePin  = useRevokePin();
 
-  const pins: ToolPin[] = offline ? DEMO_PINS : (data?.items ?? []);
+  const pins: ToolPin[] = data?.items ?? [];
 
   const handleSync = async () => {
     try {
@@ -145,9 +144,9 @@ function PinsViewInner({ offline }: PinsViewProps) {
 
       {/* Pins table */}
       <div className="panel">
-        {!offline && isLoading && !data ? (
+        {isLoading && !data ? (
           <LoadingPanel label="Loading pins…" />
-        ) : !offline && isError ? (
+        ) : isError && !data ? (
           <ErrorPanel message="Failed to load pins" onRetry={() => void refetch()} />
         ) : pins.length === 0 ? (
           <EmptyState label="No tools registered yet. Run Sync to populate." icon={Pin} />
