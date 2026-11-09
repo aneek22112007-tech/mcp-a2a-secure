@@ -1,8 +1,5 @@
-import { useRef, Suspense } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import Hero3D from './Hero3D'
-import { useReducedMotion } from '../../hooks/useReducedMotion'
 
 const STATS = [
   { label: 'COMMAND INJECTION', value: '43%' },
@@ -44,36 +41,33 @@ function StatBlock({ label, value, delay }: { label: string; value: string; dela
 }
 
 export default function HeroSection() {
-  const reducedMotion = useReducedMotion()
-  const sectionRef = useRef<HTMLElement>(null)
-
   return (
     <section
-      ref={sectionRef}
       id="hero"
       aria-label="Hero — MCP·A2A"
       style={{
         position: 'relative',
         width: '100%',
         minHeight: '100vh',
-        background: '#000',
+        // Transparent so the page-wide background scene shows through.
+        background: 'radial-gradient(ellipse 80% 60% at 50% 35%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.55) 100%)',
         overflow: 'hidden',
+        isolation: 'isolate',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'flex-end',
         paddingBottom: '6rem',
       }}
     >
-      {/* Giant wordmark — sits BEHIND the 3D object via z-index */}
+      {/* Giant wordmark. Nothing is drawn over it; the background scene sits behind the page. */}
       <div
-        aria-hidden="true"
         style={{
           position: 'absolute',
           top: '18vh',
           left: 0,
           right: 0,
           padding: '0 2.5rem',
-          zIndex: 1,
+          zIndex: 2,
           pointerEvents: 'none',
           display: 'flex',
           flexDirection: 'column',
@@ -126,26 +120,6 @@ export default function HeroSection() {
             Open Source
           </motion.span>
         </div>
-      </div>
-
-      {/* 3D Object — overlays headline via higher z-index */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          zIndex: 2,
-          pointerEvents: reducedMotion ? 'none' : 'auto',
-        }}
-      >
-        {!reducedMotion && (
-          <Suspense fallback={null}>
-            <Hero3D className="w-full h-full" reducedMotion={reducedMotion} />
-          </Suspense>
-        )}
       </div>
 
       {/* Bottom content — stats + CTA */}
