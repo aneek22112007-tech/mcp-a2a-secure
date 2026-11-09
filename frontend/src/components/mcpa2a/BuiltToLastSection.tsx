@@ -66,7 +66,7 @@ export default function BuiltToLastSection() {
       aria-label="Built to Last section"
       style={{
         position: 'relative',
-        background: '#000',
+        background: 'rgba(0,0,0,0.5)',
         padding: '10rem 2.5rem 8rem',
         display: 'flex',
         flexDirection: 'column',

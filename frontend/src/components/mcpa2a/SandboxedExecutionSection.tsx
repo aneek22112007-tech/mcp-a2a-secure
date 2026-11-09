@@ -57,7 +57,7 @@ export default function SandboxedExecutionSection() {
       ref={sectionRef}
       aria-label="Sandboxed Execution"
       style={{
-        background: '#040405',
+        background: 'rgba(4,4,5,0.62)',
         padding: '8rem 2.5rem',
         display: 'flex',
         flexDirection: 'column',
@@ -65,8 +65,8 @@ export default function SandboxedExecutionSection() {
         gap: '3rem',
       }}
     >
-      <div style={{ textAlign: 'center', maxWidth: '800px' }}>
-        <h2 style={{
+      <div style={{ textAlign: 'center', maxWidth: '1100px', width: '100%' }}>
+        <h2 className="section-heading" style={{
           fontFamily: 'var(--font-display)',
           fontSize: 'clamp(2rem, 5vw, 4rem)',
           fontWeight: 900,
@@ -74,7 +74,7 @@ export default function SandboxedExecutionSection() {
           textTransform: 'uppercase',
           marginBottom: '1.5rem',
         }}>
-          Containment is the Default,<br />Not the Exception
+          Containment is the Default, Not the Exception
         </h2>
         <p style={{
           fontFamily: 'var(--font-body)',
@@ -82,7 +82,7 @@ export default function SandboxedExecutionSection() {
           color: 'var(--text-secondary)',
           lineHeight: 1.7,
         }}>
-          Every tool call runs in an isolated, locked-down container instead of being trusted blindly — built against the standard Docker Engine API so it stays portable to Linux, Windows, or a cloud CI runner. OrbStack is used only as local dev convenience on MacBook Air M4, never the deployment dependency.
+          Every tool call runs in an isolated, locked-down container instead of being trusted blindly — built against the standard Docker Engine API so it stays portable to Linux, Windows, or a cloud CI runner.
         </p>
       </div>
 

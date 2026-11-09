@@ -33,7 +33,7 @@ export default function FooterSection() {
 
       {/* Asymmetric headline fragments */}
       <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'stretch' }}>
-        {/* SANDBOXED — lower-left */}
+        {/* SANDBOXED — upper-left, read first */}
         <motion.span
           initial={{ opacity: 0, x: -40 }}
           whileInView={{ opacity: 1, x: 0 }}
@@ -42,7 +42,7 @@ export default function FooterSection() {
           aria-hidden="true"
           style={{
             position: 'absolute',
-            bottom: '1rem',
+            top: '1rem',
             left: 0,
             fontFamily: 'var(--font-display)',
             fontSize: 'clamp(3.5rem, 9vw, 8rem)',
@@ -58,7 +58,7 @@ export default function FooterSection() {
           SANDBOXED
         </motion.span>
 
-        {/* & VERIFIED — upper-right */}
+        {/* & VERIFIED — lower-right, read second */}
         <motion.span
           initial={{ opacity: 0, x: 40 }}
           whileInView={{ opacity: 1, x: 0 }}
@@ -67,7 +67,7 @@ export default function FooterSection() {
           aria-hidden="true"
           style={{
             position: 'absolute',
-            top: '1rem',
+            bottom: '1rem',
             right: 0,
             fontFamily: 'var(--font-display)',
             fontSize: 'clamp(3.5rem, 9vw, 8rem)',
@@ -132,7 +132,7 @@ export default function FooterSection() {
             GitHub
           </a>
 
-          {/* REQUEST A DEMO — solid orange pill */}
+          {/* Live console — solid orange pill */}
           <a
             href="/console"
             className="pill-solid"
@@ -144,9 +144,11 @@ export default function FooterSection() {
 
           {/* DOCS — outline pill */}
           <a
-            href="#docs"
+            href="https://github.com/aneek22112007-tech/mcp-a2a-secure#readme"
+            target="_blank"
+            rel="noopener noreferrer"
             className="pill-outline"
-            aria-label="Read the documentation"
+            aria-label="Read the documentation on GitHub"
             style={{ flex: '0 0 auto' }}
           >
             Docs

@@ -86,7 +86,7 @@ export default function CoreFeaturesSection() {
   return (
     <section
       ref={sectionRef}
-      id="architecture"
+      id="features"
       aria-label="Core Features"
       style={{
         position: 'relative',

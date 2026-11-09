@@ -56,7 +56,7 @@ export default function SecurityScannerSection() {
       ref={sectionRef}
       aria-label="Security Scanner"
       style={{
-        background: '#040405',
+        background: 'rgba(4,4,5,0.62)',
         padding: '8rem 2.5rem',
         display: 'flex',
         flexDirection: 'column',
@@ -64,8 +64,8 @@ export default function SecurityScannerSection() {
         gap: '4rem',
       }}
     >
-      <div style={{ textAlign: 'center', maxWidth: '800px' }}>
-        <h2 style={{
+      <div style={{ textAlign: 'center', maxWidth: '1100px', width: '100%' }}>
+        <h2 className="section-heading" style={{
           fontFamily: 'var(--font-display)',
           fontSize: 'clamp(2.5rem, 6vw, 4.5rem)',
           fontWeight: 900,
@@ -73,7 +73,7 @@ export default function SecurityScannerSection() {
           textTransform: 'uppercase',
           marginBottom: '1.5rem',
         }}>
-          A Scanner That<br />Stands On Its Own
+          A Scanner That Stands On Its Own
         </h2>
         <p style={{
           fontFamily: 'var(--font-body)',
@@ -81,7 +81,7 @@ export default function SecurityScannerSection() {
           color: 'var(--text-secondary)',
           lineHeight: 1.7,
         }}>
-          A standalone tool that checks any MCP server — ours or someone else's — for known security holes, independent from the core server by design, built to become its own portfolio artifact.
+          A standalone tool that checks any MCP server — ours or someone else's — for known security holes, independent from the core server by design.
         </p>
       </div>
 

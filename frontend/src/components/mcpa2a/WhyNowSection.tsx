@@ -27,7 +27,8 @@ function StatBlock({ stat, delay }: { stat: typeof STATS[0]; delay: number }) {
         alignItems: 'center',
         textAlign: 'center',
         padding: '2rem 1.5rem',
-        background: 'rgba(255,255,255,0.02)',
+        height: '100%',
+        background: 'rgba(10,10,11,0.72)',
         borderRadius: '16px',
         border: '1px solid rgba(255,255,255,0.05)',
       }}
@@ -71,7 +72,7 @@ export default function WhyNowSection() {
       aria-label="Why This Problem, Why Now"
       style={{
         position: 'relative',
-        background: '#0A0A0B',
+        background: 'rgba(10,10,11,0.6)',
         padding: '8rem 2.5rem',
         display: 'flex',
         flexDirection: 'column',
@@ -135,7 +136,8 @@ export default function WhyNowSection() {
       {/* Stats Grid */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+        gridAutoRows: '1fr',
         gap: '1.5rem',
         width: '100%',
         maxWidth: '1200px',
