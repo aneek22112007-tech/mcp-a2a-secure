@@ -6,7 +6,7 @@ import { KpiCard, SkeletonPage } from '../../components/premium';
 import { ErrorPanel, StreamDot, EmptyState } from '../../components/ui';
 import { PipelineStrip } from '../../components/Pipeline';
 import { lightsMatched, pipelineLights, type StageLight } from '../../components/pipelineLogic';
-import { DEMO_SEQUENCE, waitForCaption, type AttackResult } from '../attack/runners';
+import { ATTACK_SEQUENCE, waitForCaption, type AttackResult } from '../attack/runners';
 import {
   fmtTimestamp, fmtDuration, fmtUptime, decisionBadgeClass,
   getPinBadge, PIN_BADGE_CLASS, PIN_BADGE_LABEL,
@@ -111,8 +111,8 @@ export function OverviewView({ offline }: OverviewProps) {
     if (offline || demoRunning) return;
     setDemoError('');
     setDemoResults({});
-    for (let index = 0; index < DEMO_SEQUENCE.length; index += 1) {
-      const step = DEMO_SEQUENCE[index];
+    for (let index = 0; index < ATTACK_SEQUENCE.length; index += 1) {
+      const step = ATTACK_SEQUENCE[index];
       setDemoRunning(step.id);
       try {
         const result = await step.run();
@@ -134,7 +134,7 @@ export function OverviewView({ offline }: OverviewProps) {
         setDemoError(message);
         break;
       }
-      if (index < DEMO_SEQUENCE.length - 1) await waitForCaption();
+      if (index < ATTACK_SEQUENCE.length - 1) await waitForCaption();
     }
     setDemoRunning(null);
   };
@@ -244,7 +244,7 @@ export function OverviewView({ offline }: OverviewProps) {
             </button>
           </div>
           <ol className="demo-steps">
-            {DEMO_SEQUENCE.map(step => {
+            {ATTACK_SEQUENCE.map(step => {
               const result = demoResults[step.id];
               const active = demoRunning === step.id;
               return (
