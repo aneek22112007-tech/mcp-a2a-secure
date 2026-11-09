@@ -118,7 +118,6 @@ function ConsoleBody({
 
 export function ConsoleApp() {
   const [session, setSession] = useState<Session | null>(null);
-  const [explicitDemo, setExplicitDemo] = useState(false);
   const [backendUp, setBackendUp] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -146,7 +145,6 @@ export function ConsoleApp() {
       .then(detected => {
         if (!cancelled) {
           setSession({ clientId: detected.clientId, scopes: detected.scopes });
-          setExplicitDemo(false);
         }
       })
       .catch(() => {
@@ -156,9 +154,7 @@ export function ConsoleApp() {
   }, [backendUp, session]);
 
   const offline = backendUp === false;
-  // No session yet: stay on the connect screen so a bad backend URL can be edited.
-  // A session that later loses the backend falls back to the demo dataset.
-  const isDemo = explicitDemo || (offline && session !== null);
+  const isDemo = offline;
 
   if (backendUp === null) {
     return (
@@ -168,28 +164,22 @@ export function ConsoleApp() {
     );
   }
 
-  if (!isDemo && !session) {
+  if (!session) {
     return (
       <>
         <ConnectScreen
           onConnected={(clientId, scopes) => {
             setSession({ clientId, scopes });
-            setExplicitDemo(false);
           }}
-          onUseDemo={() => setExplicitDemo(true)}
         />
         <Toaster richColors theme="dark" position="bottom-right" />
       </>
     );
   }
 
-  const active: Session = isDemo
-    ? { clientId: session?.clientId || 'demo', scopes: ['admin'] }
-    : (session ?? { clientId: '', scopes: [] });
-
   return (
     <QueryClientProvider client={queryClient}>
-      <ConsoleBody session={active} isDemo={isDemo} backendUp={backendUp === true} />
+      <ConsoleBody session={session} isDemo={isDemo} backendUp={backendUp === true} />
       <Toaster richColors theme="dark" position="bottom-right" />
     </QueryClientProvider>
   );
