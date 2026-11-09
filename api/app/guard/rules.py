@@ -79,6 +79,7 @@ _G3_PATTERNS = [
 # G4: Encoded / Obfuscated Payloads (medium, escalates to high if decoded is high)
 # ---------------------------------------------------------------------------
 _HEX_CHAIN_RE = re.compile(r"(?:\\x[0-9a-fA-F]{2}){4,}")
+_HEX_TOKEN_RE = re.compile(r"^[0-9a-fA-F]+$")
 _ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
 _B64_INSTRUCTION_RE = re.compile(r"(?i)\b(?:base64\s+decode|echo\s+.*\|\s*base64)\b")
 _B64_TOKEN_RE = re.compile(
@@ -262,9 +263,19 @@ def scan_text(text: str) -> list[RuleMatch]:
 
     for m in _B64_TOKEN_RE.finditer(text):
         token = m.group(0)
+
+        # Skip pure hexadecimal tokens (SHA-256 fingerprints, hashes, request IDs)
+        if _HEX_TOKEN_RE.fullmatch(token):
+            continue
+
+        decoded_blobs = decode_base64_blobs(token)
+        # Skip tokens that do not decode to valid, mostly printable text
+        if not decoded_blobs:
+            continue
+
         is_high = False
         decoded_high_matches: list[RuleMatch] = []
-        for decoded_str in decode_base64_blobs(token):
+        for decoded_str in decoded_blobs:
             high_matches = _check_high_rules_only(decoded_str)
             if high_matches:
                 is_high = True
