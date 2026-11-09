@@ -44,7 +44,7 @@ export default function WhereWeFitSection() {
       ref={sectionRef}
       aria-label="Where We Fit"
       style={{
-        background: '#0A0A0B',
+        background: 'rgba(10,10,11,0.6)',
         padding: '6rem 2.5rem',
         display: 'flex',
         flexDirection: 'column',
