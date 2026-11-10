@@ -231,14 +231,26 @@ async def run_tool(
 
     if not isinstance(args, dict):
         args = {}
-    executor = get_executor()
+    from app.upstream.filesystem import is_filesystem_tool
+
+    filesystem = is_filesystem_tool(tool_name)
+    if filesystem:
+        from app.upstream.runner import get_filesystem_executor
+
+        executor = get_filesystem_executor()
+        mode = MODE_DOCKER
+        image = settings.upstream_fs_image
+        budget = settings.upstream_fs_timeout_s
+    else:
+        executor = get_executor()
+        mode = getattr(executor, "mode", settings.sandbox_mode)
+        image = settings.sandbox_image if mode == MODE_DOCKER else None
+        budget = settings.sandbox_timeout_s
     context = resolve_execution_context(mcp_context)
     stats = getattr(executor, "stats", None)
-    mode = getattr(executor, "mode", settings.sandbox_mode)
     run_id = str(uuid.uuid4())
     started = time.monotonic()
-    deadline = started + settings.sandbox_timeout_s
-    image = settings.sandbox_image if mode == MODE_DOCKER else None
+    deadline = started + budget
     start = SandboxRunStart(
         run_id=run_id,
         tool_name=tool_name,
@@ -278,7 +290,7 @@ async def run_tool(
             ),
         )
 
-    if tool_name not in TOOL_POLICIES:
+    if not filesystem and tool_name not in TOOL_POLICIES:
         await _record_start(start)
         await finish(RUN_STATUS_REJECTED, error_type=ERROR_TOOL_NOT_FOUND)
         raise SandboxToolError(ERROR_TOOL_NOT_FOUND)
