@@ -1,23 +1,26 @@
 # Privacy
 
-MCP Guard is a gateway in front of MCP tools. This note says what the gateway stores. It is the privacy policy linked from the sign-up page. The software license is in `LICENSE` at the root of the repository.
+MCP Guard is a gateway that sits in front of MCP tools. This page lists what it stores and where data goes. The sign-up page links here. The software licence is in `LICENSE` at the root of the repository.
 
 ## What is stored
 
-- **Accounts.** Sign-in and sign-up are handled by the existing auth service. This document does not change that service. Passwords are not written into the gateway audit log.
-- **API keys.** A key is shown once at creation. The gateway stores a hash and a short prefix, not the secret.
-- **Audit log.** Tool calls and auth decisions are recorded with the route, the tool name, a hash of the arguments, the key prefix, and the decision. Argument values and `Authorization` headers are not stored. Client IP addresses are stored for the same retention period as the rest of the audit row.
-- **Notes.** Note text is stored as files under the notes directory on the host that runs the API.
-- **Sandbox runs.** Each tool run records the tool name, the container image, the mode, timing, and an error type. It does not record file contents.
+- **Accounts.** The sign-in service in `backend/` keeps accounts in memory only: email, a bcrypt hash of the password, and for Google sign-in the name and picture URL. Accounts are lost when that service restarts. A signed session token is set as an HTTP-only cookie for one hour.
+- **API keys.** A key looks like `mcpg_<prefix>_<secret>` and is shown once, when it is created. The gateway stores the 8-character prefix and an HMAC-SHA256 hash of the secret part made with the server pepper, never the raw key. It also stores the key name, scopes, and created, expiry, last-used and revoked times. Revoking a key with `DELETE /api/keys/{id}` sets `revoked_at`; the row is kept.
+- **Audit log.** Each request and tool call records the request id, client IP, key prefix, action, tool name, decision and reason, status, timing, and a hash of the arguments. Argument values and `Authorization` headers are not stored.
+- **Sandbox runs.** Each tool run records the tool name, mode, image, status, timing, output size, error type and exit code, with the same request id, key prefix and argument hash. Tool output is not stored.
+- **LLM calls.** Each model call records the purpose, provider, model, status, latency, token counts, whether it fell back, and any error. Prompts and replies are not stored in this table.
+- **A2A tasks.** An agent-to-agent task stores the task text, the result or error, the delegated scopes, the manager and worker key prefixes, and its times.
+- **Notes.** Note text is stored as files in the notes folder (`NOTES_DIR`, by default `api/data/notes/`) on the machine that runs the API.
+- **Tool pins and scanner findings.** Tool fingerprints, approval details, and scanner findings about tool descriptions.
 
-## What is not done
+## Where data goes
 
-The gateway does not sell data, and it does not use tool arguments or note text to train a model. LLM calls run only when `LLM_ENABLED` is turned on, and then only to the configured local or fallback model.
+Everything stays on the machine running MCP Guard, with one exception. When `LLM_ENABLED=true`, the agents send their prompts, which can include note text and task text, to the local Ollama model. If Ollama is not reachable and `GROQ_API_KEY` is set, those prompts go to Groq's hosted API instead. Nothing is sold or used to train a model.
 
 ## Retention
 
-Audit rows, sandbox runs, and LLM call records are kept for the retention periods in the API settings (`AUDIT_RETENTION_DAYS`, `SANDBOX_RUN_RETENTION_DAYS`, `LLM_CALL_RETENTION_DAYS`). Operators delete a key with `DELETE /api/keys/{id}`. Deleting a key does not erase audit rows that already name its prefix.
+`AUDIT_RETENTION_DAYS` (default 90), `SANDBOX_RUN_RETENTION_DAYS` (default 90) and `LLM_CALL_RETENTION_DAYS` (default 30) set how long audit rows, sandbox runs and LLM call rows are kept. Old rows are deleted only when `ENABLE_RETENTION_SCHEDULER=true`. An operator can also run `scripts/prune_audit.py`, which deletes old audit rows and sandbox runs but not LLM call rows. Otherwise rows are kept. Notes, API keys, A2A tasks and tool pins have no automatic retention.
 
 ## Contact
 
-Questions about a deployment go to the operator of that deployment. This repository does not run a hosted service.
+This repository does not run a hosted service. Questions about a deployment go to whoever runs it.
