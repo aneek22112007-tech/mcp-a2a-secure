@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mcpg_guard}
+      POSTGRES_USER: ${POSTGRES_USER:-mcpg_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mcpg_dev_password}
+    volumes:
+      - mcpg_pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mcpg_user} -d ${POSTGRES_DB:-mcpg_guard}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  notes-init:
+    image: alpine:3.20
+    restart: "no"
+    user: "0:0"
+    volumes:
+      - mcpg_notes:/notes
+      - mcpg_shared:/shared
+    command: >
+      sh -c "chown -R 65534:65534 /notes /shared && chmod -R 775 /notes /shared"
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      notes-init:
+        condition: service_completed_successfully
+    volumes:
+      - mcpg_notes:/app/data/notes
+      - mcpg_shared:/app/data/shared
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mcpg_user}:${POSTGRES_PASSWORD:-mcpg_dev_password}@postgres:5432/${POSTGRES_DB:-mcpg_guard}
+      SANDBOX_NOTES_SOURCE: volume:mcpg_notes
+      UPSTREAM_FS_SOURCE: volume:mcpg_shared
+      UPSTREAM_FS_DIR: /app/data/shared
+      NOTES_DIR: /app/data/notes
+      UPSTREAM_FS_ENABLED: "true"
+      SANDBOX_MODE: ${SANDBOX_MODE:-docker}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-mcp-guard-tool-runner:local}
+      UPSTREAM_FS_IMAGE: ${UPSTREAM_FS_IMAGE:-mcp-guard-upstream-fs:2.2.0}
+      API_KEY_PEPPER: ${API_KEY_PEPPER:-mcpg_dev_pepper_do_not_use_in_production_32bytes!}
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173"]}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  mcpg_pgdata:
+    name: mcpg_pgdata
+  mcpg_notes:
+    name: mcpg_notes
+  mcpg_shared:
+    name: mcpg_shared
