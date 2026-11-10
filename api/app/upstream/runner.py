@@ -203,6 +203,9 @@ class FilesystemSession:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                # One JSON-RPC message per line. The server repeats file text in
+                # content and structuredContent, so allow twice the output cap.
+                limit=2 * settings.sandbox_max_output_bytes + 65536,
             )
         except OSError:
             raise SandboxUnavailableError(error_type=ERROR_DOCKER_UNAVAILABLE) from None

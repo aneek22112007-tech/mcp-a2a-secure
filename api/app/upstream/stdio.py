@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.sandbox.errors import SandboxToolError
+from app.sandbox.errors import SandboxOutputError, SandboxToolError
 from app.sandbox.types import ERROR_PROTOCOL_ERROR
 
 
@@ -69,7 +69,12 @@ class StdioMcp:
         await self._stdin.drain()
 
     async def _read(self) -> Any:
-        line = await self._stdout.readline()
+        try:
+            line = await self._stdout.readline()
+        except ValueError:
+            # The line is longer than the reader limit, so the tool output is
+            # over the sandbox output cap.
+            raise SandboxOutputError() from None
         if not line:
             raise SandboxToolError(ERROR_PROTOCOL_ERROR)
         if line.lower().startswith(b"content-length:"):
