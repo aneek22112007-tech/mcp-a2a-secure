@@ -304,8 +304,8 @@ export const SignUp: React.FC = () => {
           <input type="checkbox" id="terms" checked={agreed} onChange={e => setAgreed(e.target.checked)}
             style={{ marginTop: '2px', width: '14px', height: '14px', accentColor: '#FE6E44', flexShrink: 0 }} />
           <label htmlFor="terms" style={{ ...labelStyle, marginBottom: 0, textTransform: 'none', letterSpacing: '0.02em', fontSize: '0.72rem', color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
-            I agree to the <a href="https://github.com/aneek22112007-tech/mcp-a2a-secure/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#fff', textDecoration: 'underline' }}>Terms of Service</a>,{' '}
-            <a href="https://github.com/aneek22112007-tech/mcp-a2a-secure/blob/main/docs/PRIVACY.md" target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: '#fff', textDecoration: 'underline' }}>Privacy Policy</a>, and cryptographic sandbox attestation requirements.
+            I agree to the <a href="https://github.com/aneek22112007-tech/mcp-a2a-secure/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'underline' }}>Terms of Service</a> and{' '}
+            <a href="https://github.com/aneek22112007-tech/mcp-a2a-secure/blob/main/docs/PRIVACY.md" target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'underline' }}>Privacy Policy</a>.
           </label>
         </div>
 
