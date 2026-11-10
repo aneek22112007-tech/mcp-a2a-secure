@@ -128,7 +128,7 @@
 | Huge `Content-Length` header | Middleware | Digit length capped at 18 before `int()` conversion | `middleware.py:_MAX_CONTENT_LENGTH_DIGITS` | Covered. |
 | Slow MCP tool (tool timeout) | Gateway | `asyncio.wait_for(timeout=settings.tool_timeout_s)` (default 5 s) | `gateway.py`, `test_gateway.py::test_gateway_504_timeout` | Covered. |
 | MCP probe blocking | `/api/status` | 3-second probe timeout; failure is a status, not a 500 | `routes/status.py:PROBE_TIMEOUT_SECONDS` | Covered. |
-| Rate limiting | REST and `/mcp` | Per-key token buckets, separate for REST and `/mcp` (in-process, per worker). A per-IP failed-auth throttle (`AUTH_FAILURE_LIMIT` / `AUTH_FAILURE_WINDOW_S`) returns 429 with `Retry-After` | `api/app/rate_limit.py`, `api/app/auth/throttle.py` | Limits are per process. IP-based throttling can lock out clients behind a shared NAT. `X-Forwarded-For` is trusted only from `TRUSTED_PROXIES`. |
+| Rate limiting | REST and `/mcp` | Shared per-key token bucket across REST and `/mcp` (in-process, per worker). A per-IP failed-auth throttle (`AUTH_FAILURE_LIMIT` / `AUTH_FAILURE_WINDOW_S`) returns 429 with `Retry-After` | `api/app/rate_limit.py`, `api/app/auth/throttle.py` | Limits are per process. IP-based throttling can lock out clients behind a shared NAT. `X-Forwarded-For` is trusted only from `TRUSTED_PROXIES`. |
 | Large note directory scan | `list_notes` | `NOTES_DIR.glob("*.md")` — unbounded if many files exist | `mcp_server.py:list_notes` | Gap: could be slow with thousands of notes. |
 
 ### Elevation of Privilege

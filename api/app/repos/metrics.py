@@ -37,7 +37,7 @@ async def get_metrics_summary(session: AsyncSession) -> dict:
             func.count(case((AuditEvent.status == "ok", 1))).label("successful"),
             func.count(case((AuditEvent.status == "denied", 1))).label("denied"),
             func.count(case((AuditEvent.status == "error", 1))).label("error"),
-            func.count(case((AuditEvent.reason == "rate_limit_exceeded", 1))).label(
+            func.count(case((AuditEvent.reason.like("rate_limit_exceeded%"), 1))).label(
                 "rate_limit_rejections"
             ),
         ).select_from(AuditEvent)

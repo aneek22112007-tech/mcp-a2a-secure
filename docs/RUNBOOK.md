@@ -349,12 +349,12 @@ uv run alembic check       # verify the DB matches the latest head
 
 ## Rate Limiting
 
-The application uses an in-memory token bucket rate limiter to protect both REST routes and the MCP stream. By default, the capacity is `100` and the refill rate is `10.0` tokens per second.
+The application uses an in-memory token bucket rate limiter to protect both REST routes and the MCP stream. Each API key consumes a single shared token bucket across both REST and MCP requests, preventing clients from doubling their allowance across interfaces. By default, the capacity is `100` and the refill rate is `10.0` tokens per second.
 
 If 429 Too Many Requests responses are frequent:
 
 - Adjust `RATE_LIMIT_CAPACITY` and `RATE_LIMIT_REFILL_RATE_PER_SEC` in `.env`.
-- Note that rate limit rejections are audited as `rate_limit.deny` rows, but throttled to at most one per window.
+- Note that rate limit rejections are audited as `rate_limit.deny` rows with `reason="rate_limit_exceeded surface=rest"` or `reason="rate_limit_exceeded surface=mcp"`, but throttled to at most one per window.
 
 If body-size 413 responses are frequent:
 
