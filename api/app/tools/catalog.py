@@ -62,7 +62,6 @@ def fingerprint_tool(definition: ToolDefinition) -> str:
 
     Object keys are sorted at every level. Description whitespace is collapsed
     on each line. ``outputSchema`` is included only when it is not None.
-    Filesystem tools (``fs_``) omit it: that upstream schema is not pinned.
     """
 
     payload: dict[str, Any] = {
@@ -70,7 +69,7 @@ def fingerprint_tool(definition: ToolDefinition) -> str:
         "description": _normalise_description(definition.description),
         "inputSchema": _sorted_json(definition.input_schema),
     }
-    if definition.output_schema is not None and not definition.name.startswith("fs_"):
+    if definition.output_schema is not None:
         payload["outputSchema"] = _sorted_json(definition.output_schema)
     canonical = json.dumps(
         payload,
