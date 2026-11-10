@@ -111,7 +111,7 @@ On `main` today:
 
 - **MCP server.** Built on the official Python SDK (FastMCP) and mounted at `/mcp/` over Streamable HTTP. It exposes three notes tools, `list_notes`, `read_note` and `write_note`. Note names are checked against `[A-Za-z0-9_-]{1,64}` and the resolved path must stay inside the notes directory.
 - **Notes REST API.** `/api/notes` routes call tools only through `gateway.call_tool()`, which applies a tool allowlist, a 128 KiB argument limit, a 5 second timeout and error messages that don't leak paths or tracebacks.
-- **API-key auth and scopes.** Protected REST routes and `/mcp/` need `Authorization: Bearer mcpg_...`. Scopes are `notes:read`, `notes:write`, `audit:read`, `metrics:read`, `sandbox:read`, `tools:read`, `agent:run` and `admin`. The key verifier is pluggable and defaults to deny-all. Every route has to appear in the scope map or the app fails at startup.
+- **API-key auth and scopes.** Protected REST routes and `/mcp/` need `Authorization: Bearer mcpg_...`. Scopes are `notes:read`, `notes:write`, `files:read`, `files:write`, `audit:read`, `metrics:read`, `sandbox:read`, `tools:read`, `agent:run` and `admin`. The key verifier is pluggable and defaults to deny-all. Every route has to appear in the scope map or the app fails at startup.
 - **Consistent errors.** 401, 403 and other errors use one JSON shape and include `WWW-Authenticate` where it applies.
 - **HTTP hardening.** Request IDs on every response and log line, a request body size limit, security headers with a strict CSP, a CORS allowlist, and API docs disabled outside development.
 - **Status endpoint.** `/api/status` does a real MCP handshake against the server and reports latency, protocol version and tools.
@@ -119,6 +119,7 @@ On `main` today:
 - **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Mutating REST calls (`PUT /api/notes/{name}`) and MCP `tools/call` are audit-first: a required row is written before the tool runs. Read tools are audited after execution, before the result is returned. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
 - **Rate limiting, metrics and retention.** Each API key has its own token bucket, with separate buckets for REST and `/mcp`. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler. Sandbox run records are pruned on the same retention cycle.
 - **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
+- **Filesystem upstream.** With `UPSTREAM_FS_ENABLED=true`, the official filesystem MCP server is registered as `fs_` tools. Each call runs in its own container, mounted at `/projects`. `files:read` and `files:write` are required in addition to `agent:run`. The upstream is off by default. If it cannot start, the API still starts and the notes tools are the only tools. See [docs/UPSTREAM_FILESYSTEM.md](docs/UPSTREAM_FILESYSTEM.md).
 - **Tool pinning.** Each tool's name, description, and JSON schema are hashed. `TOOL_PINNING_MODE=enforce` returns 403 `Tool is not approved.` until an admin approves that hash, and `tools/list` plus `GET /api/mcp/info` omit tools that are not approved. `warn` writes an audit row and still runs the tool. `off` (the default) skips the check. A schema or description change is drift and has to be approved again. The hash does not cover the function body. An optional source digest is stored for operators and is not an allow or deny input.
 - **Rule-based Scanner.** A static tool-poisoning scanner evaluates tools against phrase rules for prompt injection, data exfiltration, overbroad parameters, and size anomalies. Unsafe patterns generate `ToolScanFinding` records. The `DbScanGate` hooks into the pinning flow to block tools with `high` or `critical` severity findings before they can run, but only if `TOOL_PINNING_MODE=enforce`.
 - **Notes agent.** `POST /api/agents/notes/run` runs a LangGraph agent. Its tools call `/mcp/` with `NOTES_AGENT_API_KEY`, so auth, scopes, rate limits, pinning, the scanner, the sandbox and the audit log still apply. ChatOllama is the primary model. ChatGroq is used only when Ollama cannot be reached or times out.
@@ -223,6 +224,7 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `GET` | `/api/sandbox/runs` | `sandbox:read` | Sandbox execution records, newest first |
 | `GET` | `/api/sandbox/runs/{run_id}` | `sandbox:read` | Details for one sandbox run |
 | `GET` | `/api/sandbox/health` | `sandbox:read` | Status of the active sandbox executor |
+| `GET` | `/api/upstreams` | `tools:read` | Registered upstreams. The filesystem entry reports enabled, image, tool names and `detail` |
 | `GET` | `/api/pins` | `tools:read` | Catalog tools and stored pins, with `matches` against the live fingerprint |
 | `GET` | `/api/pins/{tool_name}` | `tools:read` | One pin, or a catalog tool that has no row yet |
 | `POST` | `/api/pins/sync` | `admin` | Store a pending pin when the live fingerprint is not already stored |
@@ -248,11 +250,13 @@ Gateway errors map to 400 (bad arguments), 403 (tool not approved when pinning i
 |---|---|
 | `notes:read` | Listing and reading notes |
 | `notes:write` | Creating and overwriting notes |
+| `files:read` | Reading and listing through the filesystem upstream |
+| `files:write` | Writing, editing, moving, appending and copying through the filesystem upstream |
 | `agent:run` | Everything under `/mcp/` |
 | `audit:read` | `GET /api/audit` and `GET /api/audit/stream` |
 | `metrics:read` | `GET /api/metrics` |
 | `sandbox:read` | `GET /api/sandbox/runs` and `GET /api/sandbox/health` |
-| `tools:read` | `GET /api/pins` and `GET /api/pins/{tool_name}` |
+| `tools:read` | `GET /api/pins`, `GET /api/pins/{tool_name}` and `GET /api/upstreams` |
 | `scanner:read` | `GET /api/scanner/findings` |
 | `admin` | Passes every scope check. Also required to sync, approve, and revoke pins, and scan tools |
 
@@ -292,6 +296,10 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `SANDBOX_RUN_AS` | `65534:65534` | `uid:gid` inside the container. Production rejects a uid that starts with 0 |
 | `SANDBOX_NOTES_SOURCE` | unset | Absolute host path, or `volume:<name>`, mounted at `/notes`. Unset uses `NOTES_DIR` |
 | `SANDBOX_DOCKER_BIN` | `docker` | Docker CLI used to start runs |
+| `UPSTREAM_FS_ENABLED` | `false` | Register `fs_` tools from the official filesystem MCP server. A failure to start that server leaves the notes tools only |
+| `UPSTREAM_FS_IMAGE` | `mcp-guard-upstream-fs:2.2.0` | Image for each filesystem call. Build it with `api/scripts/build_upstream_fs_image.sh` |
+| `UPSTREAM_FS_DIR` | `api/data/shared` | Host directory mounted at `/projects`. Created on first use, not when settings load |
+| `UPSTREAM_FS_TIMEOUT_S` | `30` | Seconds for one filesystem container. Separate from `SANDBOX_TIMEOUT_S` |
 | `AUDIT_STREAM_MAX_SUBSCRIBERS` | `20` | Concurrent subscribers on `GET /api/audit/stream` |
 | `AUDIT_STREAM_QUEUE_SIZE` | `100` | Per-subscriber SSE queue. A full queue drops events for that subscriber |
 | `RATE_LIMIT_CAPACITY` | `100` | Token bucket capacity for rate limiting |
