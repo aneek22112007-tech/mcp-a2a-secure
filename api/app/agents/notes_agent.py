@@ -83,6 +83,8 @@ class NotesAgentState(TypedDict):
     key_prefix: str | None
     next_action: dict[str, Any] | None
     blocked: bool
+    client_id: str | None
+    api_key_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +109,8 @@ async def run_notes_agent(
     *,
     request_id: str | None = None,
     key_prefix: str | None = None,
+    client_id: str | None = None,
+    api_key_id: str | None = None,
     backend: LLMBackend | None = None,
     gateway: NotesGateway | None = None,
 ) -> NotesAgentOutcome:
@@ -128,6 +132,8 @@ async def run_notes_agent(
                     cleaned,
                     request_id=request_id,
                     key_prefix=key_prefix,
+                    client_id=client_id,
+                    api_key_id=api_key_id,
                 ),
                 {"recursion_limit": 20},
             )
@@ -228,6 +234,8 @@ def _compile(gateway: NotesGateway, backend: LLMBackend):
                 tool_name=name,
                 key_prefix=state.get("key_prefix"),
                 request_id=state.get("request_id"),
+                client_id=state.get("client_id"),
+                api_key_id=state.get("api_key_id"),
             )
             output_text = guard_res.text
             if guard_res.blocked or output_text.startswith(
@@ -325,6 +333,8 @@ def _initial_state(
     *,
     request_id: str | None,
     key_prefix: str | None,
+    client_id: str | None = None,
+    api_key_id: str | None = None,
 ) -> NotesAgentState:
     return {
         "task": task,
@@ -343,6 +353,8 @@ def _initial_state(
         "key_prefix": key_prefix,
         "next_action": None,
         "blocked": False,
+        "client_id": client_id,
+        "api_key_id": api_key_id,
     }
 
 

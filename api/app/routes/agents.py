@@ -74,6 +74,8 @@ async def run_notes(
             body.task,
             request_id=current_request_id(request.scope),
             key_prefix=principal.key_prefix,
+            client_id=principal.client_id,
+            api_key_id=principal.api_key_id,
         )
     except LLMDisabledError:
         raise HTTPException(status_code=503, detail="LLM is disabled.") from None

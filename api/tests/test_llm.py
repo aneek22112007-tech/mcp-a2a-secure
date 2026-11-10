@@ -357,7 +357,7 @@ def test_llm_health_admin(monkeypatch):
 def test_notes_run_returns_agent_outcome(monkeypatch):
     from app.agents.notes_agent import NotesAgentOutcome
 
-    async def _run(task, *, request_id=None, key_prefix=None):
+    async def _run(task, *, request_id=None, key_prefix=None, **kwargs):
         assert task == "list the notes"
         assert key_prefix == "mcpg_test"
         return NotesAgentOutcome(
