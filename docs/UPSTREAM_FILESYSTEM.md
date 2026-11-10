@@ -33,8 +33,10 @@ installed globally. The process user in the image is `65534:65534`.
 | `UPSTREAM_FS_TIMEOUT_S` | `30` | Seconds for one filesystem container, including process startup. This is separate from `SANDBOX_TIMEOUT_S`, which is sized for the notes runner |
 
 `Settings()` does not create `UPSTREAM_FS_DIR`. The directory is created on
-first use, mode `0777`, so the container user can write. `readme.txt` is
-written there when it is missing. `api/data/` is gitignored.
+first use with mode `0755`; an existing directory keeps its permissions.
+Nothing is written into it at startup. With native Docker on Linux, write
+tools need the directory to be writable by the `SANDBOX_RUN_AS` uid. Docker
+Desktop maps ownership to the host user. `api/data/` is gitignored.
 
 The path must not contain a comma or an equals sign. Those characters would
 change the meaning of `docker --mount`.
@@ -102,5 +104,5 @@ when the pins were approved have no approved pin.
 ## Output and time limits
 
 The joined tool text is capped at `SANDBOX_MAX_OUTPUT_BYTES`. A timeout uses
-`SANDBOX_TIMEOUT_S`, then the container is killed and removed. `docker ps -a
+`UPSTREAM_FS_TIMEOUT_S`, then the container is killed and removed. `docker ps -a
 --filter label=mcp_guard.sandbox=1` should be empty after the call returns.
