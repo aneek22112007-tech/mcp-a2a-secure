@@ -250,10 +250,17 @@ def get_filesystem_executor() -> FilesystemExecutor:
 
 
 def _argv(name: str, *, read_only: bool) -> list[str]:
-    source = ensure_shared_dir().resolve()
-    if _unsafe(str(source)):
-        raise SandboxUnavailableError()
-    mount = f"type=bind,source={source},target={MOUNT}"
+    fs_source = settings.upstream_fs_source
+    if fs_source is not None and fs_source.startswith("volume:"):
+        volume = fs_source.split(":", 1)[1]
+        if re.fullmatch(r"[A-Za-z0-9_.-]+", volume) is None:
+            raise SandboxUnavailableError()
+        mount = f"type=volume,source={volume},target={MOUNT}"
+    else:
+        source = ensure_shared_dir().resolve()
+        if _unsafe(str(source)):
+            raise SandboxUnavailableError()
+        mount = f"type=bind,source={source},target={MOUNT}"
     if read_only:
         mount += ",readonly"
     return [

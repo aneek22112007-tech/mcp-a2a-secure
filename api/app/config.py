@@ -99,6 +99,10 @@ class Settings(BaseSettings):
         pattern=r"^[^\s]+$",
         description="Image tag started once per fs_ call.",
     )
+    upstream_fs_source: str | None = Field(
+        default=None,
+        description="Docker named volume for filesystem upstream (volume:<name>).",
+    )
     upstream_fs_dir: Path = Field(
         default=_API_ROOT / "data" / "shared",
         description="Host directory mounted at /projects. Not created by Settings.",
@@ -285,6 +289,24 @@ class Settings(BaseSettings):
     def blank_notes_source(cls, v: Any) -> Any:
         if isinstance(v, str) and v.strip() == "":
             return None
+        return v
+
+    @field_validator("upstream_fs_source", mode="before")
+    @classmethod
+    def blank_upstream_fs_source(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
+    @field_validator("upstream_fs_source")
+    @classmethod
+    def validate_upstream_fs_source(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not re.fullmatch(r"volume:[A-Za-z0-9_.-]+", v):
+            raise ValueError(
+                "UPSTREAM_FS_SOURCE must be in the form volume:<name> matching volume:[A-Za-z0-9_.-]+"
+            )
         return v
 
     @field_validator(
