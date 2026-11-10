@@ -46,6 +46,7 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("GET", "/api/sandbox/runs"): SANDBOX_READ,
     ("GET", "/api/sandbox/runs/{run_id}"): SANDBOX_READ,
     ("GET", "/api/sandbox/health"): SANDBOX_READ,
+    ("GET", "/api/upstreams"): TOOLS_READ,
     ("GET", "/api/pins"): TOOLS_READ,
     ("GET", "/api/pins/{tool_name}"): TOOLS_READ,
     ("POST", "/api/pins/sync"): ADMIN,
