@@ -38,6 +38,7 @@ class TokenBucketRateLimiter:
     def __init__(self) -> None:
         self._buckets: dict[tuple[str, str], BucketState] = {}
         self._lock = threading.Lock()
+        self.rejected_total = 0
 
     def acquire(self, surface: str, key_id: str) -> tuple[bool, float, bool]:
         """Attempt to acquire 1 token.
@@ -65,6 +66,7 @@ class TokenBucketRateLimiter:
                 bucket.last_denied = 0.0
                 return True, 0.0, False
 
+            self.rejected_total += 1
             bucket.tokens = new_tokens
             bucket.last_updated = now
             retry_after = (1.0 - new_tokens) / refill_rate

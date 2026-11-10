@@ -154,7 +154,7 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
         <Stat label="Total" value={fmtNumber(totals?.total)} tone="var(--c-amber)" icon={<Activity size={13} />} sub={successRate != null ? `${fmtPercent(successRate)} successful` : undefined} />
         <Stat label="Denied" value={fmtNumber(totals?.denied)} tone="var(--c-deny)" icon={<ShieldAlert size={13} />} sub="auth, scope and policy" />
         <Stat label="Errors" value={fmtNumber(totals?.error)} tone="var(--c-high)" icon={<BarChart2 size={13} />} sub="tool or upstream failures" />
-        <Stat label="Rate limited" value={fmtNumber(totals?.rate_limit_rejections)} tone="var(--c-review)" icon={<Gauge size={13} />} sub={`${fmtNumber(metrics?.in_process_limiter?.active_buckets ?? 0)} active buckets`} />
+        <Stat label="Rate limited" value={fmtNumber(totals?.rate_limit_rejections)} tone="var(--c-review)" icon={<Gauge size={13} />} sub="since API start" />
         <Stat label="Guard hits" value={fmtNumber(guard?.hits ?? 0)} tone="var(--c-high)" icon={<ShieldAlert size={13} />} sub={guard ? `${guard.blocked} blocked · ${guard.sanitized} sanitized` : 'not reported'} />
         <Stat
           label="Database"

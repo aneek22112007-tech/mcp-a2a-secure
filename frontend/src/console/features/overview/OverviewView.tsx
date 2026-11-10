@@ -158,7 +158,7 @@ export function OverviewView({ offline }: OverviewProps) {
           { label: 'Requests', value: totals.total, icon: Activity, tone: 'var(--c-info)', key: 'total' as const, up: true, foot: 'all time' },
           { label: 'Allowed', value: totals.successful, icon: Shield, tone: 'var(--c-allow)', key: 'allowed' as const, up: true, foot: totals.total ? `${fmtPercent(totals.successful / totals.total)} of requests` : undefined },
           { label: 'Denied', value: totals.denied, icon: AlertTriangle, tone: 'var(--c-deny)', key: 'denied' as const, up: false, foot: 'auth, scope, policy' },
-          { label: 'Rate limited', value: totals.rate_limit_rejections, icon: Clock, tone: 'var(--c-review)', key: 'rateLimited' as const, up: false, foot: 'HTTP 429' },
+          { label: 'Rate limited', value: totals.rate_limit_rejections, icon: Clock, tone: 'var(--c-review)', key: 'rateLimited' as const, up: false, foot: 'since API start' },
           { label: 'Guard blocks', value: metrics?.injection_guard?.blocked ?? 0, icon: ShieldAlert, tone: 'var(--c-high)', key: 'guard' as const, up: false, foot: metrics?.injection_guard ? plural(metrics.injection_guard.hits, 'hit') : 'injection guard' },
         ].map(({ label, value, icon: Icon, tone, key, up, foot }) => (
           <KpiCard

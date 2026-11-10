@@ -397,9 +397,122 @@ async def test_metrics_counts_all_rate_limit_reason_variants(tmp_path):
         await session.commit()
 
         summary = await get_metrics_summary(session)
-        assert summary["totals"]["rate_limit_rejections"] == 3
+        assert summary["totals"]["rate_limit_audit_rows"] == 3
+        assert summary["totals"]["rate_limit_rejections"] == limiter.rejected_total
         assert summary["totals"]["denied"] == 4
         assert summary["totals"]["successful"] == 1
         assert summary["totals"]["total"] == 5
+
+    await engine.dispose()
+
+
+# ===========================================================================
+# P8 C2: Rate Limit Rejection Counter Tests
+# ===========================================================================
+
+
+def test_rejected_total_increments_only_on_denials(monkeypatch):
+    """1. A successful acquire does not increment rejected_total.
+    2. Each denied acquire increments rejected_total exactly once.
+    3. Multiple denied requests increment counter even when audit is throttled.
+    """
+    monkeypatch.setattr(settings, "rate_limit_capacity", 2)
+    monkeypatch.setattr(settings, "rate_limit_refill_rate_per_sec", 10.0)
+
+    test_limiter = TokenBucketRateLimiter()
+    assert test_limiter.rejected_total == 0
+
+    # Successful acquires
+    allowed1, _, _ = test_limiter.acquire("key", "k1")
+    assert allowed1 is True
+    assert test_limiter.rejected_total == 0
+
+    allowed2, _, _ = test_limiter.acquire("key", "k1")
+    assert allowed2 is True
+    assert test_limiter.rejected_total == 0
+
+    # First denied acquire (audit should be True)
+    allowed3, _, should_audit3 = test_limiter.acquire("key", "k1")
+    assert allowed3 is False
+    assert should_audit3 is True
+    assert test_limiter.rejected_total == 1
+
+    # Second denied acquire (audit throttled to False, but rejected_total still increments!)
+    allowed4, _, should_audit4 = test_limiter.acquire("key", "k1")
+    assert allowed4 is False
+    assert should_audit4 is False
+    assert test_limiter.rejected_total == 2
+
+    # Third denied acquire (audit throttled to False, rejected_total increments!)
+    allowed5, _, should_audit5 = test_limiter.acquire("key", "k1")
+    assert allowed5 is False
+    assert should_audit5 is False
+    assert test_limiter.rejected_total == 3
+
+
+def test_rejected_total_concurrent_increments(monkeypatch):
+    """4. The counter remains correct under concurrent denied acquisitions."""
+    import concurrent.futures
+
+    monkeypatch.setattr(settings, "rate_limit_capacity", 0)  # Always deny
+    monkeypatch.setattr(settings, "rate_limit_refill_rate_per_sec", 1.0)
+
+    test_limiter = TokenBucketRateLimiter()
+    concurrency = 20
+    requests_per_worker = 50
+
+    def worker():
+        for _ in range(requests_per_worker):
+            test_limiter.acquire("key", "k_concurrent")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+        futures = [executor.submit(worker) for _ in range(concurrency)]
+        for f in concurrent.futures.as_completed(futures):
+            f.result()  # Propagate any exception
+
+    assert test_limiter.rejected_total == concurrency * requests_per_worker
+
+
+@pytest.mark.anyio
+async def test_metrics_expose_limiter_counters(tmp_path):
+    """5. Metrics expose totals.rate_limit_rejections from limiter.rejected_total.
+    6. Metrics expose the old audit-based count separately as totals.rate_limit_audit_rows.
+    7. in_process_limiter.rejected_total is present and matches the limiter counter.
+    """
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/test_c2_metrics.db")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    # Set limiter.rejected_total to an explicit in-process value
+    limiter.rejected_total = 42
+
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker() as session:
+        # Add 2 audit rows matching rate_limit_exceeded
+        session.add_all(
+            [
+                AuditEvent(
+                    action="rate_limit.deny",
+                    decision="denied",
+                    status="denied",
+                    reason="rate_limit_exceeded surface=rest",
+                ),
+                AuditEvent(
+                    action="rate_limit.deny",
+                    decision="denied",
+                    status="denied",
+                    reason="rate_limit_exceeded surface=mcp",
+                ),
+            ]
+        )
+        await session.commit()
+
+        summary = await get_metrics_summary(session)
+        # In-process counter
+        assert summary["totals"]["rate_limit_rejections"] == 42
+        assert summary["in_process_limiter"]["rejected_total"] == 42
+        assert "active_buckets" in summary["in_process_limiter"]
+        # Audit-based counter
+        assert summary["totals"]["rate_limit_audit_rows"] == 2
 
     await engine.dispose()
