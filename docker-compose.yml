@@ -25,7 +25,7 @@ services:
       - mcpg_notes:/notes
       - mcpg_shared:/shared
     command: >
-      sh -c "chown -R 65534:65534 /notes /shared && chmod -R 775 /notes /shared"
+      sh -c "chown -R 65534:65534 /notes /shared && find /notes /shared -type d -exec chmod 775 {} +"
 
   api:
     build:
