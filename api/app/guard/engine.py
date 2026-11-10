@@ -29,6 +29,7 @@ def check_tool_output(
     tool_name: str,
     key_prefix: str | None = None,
     request_id: str | None = None,
+    audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
 ) -> GuardResult:
     """Evaluate tool output text against prompt injection rules G1–G6.
 
@@ -154,6 +155,7 @@ def check_tool_output(
         findings=findings,
         blocked=blocked,
         cleaned=cleaned,
+        audit_action=audit_action,
     )
     result._audit_task = audit_task
 
@@ -171,6 +173,7 @@ def _write_guard_audit(
     findings: list[Any],
     blocked: bool,
     cleaned: bool,
+    audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
 ) -> Any:
     """Record a guard hit audit log event."""
 
@@ -180,7 +183,7 @@ def _write_guard_audit(
     )
 
     record = AuditRecord(
-        action=ACTION_TOOL_OUTPUT_INJECTION,
+        action=audit_action,
         decision=AUDIT_DECISION_DENIED if blocked else AUDIT_DECISION_ALLOWED,
         status=STATUS_DENIED if blocked else (STATUS_OK if not cleaned else "cleaned"),
         tool_name=tool_name,
