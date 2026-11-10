@@ -120,16 +120,9 @@ def ensure_shared_dir() -> Path:
     """Create the host directory mounted at ``/projects``. Settings does not."""
 
     path = settings.upstream_fs_dir
-    path.mkdir(parents=True, exist_ok=True)
-    # The container user is the sandbox uid, which is not the host user.
-    path.chmod(0o777)
-    readme = path / "readme.txt"
-    if not readme.exists():
-        readme.write_text(
-            "Shared directory for the MCP Guard filesystem upstream.\n",
-            encoding="utf-8",
-        )
-        readme.chmod(0o644)
+    if not path.exists():
+        path.mkdir(parents=True, mode=0o755)
+        path.chmod(0o755)
     return path
 
 
