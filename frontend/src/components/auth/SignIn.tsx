@@ -216,7 +216,7 @@ export const SignIn: React.FC = () => {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
             <label htmlFor="password" style={labelStyle}>Password</label>
-            <a href="#" style={{ fontSize: '0.65rem', color: '#FE6E44', textDecoration: 'none', fontFamily: 'var(--font-body)' }}>Forgot password?</a>
+            <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'var(--font-body)' }}>Forgot it? Ask your admin to reset it.</span>
           </div>
           <div style={{ ...inputWrapStyle, borderColor: passFocused ? 'rgba(254,110,68,0.5)' : 'rgba(255,255,255,0.1)' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
