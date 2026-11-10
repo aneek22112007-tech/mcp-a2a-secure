@@ -15,6 +15,24 @@ _DEFAULT_DB_PATH = _API_ROOT / "data" / "mcp_guard.db"
 _DEFAULT_DB_URL = f"sqlite+aiosqlite:///{_DEFAULT_DB_PATH}"
 
 
+def normalize_database_url(url: str) -> str:
+    """Normalize a database URL for async SQLAlchemy.
+
+    PostgreSQL connection strings starting with ``postgres://`` or
+    ``postgresql://`` (without driver specification) are mapped to
+    ``postgresql+asyncpg://``. Already-specified driver schemes (such as
+    ``postgresql+asyncpg://``) and SQLite URLs are preserved unchanged.
+    """
+    if not isinstance(url, str):
+        return url
+    stripped = url.strip()
+    if stripped.startswith("postgres://"):
+        return f"postgresql+asyncpg://{stripped[len('postgres://') :]}"
+    if stripped.startswith("postgresql://"):
+        return f"postgresql+asyncpg://{stripped[len('postgresql://') :]}"
+    return stripped
+
+
 class Settings(BaseSettings):
     """Process configuration.
 
@@ -230,6 +248,13 @@ class Settings(BaseSettings):
             "Required for POST /api/a2a/tasks/run."
         ),
     )
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def validate_database_url(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return normalize_database_url(v)
+        return v
 
     @field_validator("injection_guard_mode", mode="before")
     @classmethod

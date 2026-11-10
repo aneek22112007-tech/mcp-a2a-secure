@@ -15,7 +15,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
-from app.config import settings
+from app.config import normalize_database_url, settings
 from app.models import Base
 
 
@@ -48,11 +48,11 @@ def _database_url() -> str:
 
     configured = config.get_main_option("sqlalchemy.url")
     if configured and configured.strip():
-        return configured.strip()
+        return normalize_database_url(configured.strip())
     env_url = os.environ.get("DATABASE_URL")
     if env_url and env_url.strip():
-        return env_url.strip()
-    return settings.database_url
+        return normalize_database_url(env_url.strip())
+    return normalize_database_url(settings.database_url)
 
 
 def _ensure_sqlite_parent(url: str) -> None:
