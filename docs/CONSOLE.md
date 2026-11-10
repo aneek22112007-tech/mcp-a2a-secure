@@ -15,14 +15,13 @@ TOOL_PINNING_MODE=enforce
 API_KEY_PEPPER=replace-with-a-local-development-secret
 MCP_SELF_API_KEY=
 MCPG_DEMO_POISON_TOOL=1
-RATE_LIMIT_CAPACITY=20
 ```
 
 `API_KEY_PEPPER` is any long local secret. Do not commit `api/.env`.
 
 `MCP_SELF_API_KEY` is an `mcpg_` key with the `agent:run` scope. The admin key from `create_admin_key.py` is enough. `/api/status` uses it only to probe MCP. Leave it empty and the overview shows an amber line, "MCP not configured: set MCP_SELF_API_KEY". The status route cannot tell an unset key apart from any other probe failure, so that same amber line also covers a probe that failed for another reason. A green online badge means the probe succeeded.
 
-`RATE_LIMIT_CAPACITY=20` is the demo setting in `api/.env.example`. The attack simulator sends 120 requests at once. A bucket of 20 cannot hold that burst, so most of those requests come back as 429 with a Retry-After value. The code default without this setting is 100, and a higher capacity can absorb the whole burst so you see zero 429 responses. Restart the API after you change it.
+Rate limiting defaults to a bucket capacity of 30 requests (`RATE_LIMIT_CAPACITY=30`) and a refill rate of 5 requests per second (`RATE_LIMIT_REFILL_RATE_PER_SEC=5.0`). The Attack page sends 120 requests at once. With a capacity of 30 and assuming no refill during the burst, approximately 90 requests will receive HTTP 429 responses with a Retry-After value. Approximately 90 is the expected burst behavior rather than a guaranteed result under every timing condition, because tokens may refill while requests are processed. Operators can override these defaults via environment variables if desired. Restart the API after changing rate limit settings.
 
 `MCPG_DEMO_POISON_TOOL=1` registers `poisoned_test_tool`. Its description is a fixture for the scanner (R1 prompt injection and R2 exfiltration). The function returns a fixed string and does not open a network connection. The flag is refused when `ENVIRONMENT` is production-like. Leave it unset when you run the test suite, or the tests that expect only the three notes tools will fail. Restart the API after you change it.
 

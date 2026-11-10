@@ -39,6 +39,8 @@ def _isolated_settings(monkeypatch, **overrides) -> Settings:
         "NOTES_AGENT_API_KEY",
         "INJECTION_GUARD_MODE",
         "LLM_CALL_RETENTION_DAYS",
+        "RATE_LIMIT_CAPACITY",
+        "RATE_LIMIT_REFILL_RATE_PER_SEC",
     ):
         monkeypatch.delenv(key, raising=False)
     for key, value in overrides.items():
@@ -56,6 +58,28 @@ def test_default_config_values(monkeypatch):
     assert settings.notes_dir.parent.name == "data"
     assert settings.max_body_bytes == 1_048_576
     assert settings.tool_timeout_s == 5
+    assert settings.rate_limit_capacity == 30
+    assert settings.rate_limit_refill_rate_per_sec == 5.0
+
+
+def test_rate_limit_settings_defaults_and_overrides(monkeypatch):
+    settings = _isolated_settings(monkeypatch)
+    assert settings.rate_limit_capacity == 30
+    assert settings.rate_limit_refill_rate_per_sec == 5.0
+
+    overrides = _isolated_settings(
+        monkeypatch,
+        RATE_LIMIT_CAPACITY="50",
+        RATE_LIMIT_REFILL_RATE_PER_SEC="15.5",
+    )
+    assert overrides.rate_limit_capacity == 50
+    assert overrides.rate_limit_refill_rate_per_sec == 15.5
+
+    with pytest.raises(ValueError):
+        _isolated_settings(monkeypatch, RATE_LIMIT_CAPACITY="0")
+
+    with pytest.raises(ValueError):
+        _isolated_settings(monkeypatch, RATE_LIMIT_REFILL_RATE_PER_SEC="0")
 
 
 def test_config_extra_ignore(monkeypatch):
