@@ -71,6 +71,28 @@ class Settings(BaseSettings):
     sandbox_run_as: str = "65534:65534"
     sandbox_notes_source: str | None = None
     sandbox_docker_bin: str = Field(default="docker", min_length=1, pattern=r"^[^\s]+$")
+    upstream_fs_enabled: bool = Field(
+        default=False,
+        description="Register the official filesystem MCP server as fs_ tools.",
+    )
+    upstream_fs_image: str = Field(
+        default="mcp-guard-upstream-fs:2.2.0",
+        min_length=1,
+        pattern=r"^[^\s]+$",
+        description="Image tag started once per fs_ call.",
+    )
+    upstream_fs_dir: Path = Field(
+        default=_API_ROOT / "data" / "shared",
+        description="Host directory mounted at /projects. Not created by Settings.",
+    )
+    upstream_fs_timeout_s: float = Field(
+        default=30.0,
+        gt=0,
+        description=(
+            "Seconds for one filesystem container, including image startup. "
+            "Independent of SANDBOX_TIMEOUT_S."
+        ),
+    )
 
     api_key_pepper: SecretStr | None = Field(
         default=None,
@@ -269,6 +291,11 @@ class Settings(BaseSettings):
     def model_post_init(self, context: object, /) -> None:
         del context
         self.notes_dir = Path(self.notes_dir).expanduser().resolve()
+        self.upstream_fs_dir = Path(self.upstream_fs_dir).expanduser().resolve()
+        if _path_breaks_mount(str(self.upstream_fs_dir)):
+            raise ValueError(
+                "UPSTREAM_FS_DIR path must not contain commas or equals signs"
+            )
 
         if self.is_production_like and not self.api_key_pepper:
             raise ValueError("API_KEY_PEPPER is required in production environment")

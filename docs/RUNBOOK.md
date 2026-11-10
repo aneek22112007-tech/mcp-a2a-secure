@@ -230,6 +230,18 @@ SANDBOX_NOTES_SOURCE=volume:<name>
 
 `503` with the message `Sandbox unavailable.` means the Docker daemon is not reachable, the runner image is missing, or every sandbox slot is busy. The tool is not run in the API process. Check the daemon with `docker info` and the image with `docker image inspect mcp-guard-tool-runner:local`. A finished run is removed. `docker ps -a --filter label=mcp_guard.sandbox=1` should be empty after the call returns.
 
+### Filesystem upstream
+
+`UPSTREAM_FS_ENABLED` defaults to false. The notes tools do not change. With it set to true, startup runs one container of `UPSTREAM_FS_IMAGE` to copy that server's tool list. If that container cannot start, the API still starts and registers no `fs_` tools.
+
+```bash
+./api/scripts/build_upstream_fs_image.sh
+```
+
+Each `fs_` call uses a new container. Read tools mount `UPSTREAM_FS_DIR` read-only at `/projects`. The directory is created on first use. Details, scopes, path rules, and the two pin checks are in [UPSTREAM_FILESYSTEM.md](UPSTREAM_FILESYSTEM.md).
+
+`GET /api/upstreams` (`tools:read`) returns one object per upstream. `detail` is `disabled`, `unavailable`, or `ok`. A call that times out or is refused still removes its container. The same `docker ps` filter above should be empty.
+
 ---
 
 ## Sandbox run records

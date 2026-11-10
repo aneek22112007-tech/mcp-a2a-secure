@@ -1,4 +1,4 @@
-import { ArrowUpRight, Bot, Brain, Layers, ScanSearch, Shield } from 'lucide-react';
+import { ArrowUpRight, Bot, Brain, HardDrive, Layers, ScanSearch, Shield } from 'lucide-react';
 
 type Item = {
   icon: typeof Shield;
@@ -27,6 +27,16 @@ const LIVE: Item[] = [
     links: [
       { label: 'LLM availability and latency in Metrics', href: '#/metrics' },
       { label: 'Agent tool calls in Live Audit', href: '#/audit' },
+    ],
+  },
+  {
+    icon: HardDrive,
+    title: 'Filesystem upstream',
+    description:
+      'The official filesystem MCP server is registered as fs_ tools. Each call runs in its own locked-down container. files:read and files:write are checked at /mcp/, and the published schema is pinned.',
+    links: [
+      { label: 'Runs in Sandbox', href: '#/sandbox' },
+      { label: 'Fingerprints in Tool Pinning', href: '#/pins' },
     ],
   },
   {

@@ -58,6 +58,7 @@ from app.routes.pins import router as pins_router
 from app.routes.sandbox import router as sandbox_router
 from app.routes.scanner import router as scanner_router
 from app.routes.status import router as status_router
+from app.routes.upstreams import router as upstreams_router
 from app.sandbox.recorder import NullRunRecorder, get_run_recorder, set_run_recorder
 from app.scanner.gate import DbScanGate
 from app.services.api_keys import HmacApiKeyVerifier
@@ -85,6 +86,9 @@ async def lifespan(app: FastAPI):
     if type(get_recorder()) is LLMCallRecorder:
         set_recorder(DbLLMCallRecorder())
 
+    from app.upstream.filesystem import register_filesystem_upstream
+
+    await register_filesystem_upstream()
     install_pinned_tool_list()
     from app.auth.scopes import TOOL_SCOPES
     from app.tools.catalog import list_tool_definitions
@@ -198,6 +202,7 @@ app.include_router(audit_router)
 app.include_router(metrics_router)
 app.include_router(sandbox_router)
 app.include_router(pins_router)
+app.include_router(upstreams_router)
 app.include_router(scanner_router)
 app.include_router(agents_router)
 app.include_router(llm_router)

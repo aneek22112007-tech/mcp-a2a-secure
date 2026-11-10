@@ -3,6 +3,8 @@ from fastapi.routing import APIRoute
 
 NOTES_READ = "notes:read"
 NOTES_WRITE = "notes:write"
+FILES_READ = "files:read"
+FILES_WRITE = "files:write"
 AUDIT_READ = "audit:read"
 METRICS_READ = "metrics:read"
 AGENT_RUN = "agent:run"
@@ -15,6 +17,8 @@ ALL_SCOPES = frozenset(
     {
         NOTES_READ,
         NOTES_WRITE,
+        FILES_READ,
+        FILES_WRITE,
         AUDIT_READ,
         METRICS_READ,
         SANDBOX_READ,
@@ -42,6 +46,7 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("GET", "/api/sandbox/runs"): SANDBOX_READ,
     ("GET", "/api/sandbox/runs/{run_id}"): SANDBOX_READ,
     ("GET", "/api/sandbox/health"): SANDBOX_READ,
+    ("GET", "/api/upstreams"): TOOLS_READ,
     ("GET", "/api/pins"): TOOLS_READ,
     ("GET", "/api/pins/{tool_name}"): TOOLS_READ,
     ("POST", "/api/pins/sync"): ADMIN,
