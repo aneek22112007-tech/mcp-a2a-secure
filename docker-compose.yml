@@ -56,6 +56,7 @@ services:
       API_KEY_PEPPER: ${API_KEY_PEPPER:-mcpg_dev_pepper_do_not_use_in_production_32bytes!}
       ENVIRONMENT: ${ENVIRONMENT:-dev}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173"]}
+      TOOL_PINNING_MODE: ${TOOL_PINNING_MODE:-enforce}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
       interval: 10s

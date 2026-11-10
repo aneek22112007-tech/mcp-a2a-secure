@@ -1,6 +1,9 @@
+from pathlib import Path
+
 import pytest
 
 from app.config import Settings
+from app.main import app  # noqa: F401
 
 
 def _isolated_settings(monkeypatch, **overrides) -> Settings:
@@ -179,3 +182,32 @@ def test_injection_guard_mode_settings(monkeypatch):
             SANDBOX_RUN_AS="1000:1000",
             INJECTION_GUARD_MODE="off",
         )
+
+
+def test_tool_pinning_mode_settings(monkeypatch):
+    settings = _isolated_settings(monkeypatch)
+    assert settings.tool_pinning_mode == "off"
+
+    enforce_settings = _isolated_settings(monkeypatch, TOOL_PINNING_MODE="enforce")
+    assert enforce_settings.tool_pinning_mode == "enforce"
+
+    warn_settings = _isolated_settings(monkeypatch, TOOL_PINNING_MODE="warn")
+    assert warn_settings.tool_pinning_mode == "warn"
+
+    with pytest.raises(ValueError):
+        _isolated_settings(monkeypatch, TOOL_PINNING_MODE="invalid_mode")
+
+
+def test_docker_compose_and_env_example_pin_enforce():
+    root = Path(__file__).resolve().parent.parent.parent
+    compose_path = root / "docker-compose.yml"
+    env_example_path = root / ".env.compose.example"
+
+    assert compose_path.exists(), "docker-compose.yml must exist at repo root"
+    assert env_example_path.exists(), ".env.compose.example must exist at repo root"
+
+    compose_text = compose_path.read_text(encoding="utf-8")
+    assert "TOOL_PINNING_MODE: ${TOOL_PINNING_MODE:-enforce}" in compose_text
+
+    env_text = env_example_path.read_text(encoding="utf-8")
+    assert "TOOL_PINNING_MODE=enforce" in env_text
