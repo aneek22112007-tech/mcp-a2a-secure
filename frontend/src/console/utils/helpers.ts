@@ -193,6 +193,8 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 export const ALL_SCOPES = [
   'notes:read',
   'notes:write',
+  'files:read',
+  'files:write',
   'audit:read',
   'metrics:read',
   'sandbox:read',
