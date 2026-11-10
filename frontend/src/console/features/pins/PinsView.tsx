@@ -12,11 +12,10 @@ import {
   fmtDatetime, elapsedSince,
   getPinBadge, PIN_BADGE_CLASS, PIN_BADGE_LABEL,
 } from '../../utils/helpers';
-import { DEMO_PINS } from '../../demo/demoData';
 import type { ToolPin } from '../../api/client';
 import { toast } from 'sonner';
 
-interface PinsViewProps { isDemo: boolean }
+interface PinsViewProps { offline: boolean }
 
 function PinStatusIcon({ pin }: { pin: ToolPin }) {
   const badge = getPinBadge(pin);
@@ -29,21 +28,22 @@ function PinStatusIcon({ pin }: { pin: ToolPin }) {
   }
 }
 
-function PinsViewInner({ isDemo }: PinsViewProps) {
+function PinsViewInner({ offline }: PinsViewProps) {
   const [approveTarget, setApproveTarget] = useState<ToolPin | null>(null);
   const approveRef = useDialogA11y(!!approveTarget, () => setApproveTarget(null));
   const [revokeTarget, setRevokeTarget] = useState<ToolPin | null>(null);
   const [note, setNote] = useState('');
   const [pinningModeHint] = useState<'off' | 'warn' | 'enforce'>('enforce');
 
-  const { data, isLoading, isError, refetch } = usePins(!isDemo);
+  const { data, isLoading, isError, refetch } = usePins();
   const syncPins  = useSyncPins();
   const approvePin = useApprovePin();
   const revokePin  = useRevokePin();
 
-  const pins: ToolPin[] = isDemo ? DEMO_PINS : (data?.items ?? []);
+  const pins: ToolPin[] = data?.items ?? [];
 
   const handleSync = async () => {
+    if (offline) return;
     try {
       const res = await syncPins.mutateAsync();
       toast.success(`Sync complete — ${res.updated.length} pin(s) updated`);
@@ -53,7 +53,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
   };
 
   const handleApprove = async () => {
-    if (!approveTarget) return;
+    if (offline || !approveTarget) return;
     try {
       await approvePin.mutateAsync({ tool_name: approveTarget.tool_name, note: note || undefined });
       toast.success(`Approved pin for ${approveTarget.tool_name}`);
@@ -66,7 +66,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
   };
 
   const handleRevoke = async () => {
-    if (!revokeTarget) return;
+    if (offline || !revokeTarget) return;
     try {
       await revokePin.mutateAsync({ tool_name: revokeTarget.tool_name, note: note || undefined });
       toast.success(`Revoked pin for ${revokeTarget.tool_name}`);
@@ -95,7 +95,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
           <button
             className="btn btn-ghost btn-sm"
             onClick={handleSync}
-            disabled={isDemo || syncPins.isPending}
+            disabled={offline || syncPins.isPending}
             aria-label="Sync pins from live catalog"
           >
             <RefreshCw size={12} style={syncPins.isPending ? { animation: 'spin 1s linear infinite' } : undefined} />
@@ -145,9 +145,9 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
 
       {/* Pins table */}
       <div className="panel">
-        {!isDemo && isLoading && !data ? (
+        {isLoading && !data ? (
           <LoadingPanel label="Loading pins…" />
-        ) : !isDemo && isError ? (
+        ) : isError && !data ? (
           <ErrorPanel message="Failed to load pins" onRetry={() => void refetch()} />
         ) : pins.length === 0 ? (
           <EmptyState label="No tools registered yet. Run Sync to populate." icon={Pin} />
@@ -221,7 +221,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
                           <button
                             className="btn btn-success btn-sm"
                             onClick={() => setApproveTarget(pin)}
-                            disabled={isDemo}
+                            disabled={offline}
                             title={`Approve ${pin.tool_name}`}
                             aria-label={`Approve ${pin.tool_name}`}
                           >
@@ -232,7 +232,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
                           <button
                             className="btn btn-danger btn-sm"
                             onClick={() => setRevokeTarget(pin)}
-                            disabled={isDemo}
+                            disabled={offline}
                             title={`Revoke ${pin.tool_name}`}
                             aria-label={`Revoke ${pin.tool_name}`}
                           >
@@ -293,7 +293,7 @@ function PinsViewInner({ isDemo }: PinsViewProps) {
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => { setApproveTarget(null); setNote(''); }}>Cancel</button>
-              <button className="btn btn-success" onClick={handleApprove} disabled={approvePin.isPending}>
+              <button className="btn btn-success" onClick={handleApprove} disabled={offline || approvePin.isPending}>
                 {approvePin.isPending ? 'Approving…' : 'Approve'}
               </button>
             </div>

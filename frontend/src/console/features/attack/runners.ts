@@ -210,13 +210,13 @@ export async function runPathTraversal(): Promise<AttackResult> {
     : `HTTP ${raw.status}.`);
 }
 
-export interface DemoStep {
+export interface AttackStep {
   id: string;
   caption: string;
   run: () => Promise<AttackResult>;
 }
 
-export const DEMO_SEQUENCE: DemoStep[] = [
+export const ATTACK_SEQUENCE: AttackStep[] = [
   { id: 'valid', caption: 'Valid call: list_notes through /mcp/ with the connected key.', run: runValidCall },
   { id: 'bad-key', caption: 'Bad key: GET /api/metrics with a token the server does not know.', run: runBadKey },
   { id: 'wrong-scope', caption: 'Wrong scope: a temporary notes-only key calls GET /api/metrics, then is revoked.', run: runWrongScope },

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import base64
 import re
 from typing import NamedTuple
 
 from app.audit.redaction import safe_reason
 from app.guard.models import GuardFinding
+from app.text_normalize import decode_base64_blobs, normalize_for_scan
 
 
 class RuleMatch(NamedTuple):
@@ -79,6 +79,7 @@ _G3_PATTERNS = [
 # G4: Encoded / Obfuscated Payloads (medium, escalates to high if decoded is high)
 # ---------------------------------------------------------------------------
 _HEX_CHAIN_RE = re.compile(r"(?:\\x[0-9a-fA-F]{2}){4,}")
+_HEX_TOKEN_RE = re.compile(r"^[0-9a-fA-F]+$")
 _ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
 _B64_INSTRUCTION_RE = re.compile(r"(?i)\b(?:base64\s+decode|echo\s+.*\|\s*base64)\b")
 _B64_TOKEN_RE = re.compile(
@@ -262,23 +263,26 @@ def scan_text(text: str) -> list[RuleMatch]:
 
     for m in _B64_TOKEN_RE.finditer(text):
         token = m.group(0)
-        # Attempt safe base64 decoding (up to 8 KB)
+
+        # Skip pure hexadecimal tokens (SHA-256 fingerprints, hashes, request IDs)
+        if _HEX_TOKEN_RE.fullmatch(token):
+            continue
+
+        decoded_blobs = decode_base64_blobs(token)
+        # Skip tokens that do not decode to valid, mostly printable text
+        if not decoded_blobs:
+            continue
+
         is_high = False
         decoded_high_matches: list[RuleMatch] = []
-        try:
-            # Pad if needed
-            padded = token + "=" * ((4 - len(token) % 4) % 4)
-            decoded_bytes = base64.b64decode(padded[:8192], validate=True)
-            decoded_str = decoded_bytes.decode("utf-8", errors="ignore")
-            if decoded_str and len(decoded_str.strip()) >= 4:
-                decoded_high_matches = _check_high_rules_only(decoded_str)
-                if decoded_high_matches:
-                    is_high = True
-        except Exception:  # noqa: BLE001, S110
-            pass
+        for decoded_str in decoded_blobs:
+            high_matches = _check_high_rules_only(decoded_str)
+            if high_matches:
+                is_high = True
+                decoded_high_matches.extend(high_matches)
 
         if is_high:
-            # Record G4 as high or record both G4 and the high-severity rules
+            # Record G4 as high and record the high-severity rules
             matches.append(
                 RuleMatch(
                     rule_id="G4",
@@ -312,6 +316,37 @@ def scan_text(text: str) -> list[RuleMatch]:
                 )
             )
 
+    # Check any decoded Base64 blobs from the entire text that contain high-severity payloads
+    seen_high_descriptions = {
+        (m.rule_id, m.description) for m in matches if m.severity == "high"
+    }
+    for decoded_str in decode_base64_blobs(text):
+        for high_match in _check_high_rules_only(decoded_str):
+            desc = f"{high_match.description} (decoded from Base64)"
+            if (high_match.rule_id, desc) not in seen_high_descriptions:
+                seen_high_descriptions.add((high_match.rule_id, desc))
+                if not any(m.rule_id == "G4" and m.severity == "high" for m in matches):
+                    matches.append(
+                        RuleMatch(
+                            rule_id="G4",
+                            name="Obfuscated Payload",
+                            severity="high",
+                            description="Base64 encoded high-severity injection payload",
+                            match_span=(0, 0),
+                            matched_text="[Base64]",
+                        )
+                    )
+                matches.append(
+                    RuleMatch(
+                        rule_id=high_match.rule_id,
+                        name=high_match.name,
+                        severity="high",
+                        description=desc,
+                        match_span=(0, 0),
+                        matched_text="[Base64]",
+                    )
+                )
+
     # 5. G5 High
     for pattern in _G5_PATTERNS:
         for m in pattern.finditer(text):
@@ -339,6 +374,31 @@ def scan_text(text: str) -> list[RuleMatch]:
                     matched_text=m.group(0),
                 )
             )
+
+    # 7. Normalized Unicode Scan
+    normalized_text = normalize_for_scan(text)
+    if normalized_text:
+        raw_high_signatures = {
+            (m.rule_id, m.matched_text.strip().lower())
+            for m in matches
+            if m.severity == "high"
+        }
+        seen_norm_signatures: set[tuple[str, str]] = set()
+
+        for norm_match in _check_high_rules_only(normalized_text):
+            sig = (norm_match.rule_id, norm_match.matched_text.strip().lower())
+            if sig not in raw_high_signatures and sig not in seen_norm_signatures:
+                seen_norm_signatures.add(sig)
+                matches.append(
+                    RuleMatch(
+                        rule_id=norm_match.rule_id,
+                        name=norm_match.name,
+                        severity="high",
+                        description=f"{norm_match.description} (after unicode normalization)",
+                        match_span=norm_match.match_span,
+                        matched_text=norm_match.matched_text,
+                    )
+                )
 
     return matches
 

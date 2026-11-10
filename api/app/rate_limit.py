@@ -12,6 +12,8 @@ from app.auth.dependencies import authorize_route
 from app.auth.principal import Principal
 from app.config import settings
 
+SHARED_SURFACE = "key"
+
 
 @dataclass
 class BucketState:
@@ -23,6 +25,10 @@ class BucketState:
 class TokenBucketRateLimiter:
     """A thread-safe, in-memory token bucket rate limiter.
 
+    REST and MCP request surfaces share a single token bucket per API key
+    (keyed by SHARED_SURFACE and api_key_id), preventing clients from doubling
+    their allowed request rate across surfaces.
+
     NOTE: This implementation is process-local. In a multi-process deployment
     (e.g., Uvicorn with multiple workers), each process will have its own
     independent token bucket, meaning the effective rate limit will be
@@ -32,6 +38,7 @@ class TokenBucketRateLimiter:
     def __init__(self) -> None:
         self._buckets: dict[tuple[str, str], BucketState] = {}
         self._lock = threading.Lock()
+        self.rejected_total = 0
 
     def acquire(self, surface: str, key_id: str) -> tuple[bool, float, bool]:
         """Attempt to acquire 1 token.
@@ -59,6 +66,7 @@ class TokenBucketRateLimiter:
                 bucket.last_denied = 0.0
                 return True, 0.0, False
 
+            self.rejected_total += 1
             bucket.tokens = new_tokens
             bucket.last_updated = now
             retry_after = (1.0 - new_tokens) / refill_rate
@@ -82,7 +90,9 @@ async def rate_limit_dependency(
     if not principal or not principal.api_key_id:
         return
 
-    allowed, retry_after, should_audit = limiter.acquire("rest", principal.api_key_id)
+    allowed, retry_after, should_audit = limiter.acquire(
+        SHARED_SURFACE, principal.api_key_id
+    )
     if not allowed:
         if should_audit:
             await record_event(
@@ -90,7 +100,7 @@ async def rate_limit_dependency(
                     action="rate_limit.deny",
                     decision="denied",
                     status="denied",
-                    reason="rate_limit_exceeded",
+                    reason="rate_limit_exceeded surface=rest",
                     status_code=429,
                     error_code="RATE_LIMITED",
                     request_id=current_request_id(request.scope),
@@ -125,7 +135,7 @@ class McpRateLimitMiddleware:
             return
 
         allowed, retry_after, should_audit = limiter.acquire(
-            "mcp", principal.api_key_id
+            SHARED_SURFACE, principal.api_key_id
         )
         if not allowed:
             if should_audit:
@@ -134,7 +144,7 @@ class McpRateLimitMiddleware:
                         action="rate_limit.deny",
                         decision="denied",
                         status="denied",
-                        reason="rate_limit_exceeded",
+                        reason="rate_limit_exceeded surface=mcp",
                         status_code=429,
                         error_code="RATE_LIMITED",
                         request_id=current_request_id(scope),

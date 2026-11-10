@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from app.audit.events import ACTION_GUARD_CHECK
 from app.audit.redaction import current_request_id
 from app.auth.dependencies import authorize_route
 from app.auth.principal import Principal
@@ -32,6 +33,8 @@ async def check_guard(
 
     principal: Principal | None = getattr(request.state, "principal", None)
     key_prefix = principal.key_prefix if principal else None
+    client_id = principal.client_id if principal else None
+    api_key_id = principal.api_key_id if principal else None
     request_id = current_request_id(request.scope)
 
     result = check_tool_output(
@@ -39,6 +42,9 @@ async def check_guard(
         tool_name=payload.tool_name,
         key_prefix=key_prefix,
         request_id=request_id,
+        audit_action=ACTION_GUARD_CHECK,
+        client_id=client_id,
+        api_key_id=api_key_id,
     )
     task = getattr(result, "_audit_task", None)
     if task is not None:

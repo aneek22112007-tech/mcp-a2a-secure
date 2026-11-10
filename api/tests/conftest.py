@@ -85,8 +85,10 @@ def reset_rate_limiter():
     from app.rate_limit import limiter
 
     limiter._buckets.clear()
+    limiter.rejected_total = 0
     yield
     limiter._buckets.clear()
+    limiter.rejected_total = 0
 
 
 @pytest.fixture(autouse=True)

@@ -15,6 +15,7 @@ from app.audit.redaction import args_fingerprint, current_request_id
 from app.config import settings
 from app.sandbox.context import (
     ExecutionContext,
+    current_execution_context,
     resolve_execution_context,
     set_tool_output_guarded,
 )
@@ -350,18 +351,64 @@ async def run_tool(
                 sem.release()
 
     set_tool_output_guarded(True)
-    if isinstance(result, str):
+    return _guard_value(result, tool_name=tool_name, context=context)
+
+
+def _guard_value(
+    value: Any,
+    *,
+    tool_name: str,
+    context: ExecutionContext | Any = None,
+) -> Any:
+    """Recursively guard strings, lists, and dict values in tool outputs."""
+    if isinstance(value, str):
         from app.guard import check_tool_output
 
-        guard_res = check_tool_output(
-            result,
-            tool_name=tool_name,
-            key_prefix=context.key_prefix,
-            request_id=context.request_id or current_request_id(),
-        )
-        result = guard_res.text
+        if isinstance(context, dict):
+            key_prefix = context.get("key_prefix")
+            request_id = context.get("request_id") or current_request_id()
+            client_id = context.get("client_id")
+            api_key_id = context.get("api_key_id")
+        elif context is not None:
+            key_prefix = getattr(context, "key_prefix", None)
+            request_id = getattr(context, "request_id", None) or current_request_id()
+            client_id = getattr(context, "client_id", None)
+            api_key_id = getattr(context, "api_key_id", None)
+        else:
+            bound = current_execution_context()
+            if bound is not None:
+                key_prefix = bound.key_prefix
+                request_id = bound.request_id or current_request_id()
+                client_id = bound.client_id
+                api_key_id = bound.api_key_id
+            else:
+                key_prefix = None
+                request_id = current_request_id()
+                client_id = None
+                api_key_id = None
 
-    return result
+        guard_res = check_tool_output(
+            value,
+            tool_name=tool_name,
+            key_prefix=key_prefix,
+            request_id=request_id,
+            client_id=client_id,
+            api_key_id=api_key_id,
+        )
+        return guard_res.text
+
+    if isinstance(value, list):
+        return [
+            _guard_value(item, tool_name=tool_name, context=context) for item in value
+        ]
+
+    if isinstance(value, dict):
+        return {
+            k: _guard_value(v, tool_name=tool_name, context=context)
+            for k, v in value.items()
+        }
+
+    return value
 
 
 async def _execute_bound(

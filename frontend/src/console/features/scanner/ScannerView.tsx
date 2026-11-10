@@ -9,11 +9,10 @@ import {
 import {
   fmtDatetime, severityClass, severityBadgeClass,
 } from '../../utils/helpers';
-import { DEMO_FINDINGS } from '../../demo/demoData';
 import type { ScanFinding } from '../../api/client';
 import { toast } from 'sonner';
 
-interface ScannerViewProps { isDemo: boolean }
+interface ScannerViewProps { offline: boolean }
 
 const RULE_LABELS: Record<string, string> = {
   R1_PROMPT_INJECTION:      'Prompt Injection',
@@ -25,7 +24,7 @@ const RULE_LABELS: Record<string, string> = {
   R6_TOOL_NAME_ANOMALY:     'Name Anomaly',
 };
 
-function ScannerViewInner({ isDemo }: ScannerViewProps) {
+function ScannerViewInner({ offline }: ScannerViewProps) {
   const [selectedTool, setSelectedTool] = useState('');
   const [openOnly, setOpenOnly] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -33,20 +32,21 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
     scan_id: string; tools_scanned: number; findings_open: number; by_severity: Record<string, number>;
   } | null>(null);
 
-  const { data: pinsData } = usePins(!isDemo);
+  const { data: pinsData } = usePins();
   const toolNames = (pinsData?.items ?? []).map(p => p.tool_name);
 
-  const { data, isLoading, isError, refetch } = useFindings(
-    { open_only: openOnly, tool_name: selectedTool || undefined },
-    !isDemo,
-  );
+  const { data, isLoading, isError, refetch } = useFindings({
+    open_only: openOnly,
+    tool_name: selectedTool || undefined,
+  });
   const scanAll    = useScanAll();
   const scanTool   = useScanTool();
   const resolveFinding = useResolveFinding();
 
-  const findings: ScanFinding[] = isDemo ? DEMO_FINDINGS : (data?.items ?? []);
+  const findings: ScanFinding[] = data?.items ?? [];
 
   const handleScanAll = async () => {
+    if (offline) return;
     try {
       const res = await scanAll.mutateAsync();
       setLastScan(res);
@@ -57,7 +57,7 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
   };
 
   const handleScanTool = async () => {
-    if (!selectedTool) return;
+    if (offline || !selectedTool) return;
     try {
       const res = await scanTool.mutateAsync(selectedTool);
       setLastScan(res);
@@ -68,6 +68,7 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
   };
 
   const handleResolve = async (id: string, toolName: string) => {
+    if (offline) return;
     try {
       await resolveFinding.mutateAsync(id);
       toast.success(`Resolved finding for ${toolName}`);
@@ -113,7 +114,7 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
           <button
             className="btn btn-ghost btn-sm"
             onClick={handleScanTool}
-            disabled={isDemo || !selectedTool || scanning}
+            disabled={offline || !selectedTool || scanning}
             aria-label={`Scan ${selectedTool || 'selected tool'}`}
           >
             <Play size={12} />
@@ -122,7 +123,7 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
           <button
             className="btn btn-primary btn-sm"
             onClick={handleScanAll}
-            disabled={isDemo || scanning}
+            disabled={offline || scanning}
             aria-label="Run full scan"
           >
             <Search size={12} style={scanning && !selectedTool ? { animation: 'spin 1s linear infinite' } : undefined} />
@@ -196,9 +197,9 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
 
       {/* Findings table */}
       <div className="panel">
-        {!isDemo && isLoading && !data ? (
+        {isLoading && !data ? (
           <LoadingPanel label="Loading findings…" />
-        ) : !isDemo && isError ? (
+        ) : isError && !data ? (
           <ErrorPanel message="Failed to load findings" onRetry={() => void refetch()} />
         ) : findings.length === 0 ? (
           <EmptyState
@@ -256,7 +257,7 @@ function ScannerViewInner({ isDemo }: ScannerViewProps) {
                         <button
                           className="btn btn-success btn-sm"
                           onClick={e => { e.stopPropagation(); void handleResolve(f.id, f.tool_name); }}
-                          disabled={isDemo}
+                          disabled={offline}
                           aria-label={`Resolve finding for ${f.tool_name}`}
                         >
                           <CheckCircle size={11} /> Resolve

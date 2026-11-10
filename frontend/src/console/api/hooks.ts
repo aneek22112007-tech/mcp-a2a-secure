@@ -9,7 +9,7 @@ import {
   type AuditEvent,
   type StreamState,
 } from './client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { createAuditStream } from './client';
 import { isConsolePoll, percentile } from '../utils/helpers';
 
@@ -380,4 +380,14 @@ export function useActivitySeries(enabled = true) {
     refetchInterval: 15_000,
     enabled,
   });
+}
+
+// ── Last updated timestamp across all queries ─────────────────────────
+export function useLastUpdated(): number {
+  const qc = useQueryClient();
+  const cache = qc.getQueryCache();
+  return useSyncExternalStore(
+    cb => cache.subscribe(cb),
+    () => cache.getAll().reduce((m, q) => Math.max(m, q.state.dataUpdatedAt), 0),
+  );
 }

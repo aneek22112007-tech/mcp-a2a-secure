@@ -26,6 +26,12 @@ ALL_SCOPES = frozenset(
 )
 MCP_REQUIRED_SCOPE = AGENT_RUN
 
+TOOL_SCOPES: dict[str, str] = {
+    "list_notes": NOTES_READ,
+    "read_note": NOTES_READ,
+    "write_note": NOTES_WRITE,
+}
+
 ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("GET", "/api/notes"): NOTES_READ,
     ("GET", "/api/notes/{name}"): NOTES_READ,

@@ -9,13 +9,12 @@ import {
   fmtDatetime, fmtDuration, fmtBytes,
   sandboxStatusBadgeClass,
 } from '../../utils/helpers';
-import { DEMO_SANDBOX_RUNS } from '../../demo/demoData';
 import { getApiBase, type SandboxRun } from '../../api/client';
 import { trafficCommands } from '../../utils/helpers';
 
-interface SandboxViewProps { isDemo: boolean }
+interface SandboxViewProps { offline: boolean }
 
-function SandboxViewInner({ isDemo }: SandboxViewProps) {
+function SandboxViewInner({ offline: _offline }: SandboxViewProps) {
   const [offset, setOffset] = useState(0);
   const limit = 50;
   const [filterTool, setFilterTool] = useState('');
@@ -29,11 +28,11 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
     status: filterStatus || undefined,
   };
 
-  const { data, isLoading, isError, refetch } = useSandboxRuns(params, !isDemo);
-  const { data: liveHealth } = useSandboxHealth(!isDemo);
-  const health = isDemo ? undefined : liveHealth;
+  const { data, isLoading, isError, refetch } = useSandboxRuns(params);
+  const { data: liveHealth } = useSandboxHealth();
+  const health = liveHealth;
 
-  const runs: SandboxRun[] = isDemo ? DEMO_SANDBOX_RUNS : (data?.items ?? []);
+  const runs: SandboxRun[] = data?.items ?? [];
 
   const STATUSES = [
     '', 'succeeded', 'failed', 'running', 'timeout',
@@ -56,7 +55,7 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
       </div>
 
       {/* Health card */}
-      {(health || isDemo) && (
+      {health && (
         <div
           className="panel"
           style={{
@@ -151,9 +150,9 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
 
       {/* Runs table */}
       <div className="panel">
-        {!isDemo && isLoading && !data ? (
+        {isLoading && !data ? (
           <LoadingPanel label="Loading runs…" />
-        ) : !isDemo && isError ? (
+        ) : isError && !data ? (
           <ErrorPanel message="Failed to load sandbox runs" onRetry={() => void refetch()} />
         ) : runs.length === 0 ? (
           <EmptyState label="No sandbox runs yet" hint="Each tool call runs in the sandbox. Call a tool to record a run:" command={trafficCommands(getApiBase()).sandbox} icon={Box} />
@@ -229,7 +228,7 @@ function SandboxViewInner({ isDemo }: SandboxViewProps) {
                 </tbody>
               </table>
             </div>
-            {!isDemo && data && (
+            {data && (
               <Pager
                 offset={offset}
                 limit={limit}

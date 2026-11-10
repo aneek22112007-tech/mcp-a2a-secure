@@ -6,7 +6,7 @@ import { KpiCard, SkeletonPage } from '../../components/premium';
 import { ErrorPanel, StreamDot, EmptyState } from '../../components/ui';
 import { PipelineStrip } from '../../components/Pipeline';
 import { lightsMatched, pipelineLights, type StageLight } from '../../components/pipelineLogic';
-import { DEMO_SEQUENCE, waitForCaption, type AttackResult } from '../attack/runners';
+import { ATTACK_SEQUENCE, waitForCaption, type AttackResult } from '../attack/runners';
 import {
   fmtTimestamp, fmtDuration, fmtUptime, decisionBadgeClass,
   getPinBadge, PIN_BADGE_CLASS, PIN_BADGE_LABEL,
@@ -14,11 +14,10 @@ import {
   fmtPercent, plural, trafficCommands,
 } from '../../utils/helpers';
 import { getApiBase, type MetricsResponse, type AuditEvent, type ToolPin } from '../../api/client';
-import { DEMO_METRICS, DEMO_AUDIT_EVENTS, DEMO_PINS } from '../../demo/demoData';
 import { useReducedMotion } from '../../../hooks/useReducedMotion';
 
 interface OverviewProps {
-  isDemo: boolean;
+  offline: boolean;
 }
 
 function useGaveUp(active: boolean): boolean {
@@ -69,30 +68,28 @@ function pinCounts(pins: ToolPin[]) {
   return counts;
 }
 
-export function OverviewView({ isDemo }: OverviewProps) {
-  const { data: liveMetrics, isLoading, isError, refetch } = useMetrics(!isDemo);
-  const { data: health } = useHealth(!isDemo);
-  const { data: status } = useStatus(!isDemo);
-  const { data: livePins } = usePins(!isDemo);
-  const { data: auditPage } = useAudit({ limit: 50 }, !isDemo);
-  const { events: liveEvents, state: streamState } = useAuditStream(20, !isDemo);
-  const { data: series } = useActivitySeries(!isDemo);
+export function OverviewView({ offline }: OverviewProps) {
+  const { data: liveMetrics, isLoading, isError, refetch } = useMetrics();
+  const { data: health } = useHealth();
+  const { data: status } = useStatus();
+  const { data: livePins } = usePins();
+  const { data: auditPage } = useAudit({ limit: 50 });
+  const { events: liveEvents, state: streamState } = useAuditStream(20);
+  const { data: series } = useActivitySeries();
   const [demoResults, setDemoResults] = useState<Record<string, AttackResult>>({});
   const [demoRunning, setDemoRunning] = useState<string | null>(null);
   const [demoError, setDemoError] = useState('');
   const [lights, setLights] = useState<StageLight[]>(() => pipelineLights('', 0));
-  const gaveUp = useGaveUp(!isDemo && isLoading && !liveMetrics);
+  const gaveUp = useGaveUp(isLoading && !liveMetrics);
 
-  const metrics: MetricsResponse | undefined = isDemo ? DEMO_METRICS : liveMetrics;
-  const probe = isDemo ? undefined : status;
-  const events: AuditEvent[] = isDemo
-    ? DEMO_AUDIT_EVENTS
-    : mergeEvents(liveEvents, auditPage?.items ?? []);
-  const pins = isDemo ? DEMO_PINS : (livePins?.items ?? []);
+  const metrics: MetricsResponse | undefined = liveMetrics;
+  const probe = status;
+  const events: AuditEvent[] = mergeEvents(liveEvents, auditPage?.items ?? []);
+  const pins = livePins?.items ?? [];
   const summary = pinCounts(pins);
 
-  if (!isDemo && isLoading && !metrics && !gaveUp) return <SkeletonPage label="Loading metrics…" cards={5} />;
-  if (!isDemo && (isError || gaveUp) && !metrics) {
+  if (isLoading && !metrics && !gaveUp) return <SkeletonPage label="Loading metrics…" cards={5} />;
+  if ((isError || gaveUp) && !metrics) {
     return (
       <ErrorPanel
         message={gaveUp && !isError ? 'Metrics timed out after 5 seconds.' : 'Failed to load metrics'}
@@ -103,7 +100,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
 
   const totals = metrics?.totals ?? { total: 0, successful: 0, denied: 0, error: 0, rate_limit_rejections: 0 };
   const sandbox = metrics?.sandbox;
-  const mcpUnconfigured = !isDemo && status?.mcp === 'offline' && status.error === 'mcp_unavailable';
+  const mcpUnconfigured = status?.mcp === 'offline' && status.error === 'mcp_unavailable';
 
   const rememberLights = (result: AttackResult) => {
     const next = pipelineLights(result.stage, result.status);
@@ -111,11 +108,11 @@ export function OverviewView({ isDemo }: OverviewProps) {
   };
 
   const runSequence = async () => {
-    if (isDemo || demoRunning) return;
+    if (offline || demoRunning) return;
     setDemoError('');
     setDemoResults({});
-    for (let index = 0; index < DEMO_SEQUENCE.length; index += 1) {
-      const step = DEMO_SEQUENCE[index];
+    for (let index = 0; index < ATTACK_SEQUENCE.length; index += 1) {
+      const step = ATTACK_SEQUENCE[index];
       setDemoRunning(step.id);
       try {
         const result = await step.run();
@@ -137,7 +134,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
         setDemoError(message);
         break;
       }
-      if (index < DEMO_SEQUENCE.length - 1) await waitForCaption();
+      if (index < ATTACK_SEQUENCE.length - 1) await waitForCaption();
     }
     setDemoRunning(null);
   };
@@ -149,8 +146,8 @@ export function OverviewView({ isDemo }: OverviewProps) {
           <h1 className="page-title">Overview</h1>
           <p className="page-sub">
             Gateway traffic, policy decisions and tool health.
-            {!isDemo && health && ` ${health.app}`}
-            {!isDemo && probe?.uptime_seconds != null && ` · up ${fmtUptime(probe.uptime_seconds)}`}
+            {health && ` ${health.app}`}
+            {probe?.uptime_seconds != null && ` · up ${fmtUptime(probe.uptime_seconds)}`}
           </p>
         </div>
         <a className="btn btn-primary" href="#/audit">Open Live Audit</a>
@@ -161,7 +158,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
           { label: 'Requests', value: totals.total, icon: Activity, tone: 'var(--c-info)', key: 'total' as const, up: true, foot: 'all time' },
           { label: 'Allowed', value: totals.successful, icon: Shield, tone: 'var(--c-allow)', key: 'allowed' as const, up: true, foot: totals.total ? `${fmtPercent(totals.successful / totals.total)} of requests` : undefined },
           { label: 'Denied', value: totals.denied, icon: AlertTriangle, tone: 'var(--c-deny)', key: 'denied' as const, up: false, foot: 'auth, scope, policy' },
-          { label: 'Rate limited', value: totals.rate_limit_rejections, icon: Clock, tone: 'var(--c-review)', key: 'rateLimited' as const, up: false, foot: 'HTTP 429' },
+          { label: 'Rate limited', value: totals.rate_limit_rejections, icon: Clock, tone: 'var(--c-review)', key: 'rateLimited' as const, up: false, foot: 'since API start' },
           { label: 'Guard blocks', value: metrics?.injection_guard?.blocked ?? 0, icon: ShieldAlert, tone: 'var(--c-high)', key: 'guard' as const, up: false, foot: metrics?.injection_guard ? plural(metrics.injection_guard.hits, 'hit') : 'injection guard' },
         ].map(({ label, value, icon: Icon, tone, key, up, foot }) => (
           <KpiCard
@@ -177,17 +174,15 @@ export function OverviewView({ isDemo }: OverviewProps) {
             foot={foot}
           />
         ))}
-        {!isDemo && (
-          <KpiCard
-            label="Tool latency"
-            icon={<Gauge size={13} />}
-            tone="var(--c-info)"
-            value={<span>{series?.latency.p95 != null ? fmtDuration(series.latency.p95) : '—'}<span className="kpi-unit"> p95</span></span>}
-            foot={series?.latency.samples
-              ? `p50 ${fmtDuration(series.latency.p50)} · ${plural(series.latency.samples, 'call')}, 30 min`
-              : 'no tool calls in 30 min'}
-          />
-        )}
+        <KpiCard
+          label="Tool latency"
+          icon={<Gauge size={13} />}
+          tone="var(--c-info)"
+          value={<span>{series?.latency.p95 != null ? fmtDuration(series.latency.p95) : '—'}<span className="kpi-unit"> p95</span></span>}
+          foot={series?.latency.samples
+            ? `p50 ${fmtDuration(series.latency.p50)} · ${plural(series.latency.samples, 'call')}, 30 min`
+            : 'no tool calls in 30 min'}
+        />
       </div>
 
       <section className="panel panel-pad">
@@ -202,7 +197,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
               <FileText size={14} aria-hidden />
               Live Events
             </span>
-            {!isDemo && <StreamDot state={streamState} />}
+            <StreamDot state={streamState} />
           </div>
           <div className="events-scroll">
             {events.length === 0 ? (
@@ -225,7 +220,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
                 </thead>
                 <tbody>
                   {events.slice(0, 18).map((evt, idx) => (
-                    <tr key={evt.id} className={idx === 0 && !isDemo ? 'row-enter' : ''}>
+                    <tr key={evt.id} className={idx === 0 ? 'row-enter' : ''}>
                       <td className="mono nowrap">{fmtTimestamp(evt.created_at)}</td>
                       <td className={`mono ${auditRowClass(evt)}`}>{evt.action}</td>
                       <td><span className={`badge ${decisionBadgeClass(evt.decision)}`}>{evt.decision}</span></td>
@@ -243,13 +238,13 @@ export function OverviewView({ isDemo }: OverviewProps) {
         <section className="panel demo-panel">
           <div className="panel-head">
             <span className="section-label">Demo sequence</span>
-            <button className="btn btn-primary btn-sm" onClick={() => void runSequence()} disabled={isDemo || !!demoRunning}>
+            <button className="btn btn-primary btn-sm" onClick={() => void runSequence()} disabled={offline || !!demoRunning}>
               <Play size={12} aria-hidden />
               {demoRunning ? 'Running…' : 'Run demo sequence'}
             </button>
           </div>
           <ol className="demo-steps">
-            {DEMO_SEQUENCE.map(step => {
+            {ATTACK_SEQUENCE.map(step => {
               const result = demoResults[step.id];
               const active = demoRunning === step.id;
               return (
@@ -269,7 +264,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
               );
             })}
           </ol>
-          {isDemo && <p className="page-sub">Demo data is on screen. The sequence sends real requests only while the backend is up.</p>}
+          {offline && <p className="page-sub">The sequence sends real requests only while the backend is up.</p>}
           {demoError && <p className="tone-deny">{demoError}</p>}
         </section>
       </div>
@@ -292,9 +287,7 @@ export function OverviewView({ isDemo }: OverviewProps) {
           <div className="stack">
             <div className="row-between">
               <span className="muted-line"><Server size={12} aria-hidden /> MCP</span>
-              {isDemo ? (
-                <span className="badge badge-muted">demo</span>
-              ) : mcpUnconfigured ? (
+              {mcpUnconfigured ? (
                 <span className="mcp-warn">MCP not configured: set MCP_SELF_API_KEY</span>
               ) : (
                 <span className={`badge ${probe?.mcp === 'online' ? 'badge-allow' : 'badge-deny'}`}>

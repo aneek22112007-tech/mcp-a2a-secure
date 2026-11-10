@@ -25,6 +25,7 @@ from app.gateway import call_tool
 # Also keep a thin import of api_mcp_info helpers for the /api/mcp/info endpoint
 from app.mcp_server import mcp
 from app.services.pins import visible_tool_names
+from app.tools.notes import MAX_NOTE_BYTES
 
 router = APIRouter(prefix="/api", dependencies=[Depends(authorize_route)])
 
@@ -33,7 +34,7 @@ router = APIRouter(prefix="/api", dependencies=[Depends(authorize_route)])
 # ---------------------------------------------------------------------------
 
 #: Maximum note body size in bytes (100 KiB).
-MAX_CONTENT_BYTES: int = 100 * 1024
+MAX_CONTENT_BYTES: int = MAX_NOTE_BYTES
 
 
 # ---------------------------------------------------------------------------

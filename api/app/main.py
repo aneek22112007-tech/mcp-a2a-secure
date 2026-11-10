@@ -34,6 +34,7 @@ from app.llm.recording import (
     set_recorder,
 )
 from app.mcp_server import ensure_notes_dir, mcp
+from app.mcp_tool_scope import McpToolScopeMiddleware
 from app.middleware import (
     BodySizeLimitMiddleware,
     RequestContextMiddleware,
@@ -85,6 +86,18 @@ async def lifespan(app: FastAPI):
         set_recorder(DbLLMCallRecorder())
 
     install_pinned_tool_list()
+    from app.auth.scopes import TOOL_SCOPES
+    from app.tools.catalog import list_tool_definitions
+
+    unmapped = [td.name for td in list_tool_definitions() if td.name not in TOOL_SCOPES]
+    if unmapped:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Registered MCP tools without explicit scope mapping in TOOL_SCOPES: %s. Calls to these tools will be denied (fail-closed).",
+            ", ".join(sorted(unmapped)),
+        )
+
     if settings.tool_pinning_bootstrap_approve:
         from app.services.pins import bootstrap_approve_current_tools
 
@@ -204,7 +217,9 @@ app.mount(
     "/mcp",
     McpBearerAuthMiddleware(
         McpRateLimitMiddleware(
-            McpToolPinMiddleware(McpToolAuditMiddleware(mcp.streamable_http_app()))
+            McpToolScopeMiddleware(
+                McpToolPinMiddleware(McpToolAuditMiddleware(mcp.streamable_http_app()))
+            )
         )
     ),
 )

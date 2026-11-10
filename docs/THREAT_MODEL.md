@@ -83,6 +83,7 @@
 | Threat | Component | Current Mitigation | Evidence | Gap |
 |--------|-----------|-------------------|----------|-----|
 | Unauthenticated note write | `PUT /api/notes/{name}` | API-key auth and the `notes:write` scope | `api/app/auth/`, `api/app/auth/scopes.py` | Covered. A caller without a valid key gets 401. A key without `notes:write` gets 403. |
+| Unauthorized MCP tool call | `/mcp` `tools/call` | `McpToolScopeMiddleware` enforces per-tool scopes via `TOOL_SCOPES` (`notes:read` for `list_notes`/`read_note`, `notes:write` for `write_note`). Unmapped tools fail closed. | `api/app/mcp_tool_scope.py`, `api/app/auth/scopes.py:TOOL_SCOPES` | Covered. A key without the required tool scope gets 403 `FORBIDDEN` with `WWW-Authenticate`. Unmapped tools are denied with 403. |
 | Request ID spoofing | Middleware | IDs validated against `[A-Za-z0-9._:-]{0,64}` regex; overlong IDs replaced with UUID4 | `middleware.py:_REQUEST_ID_RE`, `test_hardening.py::test_overlong_and_invalid_request_ids_are_replaced` | Low — IDs are informational, not trusted for auth. |
 | A2A agent impersonation | (planned) | **[PROPOSED]** — not implemented | No signing code present | Gap pending implementation. |
 
@@ -127,7 +128,7 @@
 | Huge `Content-Length` header | Middleware | Digit length capped at 18 before `int()` conversion | `middleware.py:_MAX_CONTENT_LENGTH_DIGITS` | Covered. |
 | Slow MCP tool (tool timeout) | Gateway | `asyncio.wait_for(timeout=settings.tool_timeout_s)` (default 5 s) | `gateway.py`, `test_gateway.py::test_gateway_504_timeout` | Covered. |
 | MCP probe blocking | `/api/status` | 3-second probe timeout; failure is a status, not a 500 | `routes/status.py:PROBE_TIMEOUT_SECONDS` | Covered. |
-| Rate limiting | REST and `/mcp` | Per-key token buckets, separate for REST and `/mcp` (in-process, per worker). A per-IP failed-auth throttle (`AUTH_FAILURE_LIMIT` / `AUTH_FAILURE_WINDOW_S`) returns 429 with `Retry-After` | `api/app/rate_limit.py`, `api/app/auth/throttle.py` | Limits are per process. IP-based throttling can lock out clients behind a shared NAT. `X-Forwarded-For` is trusted only from `TRUSTED_PROXIES`. |
+| Rate limiting | REST and `/mcp` | Shared per-key token bucket across REST and `/mcp` (in-process, per worker). A per-IP failed-auth throttle (`AUTH_FAILURE_LIMIT` / `AUTH_FAILURE_WINDOW_S`) returns 429 with `Retry-After` | `api/app/rate_limit.py`, `api/app/auth/throttle.py` | Limits are per process. IP-based throttling can lock out clients behind a shared NAT. `X-Forwarded-For` is trusted only from `TRUSTED_PROXIES`. |
 | Large note directory scan | `list_notes` | `NOTES_DIR.glob("*.md")` — unbounded if many files exist | `mcp_server.py:list_notes` | Gap: could be slow with thousands of notes. |
 
 ### Elevation of Privilege

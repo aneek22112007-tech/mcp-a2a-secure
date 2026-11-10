@@ -9,17 +9,16 @@ import {
   CopyButton, ConsoleErrorBoundary,
 } from '../../components/ui';
 import { fmtDate, ALL_SCOPES, elapsedSince } from '../../utils/helpers';
-import { DEMO_KEYS } from '../../demo/demoData';
 import type { ApiKey } from '../../api/client';
 import { toast } from 'sonner';
 
 interface KeysViewProps {
-  isDemo: boolean;
+  offline: boolean;
   /** Client IDs available (detected from existing keys). */
   clientIds: string[];
 }
 
-function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
+function KeysViewInner({ offline, clientIds }: KeysViewProps) {
   const [extraIds, setExtraIds] = useState<string[]>([]);
   const [extraInput, setExtraInput] = useState('');
   const [showCreate, setShowCreate] = useState(false);
@@ -37,7 +36,6 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
   const discovered = useQuery({
     queryKey: ['client-ids'],
     queryFn: discoverClientIds,
-    enabled: !isDemo,
   });
   const clientIdList = [...new Set([...(discovered.data ?? []), ...clientIds, ...extraIds])].filter(Boolean);
   const keysQuery = useQuery({
@@ -53,17 +51,18 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
       }));
       return batches.flat();
     },
-    enabled: !isDemo && clientIdList.length > 0,
+    enabled: clientIdList.length > 0,
   });
   const createKey = useCreateKey();
   const revokeKey = useRevokeKey();
 
-  const keys: ApiKey[] = isDemo ? DEMO_KEYS : (keysQuery.data ?? []);
-  const isLoading = !isDemo && (discovered.isLoading || (clientIdList.length > 0 && keysQuery.isLoading));
-  const isError = !isDemo && discovered.isError;
+  const keys: ApiKey[] = keysQuery.data ?? [];
+  const isLoading = discovered.isLoading || (clientIdList.length > 0 && keysQuery.isLoading);
+  const isError = discovered.isError;
   const refetch = () => { void discovered.refetch(); void keysQuery.refetch(); };
 
   const handleCreate = async () => {
+    if (offline) return;
     if (!formClientId || !formName) {
       toast.error('Client ID and name are required.');
       return;
@@ -85,7 +84,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
   };
 
   const handleRevoke = async () => {
-    if (!revokeTarget) return;
+    if (offline || !revokeTarget) return;
     try {
       await revokeKey.mutateAsync(revokeTarget.id);
       toast.success(`Key ${revokeTarget.key_prefix}… revoked`);
@@ -97,6 +96,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
   };
 
   const handleTest = async (key: ApiKey) => {
+    if (offline) return;
     try {
       // Use the raw prefix as a test — we don't have the full key, so we
       // can only test keys we just created. For already-created keys we
@@ -138,7 +138,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
         <button
           className="btn btn-primary"
           onClick={() => setShowCreate(true)}
-          disabled={isDemo}
+          disabled={offline}
           aria-label="Create new API key"
         >
           <Plus size={13} />
@@ -219,36 +219,34 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
       )}
 
       <div className="row-between">
-        <span className="section-label">All clients ({isDemo ? 'demo' : clientIdList.length})</span>
-        {!isDemo && (
-          <form
-            className="field-row"
-            onSubmit={event => {
-              event.preventDefault();
-              const next = extraInput.trim();
-              if (!next) return;
-              setExtraIds(current => current.includes(next) ? current : [...current, next]);
-              setFormClientId(next);
-              setExtraInput('');
-            }}
-          >
-            <input
-              className="input input-mono"
-              value={extraInput}
-              onChange={event => setExtraInput(event.target.value)}
-              placeholder="Add client id"
-              aria-label="Add client id"
-            />
-            <button className="btn btn-ghost btn-sm" type="submit">Load</button>
-          </form>
-        )}
+        <span className="section-label">All clients ({clientIdList.length})</span>
+        <form
+          className="field-row"
+          onSubmit={event => {
+            event.preventDefault();
+            const next = extraInput.trim();
+            if (!next) return;
+            setExtraIds(current => current.includes(next) ? current : [...current, next]);
+            setFormClientId(next);
+            setExtraInput('');
+          }}
+        >
+          <input
+            className="input input-mono"
+            value={extraInput}
+            onChange={event => setExtraInput(event.target.value)}
+            placeholder="Add client id"
+            aria-label="Add client id"
+          />
+          <button className="btn btn-ghost btn-sm" type="submit">Load</button>
+        </form>
       </div>
 
       {/* Keys table */}
       <div className="panel">
-        {!isDemo && isLoading && keys.length === 0 ? (
+        {isLoading && keys.length === 0 ? (
           <LoadingPanel label="Loading keys…" />
-        ) : !isDemo && isError && keys.length === 0 ? (
+        ) : isError && keys.length === 0 ? (
           <ErrorPanel message="Failed to load keys" onRetry={refetch} />
         ) : keys.length === 0 ? (
           <EmptyState label="No client ids in the audit log yet. Paste a client id to load its keys." icon={Key} />
@@ -299,7 +297,8 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
                         <button
                           className="btn btn-ghost btn-sm"
                           onClick={() => void handleTest(k)}
-                          title="Test this key"
+                          disabled={offline}
+                          title={offline ? 'Actions disabled while offline' : 'Test this key'}
                           aria-label={`Test key ${k.key_prefix}`}
                         >
                           <TestTube size={11} />
@@ -309,7 +308,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
                           <button
                             className="btn btn-danger btn-sm"
                             onClick={() => setRevokeTarget(k)}
-                            disabled={isDemo}
+                            disabled={offline}
                             title="Revoke key"
                             aria-label={`Revoke key ${k.key_prefix}`}
                           >
@@ -411,7 +410,7 @@ function KeysViewInner({ isDemo, clientIds }: KeysViewProps) {
               <button
                 className="btn btn-primary"
                 onClick={handleCreate}
-                disabled={createKey.isPending}
+                disabled={offline || createKey.isPending}
               >
                 {createKey.isPending ? 'Creating…' : 'Create Key'}
               </button>

@@ -8,10 +8,9 @@ import { useMetrics, useActivitySeries } from '../../api/hooks';
 import { ErrorPanel, EmptyState, ConsoleErrorBoundary } from '../../components/ui';
 import { SkeletonPage } from '../../components/premium';
 import { fmtDuration, fmtNumber, fmtPercent, fmtTimestamp, trafficCommands } from '../../utils/helpers';
-import { DEMO_METRICS } from '../../demo/demoData';
 import { getApiBase, type MetricsResponse } from '../../api/client';
 
-interface MetricsViewProps { isDemo: boolean }
+interface MetricsViewProps { offline: boolean }
 
 // Recharts themed to design tokens
 const CHART_COLORS = {
@@ -91,14 +90,14 @@ const RANGES = [
   { id: 30, label: '30m' },
 ] as const;
 
-function MetricsViewInner({ isDemo }: MetricsViewProps) {
-  const { data: live, isLoading, isError, refetch } = useMetrics(!isDemo);
-  const { data: series } = useActivitySeries(!isDemo);
+function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
+  const { data: live, isLoading, isError, refetch } = useMetrics();
+  const { data: series } = useActivitySeries();
   const [range, setRange] = useState<10 | 30>(30);
-  const metrics: MetricsResponse | undefined = isDemo ? DEMO_METRICS : live;
+  const metrics: MetricsResponse | undefined = live;
 
-  if (!isDemo && isLoading && !metrics) return <SkeletonPage label="Loading metrics…" cards={6} />;
-  if (!isDemo && isError && !metrics) {
+  if (isLoading && !metrics) return <SkeletonPage label="Loading metrics…" cards={6} />;
+  if (isError && !metrics) {
     return <ErrorPanel message="Failed to load metrics" onRetry={() => void refetch()} />;
   }
 
@@ -155,7 +154,7 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
         <Stat label="Total" value={fmtNumber(totals?.total)} tone="var(--c-amber)" icon={<Activity size={13} />} sub={successRate != null ? `${fmtPercent(successRate)} successful` : undefined} />
         <Stat label="Denied" value={fmtNumber(totals?.denied)} tone="var(--c-deny)" icon={<ShieldAlert size={13} />} sub="auth, scope and policy" />
         <Stat label="Errors" value={fmtNumber(totals?.error)} tone="var(--c-high)" icon={<BarChart2 size={13} />} sub="tool or upstream failures" />
-        <Stat label="Rate limited" value={fmtNumber(totals?.rate_limit_rejections)} tone="var(--c-review)" icon={<Gauge size={13} />} sub={`${fmtNumber(metrics?.in_process_limiter?.active_buckets ?? 0)} active buckets`} />
+        <Stat label="Rate limited" value={fmtNumber(totals?.rate_limit_rejections)} tone="var(--c-review)" icon={<Gauge size={13} />} sub="since API start" />
         <Stat label="Guard hits" value={fmtNumber(guard?.hits ?? 0)} tone="var(--c-high)" icon={<ShieldAlert size={13} />} sub={guard ? `${guard.blocked} blocked · ${guard.sanitized} sanitized` : 'not reported'} />
         <Stat
           label="Database"
@@ -166,7 +165,6 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
         />
       </div>
 
-      {!isDemo && (
         <div className="panel" style={{ padding: 20 }}>
           <PanelTitle
             label="Gateway activity per minute"
@@ -213,7 +211,6 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
             <EmptyState label={`No gateway calls in the last ${range} minutes.`} hint="Console polls are left out. Calls from agents and keys show up within 15 seconds:" command={trafficCommands(getApiBase()).restCall} icon={Activity} />
           )}
         </div>
-      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div className="panel" style={{ padding: 20 }}>
@@ -241,7 +238,22 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
             <div><dt>Guard hits</dt><dd>{fmtNumber(guard?.hits ?? 0)}</dd></div>
             <div><dt>Blocked</dt><dd className="tone-deny">{fmtNumber(guard?.blocked ?? 0)}</dd></div>
             <div><dt>Sanitized</dt><dd className="tone-review">{fmtNumber(guard?.sanitized ?? 0)}</dd></div>
-            <div><dt>LLM</dt><dd className={llm?.available ? 'tone-allow' : 'dim'}>{llm ? (llm.available ? 'Available' : 'Unavailable') : '—'}</dd></div>
+            <div>
+              <dt>LLM</dt>
+              <dd className={llm?.enabled ? 'tone-allow' : 'dim'}>
+                {llm
+                  ? llm.enabled
+                    ? `Enabled (${llm.primary_provider || 'ollama'} · ${llm.primary_model})`
+                    : 'Disabled'
+                  : '—'}
+              </dd>
+            </div>
+            <div>
+              <dt>Groq fallback</dt>
+              <dd className={llm?.fallback_configured ? 'tone-allow' : 'dim'}>
+                {llm ? (llm.fallback_configured ? 'Configured' : 'Not configured') : '—'}
+              </dd>
+            </div>
             <div><dt>LLM calls</dt><dd>{fmtNumber(llm?.call_count ?? 0)}</dd></div>
             <div><dt>Avg latency</dt><dd>{llm && llm.call_count ? fmtDuration(llm.avg_latency_ms) : '—'}</dd></div>
             <div><dt>Fallbacks</dt><dd>{llm ? `${fmtNumber(llm.fallback_count)} (${fmtPercent(llm.fallback_rate)})` : '—'}</dd></div>
@@ -290,7 +302,6 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
         </div>
       </div>
 
-      {!isDemo && (
         <div className="panel" style={{ padding: 20 }}>
           <PanelTitle label="Tool latency, last 30 minutes" right={<span className="muted-sm">from audit duration_ms</span>} />
           {series && series.latency.samples > 0 ? (
@@ -319,7 +330,6 @@ function MetricsViewInner({ isDemo }: MetricsViewProps) {
             <EmptyState label="No tool calls in the last 30 minutes" hint="Percentiles need at least one tool call:" command={trafficCommands(getApiBase()).agent} icon={Gauge} />
           )}
         </div>
-      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div className="panel" style={{ padding: 20 }}>

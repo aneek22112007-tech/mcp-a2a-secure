@@ -2,6 +2,7 @@ import json
 import re
 
 from app.scanner.types import ScannerFinding
+from app.text_normalize import decode_base64_blobs, normalize_for_scan
 from app.tools.catalog import ToolDefinition
 
 PROMPT_INJECTION_PHRASES = [
@@ -53,7 +54,8 @@ def extract_descriptions(obj) -> list[str]:
 
 
 def normalise_text(text: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", text.lower())
+    normalized = normalize_for_scan(text)
+    return re.sub(r"[^a-z0-9]", "", normalized.lower())
 
 
 NORMAL_PROMPT_PHRASES = [normalise_text(p) for p in PROMPT_INJECTION_PHRASES]
@@ -63,10 +65,15 @@ NORMAL_EXFIL_PHRASES = [normalise_text(p) for p in EXFILTRATION_PHRASES]
 def scan_tool_rules(defn: ToolDefinition) -> list[ScannerFinding]:
     findings = []
 
-    # Rule 1 & Rule 2 (tool description only)
+    # Rule 1 & Rule 2 (tool description and decoded description)
     desc_str = defn.description or ""
-    norm_desc = normalise_text(desc_str)
-    if norm_desc:
+    desc_targets = [desc_str] + decode_base64_blobs(desc_str) if desc_str else []
+
+    r1_found = False
+    for target in desc_targets:
+        norm_desc = normalise_text(target)
+        if not norm_desc:
+            continue
         for phrase in NORMAL_PROMPT_PHRASES:
             if phrase in norm_desc:
                 findings.append(
@@ -74,10 +81,19 @@ def scan_tool_rules(defn: ToolDefinition) -> list[ScannerFinding]:
                         rule_id="R1_PROMPT_INJECTION",
                         severity="high",
                         message="Prompt injection phrase found.",
-                        evidence=desc_str[:200],
+                        evidence=target[:200],
                     )
                 )
+                r1_found = True
                 break
+        if r1_found:
+            break
+
+    r2_found = False
+    for target in desc_targets:
+        norm_desc = normalise_text(target)
+        if not norm_desc:
+            continue
         for phrase in NORMAL_EXFIL_PHRASES:
             if phrase in norm_desc:
                 findings.append(
@@ -85,12 +101,15 @@ def scan_tool_rules(defn: ToolDefinition) -> list[ScannerFinding]:
                         rule_id="R2_EXFILTRATION",
                         severity="critical",
                         message="Exfiltration phrase found.",
-                        evidence=desc_str[:200],
+                        evidence=target[:200],
                     )
                 )
+                r2_found = True
                 break
+        if r2_found:
+            break
 
-    # Rule 5 (schema descriptions only)
+    # Rule 5 (schema descriptions and decoded descriptions)
     schema_descs = []
     if defn.input_schema:
         schema_descs.extend(extract_descriptions(defn.input_schema))
@@ -98,19 +117,25 @@ def scan_tool_rules(defn: ToolDefinition) -> list[ScannerFinding]:
         schema_descs.extend(extract_descriptions(defn.output_schema))
 
     for orig in schema_descs:
-        norm = normalise_text(orig)
-        if not norm:
-            continue
-        for phrase in NORMAL_PROMPT_PHRASES + NORMAL_EXFIL_PHRASES:
-            if phrase in norm:
-                findings.append(
-                    ScannerFinding(
-                        rule_id="R5_SUSPICIOUS_PARAM_DESC",
-                        severity="high",
-                        message="Suspicious parameter description.",
-                        evidence=orig[:200],
+        schema_targets = [orig] + decode_base64_blobs(orig) if orig else []
+        r5_found = False
+        for target in schema_targets:
+            norm = normalise_text(target)
+            if not norm:
+                continue
+            for phrase in NORMAL_PROMPT_PHRASES + NORMAL_EXFIL_PHRASES:
+                if phrase in norm:
+                    findings.append(
+                        ScannerFinding(
+                            rule_id="R5_SUSPICIOUS_PARAM_DESC",
+                            severity="high",
+                            message="Suspicious parameter description.",
+                            evidence=target[:200],
+                        )
                     )
-                )
+                    r5_found = True
+                    break
+            if r5_found:
                 break
 
     # Rule 3

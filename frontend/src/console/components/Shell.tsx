@@ -3,13 +3,14 @@ import { useDialogA11y } from './a11y';
 import {
   Shield, LayoutDashboard, Key, FileText, BarChart2,
   Pin, Search, Box, Zap, HelpCircle, ChevronLeft, ChevronRight,
-  Database, RefreshCw, PanelLeft, Keyboard, LogOut, Command as CommandIcon,
+  RefreshCw, PanelLeft, Keyboard, LogOut, Command as CommandIcon,
+  WifiOff,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { StreamDot } from './ui';
 import { EnvSelector, HealthPill, KeyMenu, SubHeader } from './Chrome';
-import { useHealth } from '../api/hooks';
+import { useHealth, useLastUpdated } from '../api/hooks';
 import { CommandPalette, type Command } from './CommandPalette';
 import { Kbd } from './premium';
 import type { ViewId } from './views';
@@ -114,7 +115,7 @@ interface ShellProps {
   onViewChange: (v: ViewId) => void;
   streamState: StreamState;
   scopes: string[];
-  isDemo: boolean;
+  offline: boolean;
   backendUp: boolean;
   children: ReactNode;
 }
@@ -124,7 +125,7 @@ export function ConsoleShell({
   onViewChange,
   streamState,
   scopes,
-  isDemo,
+  offline,
   backendUp,
   children,
 }: ShellProps) {
@@ -135,7 +136,8 @@ export function ConsoleShell({
   const [density, setDensity] = useState<'comfortable' | 'compact'>(() => {
     try { return localStorage.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable'; } catch { return 'comfortable'; }
   });
-  const { data: health, isError: healthError } = useHealth(!isDemo);
+  const { data: health, isError: healthError } = useHealth();
+  const lastUpdated = useLastUpdated();
   const healthState: 'ok' | 'degraded' | 'down' | 'unknown' = !backendUp || healthError
     ? 'down'
     : health?.status === 'ok'
@@ -161,7 +163,7 @@ export function ConsoleShell({
     return scopes.includes('admin') || scopes.includes(scope);
   };
 
-  const visible = NAV_ITEMS.filter(item => isDemo || hasScope(item.scope));
+  const visible = NAV_ITEMS.filter(item => hasScope(item.scope));
   const activeItem = NAV_ITEMS.find(i => i.id === activeView) ?? NAV_ITEMS[0];
 
   const handleForget = () => {
@@ -175,7 +177,7 @@ export function ConsoleShell({
   };
 
   const refreshAll = () => {
-    if (isDemo) return;
+    if (offline) return;
     void qc.invalidateQueries();
     toast.success('Refreshing all console data');
   };
@@ -193,12 +195,12 @@ export function ConsoleShell({
         run: () => go(item.id),
       };
     }),
-    ...(isDemo ? [] : [{ id: 'refresh', label: 'Refresh all data', group: 'Actions', icon: <RefreshCw size={14} />, hint: 'R', keywords: 'reload invalidate', run: refreshAll }]),
+    ...(offline ? [] : [{ id: 'refresh', label: 'Refresh all data', group: 'Actions', icon: <RefreshCw size={14} />, hint: 'R', keywords: 'reload invalidate', run: refreshAll }]),
     { id: 'rail', label: collapsed ? 'Expand sidebar' : 'Collapse sidebar', group: 'Actions', icon: <PanelLeft size={14} />, hint: '[', keywords: 'navigation rail', run: () => setCollapsed(v => !v) },
     { id: 'help', label: 'Keyboard shortcuts', group: 'Actions', icon: <Keyboard size={14} />, hint: '?', keywords: 'help keys', run: () => setHelpOpen(true) },
     { id: 'forget', label: 'Forget key and disconnect', group: 'Session', icon: <LogOut size={14} />, keywords: 'logout sign out', run: handleForget },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [visible.map(v => v.id).join(','), collapsed, isDemo]);
+  ], [visible.map(v => v.id).join(','), collapsed, offline]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -254,23 +256,23 @@ export function ConsoleShell({
 
         <span className="strip-spacer" />
 
-        {isDemo && (
-          <span className="badge badge-review" role="status" aria-label="Demo data, backend offline">
-            <Database size={11} aria-hidden />
-            DEMO DATA (backend offline)
+        {offline && (
+          <span className="badge badge-review" role="status" aria-label="Backend offline">
+            <WifiOff size={11} aria-hidden />
+            {lastUpdated
+              ? `Backend offline. Showing the last data received at ${clockFmt.format(new Date(lastUpdated))} ${CONSOLE_TZ_LABEL}.`
+              : 'Backend offline. No data loaded yet.'}
           </span>
         )}
 
-        {!isDemo && (
-          <HealthPill
-            state={healthState}
-            title={healthState === 'ok' ? `GET /health ok · live stream ${streamState}` : healthState === 'degraded' ? `Backend up, live stream ${streamState}` : 'GET /health failed'}
-          />
-        )}
-        {!isDemo && <StreamDot state={streamState} />}
+        <HealthPill
+          state={healthState}
+          title={healthState === 'ok' ? `GET /health ok · live stream ${streamState}` : healthState === 'degraded' ? `Backend up, live stream ${streamState}` : 'GET /health failed'}
+        />
+        <StreamDot state={streamState} />
         <IstClock />
         <KeyMenu
-          prefix={isDemo ? null : keyPrefix}
+          prefix={keyPrefix}
           scopes={scopes}
           onShortcuts={() => setHelpOpen(true)}
           onForget={handleForget}
@@ -330,7 +332,7 @@ export function ConsoleShell({
             onRefresh={refreshAll}
             density={density}
             onDensity={setDensity}
-            isDemo={isDemo}
+            offline={offline}
           />
           {children}
         </main>

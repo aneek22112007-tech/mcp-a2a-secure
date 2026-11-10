@@ -87,15 +87,14 @@ delegated_scopes = manager_scopes ∩ worker_scopes ∩ {notes:read, notes:write
 
 ---
 
-## 4. Dependency: MCP per-tool scope enforcement
+## 4. MCP per-tool scope enforcement
 
-At `/mcp/`, `McpBearerAuthMiddleware` (`app/auth/mcp_asgi.py`) checks that the connecting key holds `agent:run`. The MCP dispatch layer does **not** yet check per-tool scopes (`notes:write` for `write_note`, `notes:read` for `list_notes` and `read_note`).
+At `/mcp/`, `McpBearerAuthMiddleware` (`app/auth/mcp_asgi.py`) verifies that the connecting key holds `agent:run` to open an MCP session. In addition, `McpToolScopeMiddleware` (`app/mcp_tool_scope.py`) inspects incoming `tools/call` requests and enforces per-tool scopes defined in `TOOL_SCOPES` (`notes:write` for `write_note`, `notes:read` for `list_notes` and `read_note`):
 
-Impact: any key with `agent:run` that connects to `/mcp/` can call `write_note`, even without `notes:write`. That includes the worker key.
-
-- This change does **not** claim end-to-end tool-level authorization at the MCP layer.
-- Attenuation is enforced on the server before delegation (403 on excess or empty scopes). The worker's delegated scopes are fully enforced at the tool layer only once per-tool scope checks land in `/mcp/`.
-- That check belongs in the gateway middleware, in a separate change. It is not replaced by a client-side check here.
+- Delegated worker scopes are enforced at the actual tool-call layer, not merely when opening the MCP session.
+- If a worker key holding `agent:run` attempts to call `write_note` without holding `notes:write`, the gateway returns 403 `FORBIDDEN` (`Missing required scope: notes:write.`) and audits an `auth.deny` event.
+- Unmapped tools fail closed and are denied with 403 `FORBIDDEN`.
+- Attenuation is enforced on the server before delegation (403 on excess or empty scopes) and subsequently enforced at every tool execution on the gateway.
 
 ---
 

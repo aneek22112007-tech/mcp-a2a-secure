@@ -3,6 +3,8 @@ import logging
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
+from app.llm.health import _groq_configured
 from app.models.audit_events import AuditEvent
 from app.models.sandbox_runs import SandboxRun
 from app.rate_limit import limiter
@@ -21,6 +23,7 @@ async def get_metrics_summary(session: AsyncSession) -> dict:
         "busiest_keys": [],
         "in_process_limiter": {
             "active_buckets": len(limiter._buckets),
+            "rejected_total": limiter.rejected_total,
         },
         "injection_guard": {
             "hits": 0,
@@ -35,8 +38,8 @@ async def get_metrics_summary(session: AsyncSession) -> dict:
             func.count(case((AuditEvent.status == "ok", 1))).label("successful"),
             func.count(case((AuditEvent.status == "denied", 1))).label("denied"),
             func.count(case((AuditEvent.status == "error", 1))).label("error"),
-            func.count(case((AuditEvent.reason == "rate_limit_exceeded", 1))).label(
-                "rate_limit_rejections"
+            func.count(case((AuditEvent.reason.like("rate_limit_exceeded%"), 1))).label(
+                "rate_limit_audit_rows"
             ),
         ).select_from(AuditEvent)
 
@@ -47,7 +50,8 @@ async def get_metrics_summary(session: AsyncSession) -> dict:
             "successful": totals_row.successful or 0,
             "denied": totals_row.denied or 0,
             "error": totals_row.error or 0,
-            "rate_limit_rejections": totals_row.rate_limit_rejections or 0,
+            "rate_limit_rejections": limiter.rejected_total,
+            "rate_limit_audit_rows": totals_row.rate_limit_audit_rows or 0,
         }
 
         slowest_stmt = (
@@ -182,12 +186,20 @@ async def get_metrics_summary(session: AsyncSession) -> dict:
         llm_metrics = await get_llm_metrics(session)
         result["llm"] = {
             "available": True,
+            "enabled": settings.llm_enabled,
+            "primary_provider": "ollama",
+            "primary_model": settings.ollama_model,
+            "fallback_configured": _groq_configured(),
             **llm_metrics,
         }
     except Exception:
         logger.exception("Failed to query llm metrics from database")
         result["llm"] = {
             "available": False,
+            "enabled": settings.llm_enabled,
+            "primary_provider": "ollama",
+            "primary_model": settings.ollama_model,
+            "fallback_configured": _groq_configured(),
             "call_count": 0,
             "average_latency": 0.0,
             "fallback_rate": 0.0,

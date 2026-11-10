@@ -29,6 +29,9 @@ def check_tool_output(
     tool_name: str,
     key_prefix: str | None = None,
     request_id: str | None = None,
+    audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
+    client_id: str | None = None,
+    api_key_id: str | None = None,
 ) -> GuardResult:
     """Evaluate tool output text against prompt injection rules G1–G6.
 
@@ -85,11 +88,52 @@ def check_tool_output(
             action = "blocked"
             result_text = f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
         else:
-            allowed = True
-            blocked = False
-            cleaned = True
-            action = "cleaned"
-            result_text = sanitize_medium_text(text, matches)
+            current_text = text
+            current_matches = matches
+            allowed = False
+            blocked = True
+            cleaned = False
+            action = "blocked"
+            result_text = f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
+
+            for _attempt in range(3):
+                new_text = sanitize_medium_text(current_text, current_matches)
+                re_matches = scan_text(new_text)
+                re_findings = to_guard_findings(re_matches)
+
+                # Check if re-scan produced any high-severity finding
+                re_high_rule = next(
+                    (f.rule_id for f in re_findings if f.severity == "high"),
+                    None,
+                )
+                if re_high_rule is not None:
+                    highest_severity = "high"
+                    highest_rule_id = re_high_rule
+                    result_text = f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
+                    # Include the high finding that caused the block
+                    findings = re_findings + [
+                        f
+                        for f in findings
+                        if f.rule_id not in {rf.rule_id for rf in re_findings}
+                    ]
+                    break
+
+                # Output can be allowed ONLY when a fresh scan confirms NO remaining findings
+                if not re_findings:
+                    allowed = True
+                    blocked = False
+                    cleaned = True
+                    action = "cleaned"
+                    result_text = new_text
+                    break
+
+                # If text did not change while findings remain, sanitization made no progress -> fail closed
+                if new_text == current_text:
+                    break
+
+                # Text changed but findings remain; advance to next attempt if within limit
+                current_text = new_text
+                current_matches = re_matches
 
     result = GuardResult(
         allowed=allowed,
@@ -113,6 +157,9 @@ def check_tool_output(
         findings=findings,
         blocked=blocked,
         cleaned=cleaned,
+        audit_action=audit_action,
+        client_id=client_id,
+        api_key_id=api_key_id,
     )
     result._audit_task = audit_task
 
@@ -130,6 +177,9 @@ def _write_guard_audit(
     findings: list[Any],
     blocked: bool,
     cleaned: bool,
+    audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
+    client_id: str | None = None,
+    api_key_id: str | None = None,
 ) -> Any:
     """Record a guard hit audit log event."""
 
@@ -139,9 +189,11 @@ def _write_guard_audit(
     )
 
     record = AuditRecord(
-        action=ACTION_TOOL_OUTPUT_INJECTION,
+        action=audit_action,
         decision=AUDIT_DECISION_DENIED if blocked else AUDIT_DECISION_ALLOWED,
         status=STATUS_DENIED if blocked else (STATUS_OK if not cleaned else "cleaned"),
+        client_id=client_id,
+        api_key_id=api_key_id,
         tool_name=tool_name,
         key_prefix=key_prefix,
         request_id=request_id,

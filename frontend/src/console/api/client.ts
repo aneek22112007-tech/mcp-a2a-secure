@@ -247,6 +247,7 @@ export interface MetricsTotals {
   denied: number;
   error: number;
   rate_limit_rejections: number;
+  rate_limit_audit_rows?: number;
 }
 
 export interface SlowTool {
@@ -275,11 +276,15 @@ export interface MetricsResponse {
   totals: MetricsTotals;
   slowest_tools: SlowTool[];
   busiest_keys: BusyKey[];
-  in_process_limiter: { active_buckets: number };
+  in_process_limiter: { active_buckets: number; rejected_total?: number };
   sandbox: SandboxMetrics;
   injection_guard?: { hits: number; blocked: number; sanitized: number };
   llm?: {
     available: boolean;
+    enabled: boolean;
+    primary_provider: string;
+    primary_model: string;
+    fallback_configured: boolean;
     call_count: number;
     avg_latency_ms: number;
     fallback_rate: number;

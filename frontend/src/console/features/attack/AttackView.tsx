@@ -12,7 +12,7 @@ import {
   runWrongScope,
 } from './runners';
 
-interface AttackViewProps { isDemo: boolean }
+interface AttackViewProps { offline: boolean }
 
 type StepStatus = 'idle' | 'running' | 'done' | 'error';
 
@@ -91,14 +91,14 @@ function ResultPanel({ result }: { result: AttackResult }) {
   );
 }
 
-function AttackViewInner({ isDemo }: AttackViewProps) {
+function AttackViewInner({ offline }: AttackViewProps) {
   const [results, setResults] = useState<Record<string, AttackResult>>({});
   const [statuses, setStatuses] = useState<Record<string, StepStatus>>({});
   const [runningAll, setRunningAll] = useState(false);
   const [lights, setLights] = useState<StageLight[]>(PIPELINE_IDLE);
 
   const runStep = useCallback(async (step: AttackStep) => {
-    if (isDemo) return;
+    if (offline) return;
     const remember = (result: AttackResult) => {
       const next = pipelineLights(result.stage, result.status);
       if (lightsMatched(next)) setLights(next);
@@ -124,7 +124,7 @@ function AttackViewInner({ isDemo }: AttackViewProps) {
       setStatuses(current => ({ ...current, [step.id]: 'error' }));
       remember(failed);
     }
-  }, [isDemo]);
+  }, [offline]);
 
   const runAll = useCallback(async () => {
     setRunningAll(true);
@@ -142,7 +142,7 @@ function AttackViewInner({ isDemo }: AttackViewProps) {
           <h1 className="page-title">Attack Simulator</h1>
           <p className="page-sub">Each label is the real HTTP status. A 200 is Allowed.</p>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => void runAll()} disabled={isDemo || runningAll}>
+        <button className="btn btn-primary btn-sm" onClick={() => void runAll()} disabled={offline || runningAll}>
           <Play size={12} aria-hidden />
           {runningAll ? 'Running…' : 'Run all'}
         </button>
@@ -175,7 +175,7 @@ function AttackViewInner({ isDemo }: AttackViewProps) {
                 <button
                   className="btn btn-sm btn-amber"
                   onClick={() => void runStep(step)}
-                  disabled={isDemo || status === 'running' || runningAll}
+                  disabled={offline || status === 'running' || runningAll}
                 >
                   <Play size={12} aria-hidden />
                   {status === 'running' ? 'Running…' : 'Run'}
@@ -187,10 +187,10 @@ function AttackViewInner({ isDemo }: AttackViewProps) {
         })}
       </div>
 
-      {isDemo && (
+      {offline && (
         <p className="panel panel-note">
           <Info size={14} aria-hidden />
-          <span>Connect to a live backend to run these requests. Demo mode does not send them.</span>
+          <span>Connect to a live backend to run these requests. Attacks cannot run while offline.</span>
         </p>
       )}
     </div>
