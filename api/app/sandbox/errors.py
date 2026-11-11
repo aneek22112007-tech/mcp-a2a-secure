@@ -12,6 +12,7 @@ from app.sandbox.types import (
     ERROR_OUTPUT_TOO_LARGE,
     ERROR_TIMEOUT,
     ERROR_TOOL_INTERNAL,
+    ERROR_UPSTREAM,
 )
 
 
@@ -81,6 +82,24 @@ class SandboxToolError(SandboxError):
         super().__init__(
             "Internal tool error.",
             error_type=error_type,
+            exit_code=exit_code,
+            output_bytes=output_bytes,
+        )
+
+
+class SandboxUpstreamError(SandboxError):
+    error_type = ERROR_UPSTREAM
+
+    def __init__(
+        self,
+        message: str = "Upstream error.",
+        *,
+        exit_code: int | None = None,
+        output_bytes: int | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            error_type=ERROR_UPSTREAM,
             exit_code=exit_code,
             output_bytes=output_bytes,
         )

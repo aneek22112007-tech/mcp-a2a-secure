@@ -1,4 +1,4 @@
-import { ArrowUpRight, Bot, Brain, HardDrive, Layers, ScanSearch, Shield } from 'lucide-react';
+import { ArrowUpRight, Bot, Brain, FlaskConical, HardDrive, Layers, ScanSearch, Shield } from 'lucide-react';
 
 type Item = {
   icon: typeof Shield;
@@ -37,6 +37,17 @@ const LIVE: Item[] = [
     links: [
       { label: 'Runs in Sandbox', href: '#/sandbox' },
       { label: 'Fingerprints in Tool Pinning', href: '#/pins' },
+    ],
+  },
+  {
+    icon: FlaskConical,
+    title: 'Hostile lab upstream',
+    description:
+      'A development-only upstream MCP server providing intentionally hostile tools to test gateway containment, prompt-injection guards, and contract drift. Gated by lab:call in development mode only (disabled by default in production).',
+    links: [
+      { label: 'Events in Live Audit', href: '#/audit' },
+      { label: 'Findings in Scanner', href: '#/scanner' },
+      { label: 'Runs in Sandbox', href: '#/sandbox' },
     ],
   },
   {

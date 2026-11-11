@@ -223,3 +223,154 @@ export const ATTACK_SEQUENCE: AttackStep[] = [
   { id: 'pin', caption: 'Pin gate: tools/call on a revoked or drifted tool.', run: runPinBlock },
   { id: 'rate-limit', caption: 'Rate limit: 120 GET /api/metrics requests at once.', run: runRateLimit },
 ];
+
+export const ATTACKS = ATTACK_SEQUENCE;
+
+function extractMcpText(body: unknown): string {
+  if (!body || typeof body !== 'object') return '';
+  const result = (body as { result?: { content?: Array<{ type?: string; text?: string }> } }).result;
+  if (result && Array.isArray(result.content) && result.content[0]?.text) {
+    return result.content[0].text;
+  }
+  return '';
+}
+
+export async function runLabInjection(): Promise<AttackResult> {
+  const raw = await consoleApi.mcpToolsCall('lab_fetch_tip', { variant: 'override' });
+  if (raw.status === 200) {
+    const text = extractMcpText(raw.body);
+    if (text.includes('[BLOCKED:')) {
+      const m = text.match(/rule\s+(G\d+)/i);
+      const ruleText = m ? ` (rule ${m[1]})` : '';
+      return finish(raw, `Tool output was evaluated by the injection guard and blocked${ruleText}.`, {
+        stage: 'Injection guard',
+        stageColor: 'var(--c-deny)',
+      });
+    }
+    if (text.includes('[REDACTED:')) {
+      return finish(raw, 'Tool output was sanitized by the injection guard.', {
+        stage: 'Cleaned',
+        stageColor: 'var(--c-review)',
+      });
+    }
+    const jsonRpcErr = (raw.body as { error?: { message?: string } })?.error;
+    if (jsonRpcErr?.message) {
+      return finish(raw, `MCP error: ${jsonRpcErr.message}`, {
+        stage: 'Error',
+        stageColor: 'var(--c-deny)',
+      });
+    }
+    return finish(raw, 'Tip returned without guard block.');
+  }
+  const err = errorOf(raw.body);
+  return finish(raw, `lab_fetch_tip returned HTTP ${raw.status}: ${err.message || 'error'}`);
+}
+
+export async function runLabScannerGate(): Promise<AttackResult> {
+  const raw = await consoleApi.mcpToolsCall('lab_add_numbers', { a: 1, b: 2 });
+  if (raw.status === 403) {
+    const reason = await pinReasonFromAudit('lab_add_numbers');
+    if (reason === 'pin_scan_blocked') {
+      return finish(raw, `tools/call lab_add_numbers was blocked by the scanner gate (${reason}).`, {
+        stage: 'Scanner gate',
+        stageColor: 'var(--c-deny)',
+        pinReason: reason,
+      });
+    }
+    const err = errorOf(raw.body);
+    return finish(raw, `tools/call lab_add_numbers was rejected (HTTP 403: ${err.message || 'forbidden'}).`, {
+      stage: 'Denied',
+      stageColor: 'var(--c-deny)',
+      pinReason: reason,
+    });
+  }
+  if (raw.status === 200) {
+    return finish(raw, 'lab_add_numbers executed through /mcp/.', {
+      stage: 'Allowed',
+      stageColor: 'var(--c-allow)',
+    });
+  }
+  return finish(raw, `lab_add_numbers returned HTTP ${raw.status}.`);
+}
+
+export async function runLabOutputCap(): Promise<AttackResult> {
+  const raw = await consoleApi.mcpToolsCall('lab_flood', { kib: 2048 });
+  const text = extractMcpText(raw.body);
+  const err = errorOf(raw.body);
+  const jsonRpcErr = (raw.body as { error?: { message?: string } })?.error;
+  const msg = `${text} ${err.message || ''} ${jsonRpcErr?.message || ''}`.toLowerCase();
+  if (msg.includes('too large') || raw.status === 413) {
+    return finish(raw, 'Tool output exceeded the 1 MB gateway output cap and execution was aborted.', {
+      stage: 'Output cap',
+      stageColor: 'var(--c-deny)',
+    });
+  }
+  const isErr = Boolean((raw.body as { result?: { isError?: boolean } })?.result?.isError);
+  if (raw.status === 200 && !jsonRpcErr && !isErr) {
+    return finish(raw, 'lab_flood returned within allowed limits.', {
+      stage: 'Allowed',
+      stageColor: 'var(--c-allow)',
+    });
+  }
+  return finish(raw, `lab_flood returned HTTP ${raw.status}: ${text || err.message || jsonRpcErr?.message || 'error'}`);
+}
+
+export async function runLabTimeout(): Promise<AttackResult> {
+  try {
+    const raw = await consoleApi.mcpToolsCall('lab_hang', {});
+    const text = extractMcpText(raw.body);
+    const err = errorOf(raw.body);
+    const jsonRpcErr = (raw.body as { error?: { message?: string } })?.error;
+    const msg = `${text} ${err.message || ''} ${jsonRpcErr?.message || ''}`.toLowerCase();
+    if (msg.includes('timed out') || msg.includes('timeout') || raw.status === 504 || raw.status === 408) {
+      return finish(raw, 'lab_hang exceeded the execution budget and timed out.', {
+        stage: 'Timeout',
+        stageColor: 'var(--c-deny)',
+      });
+    }
+    return finish(raw, `lab_hang returned HTTP ${raw.status}: ${text || err.message || 'error'}`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return finish({
+      status: 0,
+      headers: {},
+      body: { error: { message } },
+      ok: false,
+    }, `Client error calling lab_hang: ${message}`, {
+      stage: 'Error',
+      stageColor: 'var(--c-deny)',
+    });
+  }
+}
+
+export async function runLabEscapeProbe(): Promise<AttackResult> {
+  const raw = await consoleApi.mcpToolsCall('lab_probe_host', { target: 'network' });
+  if (raw.status === 200) {
+    const text = extractMcpText(raw.body);
+    if (text.includes('result=denied') || text.includes('unreachable') || text.includes('denied')) {
+      const m = text.match(/detail=([^\n]+)/);
+      const detail = m ? ` (${m[1].trim()})` : '';
+      return finish(raw, `Host escape probe failed: network egress was denied by container isolation${detail}.`, {
+        stage: 'Sandbox denied',
+        stageColor: 'var(--c-deny)',
+      });
+    }
+    if (text.includes('result=ok')) {
+      return finish(raw, 'Host probe reached external network.', {
+        stage: 'Escaped',
+        stageColor: 'var(--c-allow)',
+      });
+    }
+    return finish(raw, `lab_probe_host returned: ${text.slice(0, 80)}`);
+  }
+  const err = errorOf(raw.body);
+  return finish(raw, `lab_probe_host returned HTTP ${raw.status}: ${err.message || 'error'}`);
+}
+
+export const LAB_ATTACKS: AttackStep[] = [
+  { id: 'lab-injection', caption: 'Output injection: lab_fetch_tip with the override variation.', run: runLabInjection },
+  { id: 'lab-scanner-gate', caption: 'Scanner gate: lab_add_numbers blocked by scan gate.', run: runLabScannerGate },
+  { id: 'lab-output-cap', caption: 'Output cap: lab_flood with 2048 KiB exceeds 1 MB cap.', run: runLabOutputCap },
+  { id: 'lab-timeout', caption: 'Timeout: lab_hang hangs until sandbox deadline is reached.', run: runLabTimeout },
+  { id: 'lab-probe-host', caption: 'Host escape probe: lab_probe_host with network target denied.', run: runLabEscapeProbe },
+];

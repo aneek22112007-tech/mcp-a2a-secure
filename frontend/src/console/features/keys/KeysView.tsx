@@ -8,7 +8,7 @@ import {
   LoadingPanel, ErrorPanel, EmptyState, ConfirmDialog,
   CopyButton, ConsoleErrorBoundary,
 } from '../../components/ui';
-import { fmtDate, ALL_SCOPES, elapsedSince } from '../../utils/helpers';
+import { fmtDate, ALL_SCOPES, SCOPE_LABELS, elapsedSince } from '../../utils/helpers';
 import type { ApiKey } from '../../api/client';
 import { toast } from 'sonner';
 
@@ -388,6 +388,7 @@ function KeysViewInner({ offline, clientIds }: KeysViewProps) {
                       cursor: 'pointer', fontSize: 12,
                       color: formScopes.includes(s) ? 'var(--c-text)' : 'var(--c-text-muted)',
                     }}
+                    title={SCOPE_LABELS[s as keyof typeof SCOPE_LABELS] || s}
                   >
                     <input
                       type="checkbox"

@@ -1,8 +1,8 @@
-"""Run one filesystem tool in its own locked-down container.
+"""Run upstream MCP tools in locked-down containers.
 
-The container image is the official server. The host directory is mounted at
-``/projects``. Read tools get a read-only mount. The container is removed
-when the call finishes, including when it times out.
+Containers are isolated with read-only root filesystems, dropped capabilities,
+no networking, memory/PID limits, and custom or volume mounts as specified
+by each UpstreamSpec.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from app.sandbox.errors import (
     SandboxTimeoutError,
     SandboxToolError,
     SandboxUnavailableError,
+    SandboxUpstreamError,
 )
 from app.sandbox.executor import ExecutorStats, current_deadline, current_run_id
 from app.sandbox.types import (
@@ -38,13 +39,11 @@ from app.sandbox.types import (
 )
 from app.upstream.filesystem import (
     CONTRACT_CHANGED,
-    MOUNT,
     UPSTREAM_ERROR_PREFIX,
-    check_paths,
     contract_fingerprint,
-    ensure_shared_dir,
-    filesystem_tool,
 )
+from app.upstream.registry import get_spec, upstream_tool
+from app.upstream.spec import UpstreamSpec
 from app.upstream.stdio import StdioMcp
 
 _STDERR_CAP = 8 * 1024
@@ -59,15 +58,16 @@ _IMAGE_MARKERS = (
     b"unable to find image",
     b"pull access denied",
 )
-_executor: FilesystemExecutor | None = None
+_executors: dict[str, UpstreamExecutor] = {}
 
 
-class FilesystemExecutor:
-    """Docker executor used only for ``fs_`` tools."""
+class UpstreamExecutor:
+    """Docker executor for containerized upstream tools."""
 
     mode = MODE_DOCKER
 
-    def __init__(self) -> None:
+    def __init__(self, spec: UpstreamSpec | None = None) -> None:
+        self.spec = spec
         self.stats = ExecutorStats()
 
     async def execute(
@@ -76,11 +76,15 @@ class FilesystemExecutor:
         args: dict[str, Any],
         context: ExecutionContext,
     ) -> str:
-        registered = filesystem_tool(tool_name)
+        registered = upstream_tool(tool_name)
         if registered is None:
             raise SandboxToolError(ERROR_PROTOCOL_ERROR)
-        check_paths(args)
-        session = FilesystemSession(
+        spec = self.spec or get_spec(registered.spec_id)
+        if spec is None:
+            raise SandboxToolError(ERROR_PROTOCOL_ERROR)
+        spec.check_args(args)
+        session = UpstreamSession(
+            spec,
             run_id=current_run_id(),
             read_only=registered.read_only,
             deadline=current_deadline(),
@@ -90,35 +94,41 @@ class FilesystemExecutor:
             live = _find_tool(listed, registered.upstream_name)
             if live is None:
                 await _audit_contract(tool_name, context)
-                raise ValueError(CONTRACT_CHANGED)
+                raise SandboxUpstreamError(CONTRACT_CHANGED)
             description = live.get("description")
             schema = live.get("inputSchema")
             if not isinstance(description, str) or not isinstance(schema, dict):
                 await _audit_contract(tool_name, context)
-                raise ValueError(CONTRACT_CHANGED)  # noqa: TRY004
+                raise SandboxUpstreamError(CONTRACT_CHANGED)
             live_fingerprint = contract_fingerprint(tool_name, description, schema)
             if live_fingerprint != registered.fingerprint:
                 await _audit_contract(tool_name, context)
-                raise ValueError(CONTRACT_CHANGED)
+                raise SandboxUpstreamError(CONTRACT_CHANGED)
             result = await session.call_tool(registered.upstream_name, args)
         finally:
             await session.close()
         if result.get("isError") is True:
             text = _content_text(result.get("content"))
-            raise ValueError(f"{UPSTREAM_ERROR_PREFIX}{text}")
+            raise SandboxUpstreamError(f"{UPSTREAM_ERROR_PREFIX}{text}")
         return _content_text(result.get("content"))
 
 
-class FilesystemSession:
+class UpstreamSession:
     """One container. ``list_tools`` starts it. Further calls reuse it."""
 
     def __init__(
         self,
+        spec: UpstreamSpec | None = None,
         *,
         run_id: str | None = None,
         read_only: bool = True,
         deadline: float | None = None,
     ) -> None:
+        if spec is None:
+            from app.upstream.filesystem import FILESYSTEM
+
+            spec = FILESYSTEM
+        self._spec = spec
         self._run_id = run_id
         self._read_only = read_only
         self._deadline = deadline
@@ -173,7 +183,7 @@ class FilesystemSession:
         try:
             return await asyncio.wait_for(
                 self._client.request(method, params),
-                timeout=_remaining(self._deadline),
+                timeout=_remaining(self._deadline, self._spec.timeout_s()),
             )
         except TimeoutError:
             await self._stop()
@@ -195,8 +205,8 @@ class FilesystemSession:
 
     async def _start(self) -> None:
         name_id = self._run_id or uuid.uuid4().hex
-        self._name = f"mcpg-fs-{name_id}"
-        argv = _argv(self._name, read_only=self._read_only)
+        self._name = f"{self._spec.container_name_prefix}{name_id}"
+        argv = _argv(self._spec, self._name, read_only=self._read_only)
         try:
             self._proc = await asyncio.create_subprocess_exec(
                 *argv,
@@ -232,38 +242,59 @@ class FilesystemSession:
             await _remove_container(name)
 
 
-async def discover_filesystem_tools() -> list[dict[str, Any]]:
-    """Start one container, list its tools, and remove the container."""
-
-    session = FilesystemSession(read_only=True)
+async def discover_tools(spec: UpstreamSpec) -> list[dict[str, Any]]:
+    """Start one container for the spec, list its tools, and remove the container."""
+    session = UpstreamSession(spec, read_only=True)
     try:
         return await session.list_tools()
     finally:
         await session.close()
 
 
-def get_filesystem_executor() -> FilesystemExecutor:
-    global _executor
-    if _executor is None:
-        _executor = FilesystemExecutor()
-    return _executor
+async def discover_filesystem_tools() -> list[dict[str, Any]]:
+    """Start one filesystem container, list its tools, and remove the container."""
+    from app.upstream.filesystem import FILESYSTEM
+
+    return await discover_tools(FILESYSTEM)
 
 
-def _argv(name: str, *, read_only: bool) -> list[str]:
-    fs_source = settings.upstream_fs_source
-    if fs_source is not None and fs_source.startswith("volume:"):
-        volume = fs_source.split(":", 1)[1]
-        if re.fullmatch(r"[A-Za-z0-9_.-]+", volume) is None:
-            raise SandboxUnavailableError()
-        mount = f"type=volume,source={volume},target={MOUNT}"
+def get_upstream_executor(spec: UpstreamSpec) -> UpstreamExecutor:
+    executor = _executors.get(spec.id)
+    if executor is None:
+        executor = UpstreamExecutor(spec)
+        _executors[spec.id] = executor
+    return executor
+
+
+def get_filesystem_executor() -> UpstreamExecutor:
+    from app.upstream.filesystem import FILESYSTEM
+
+    return get_upstream_executor(FILESYSTEM)
+
+
+# Compatibility aliases
+FilesystemExecutor = UpstreamExecutor
+FilesystemSession = UpstreamSession
+
+
+def _argv(
+    spec_or_name: UpstreamSpec | str,
+    name: str | None = None,
+    *,
+    read_only: bool = True,
+) -> list[str]:
+    if isinstance(spec_or_name, str):
+        from app.upstream.filesystem import FILESYSTEM
+
+        actual_spec = FILESYSTEM
+        container_name = spec_or_name
     else:
-        source = ensure_shared_dir().resolve()
-        if _unsafe(str(source)):
-            raise SandboxUnavailableError()
-        mount = f"type=bind,source={source},target={MOUNT}"
-    if read_only:
-        mount += ",readonly"
-    return [
+        actual_spec = spec_or_name
+        container_name = (
+            name or f"{actual_spec.container_name_prefix}{uuid.uuid4().hex}"
+        )
+
+    cmd = [
         settings.sandbox_docker_bin,
         "run",
         "--rm",
@@ -271,11 +302,11 @@ def _argv(name: str, *, read_only: bool) -> list[str]:
         "--pull",
         "never",
         "--name",
-        name,
+        container_name,
         "--label",
         "mcp_guard.sandbox=1",
         "--label",
-        f"mcp_guard.run_id={name}",
+        f"mcp_guard.run_id={container_name}",
         "--network",
         "none",
         "--read-only",
@@ -286,11 +317,11 @@ def _argv(name: str, *, read_only: bool) -> list[str]:
         "--security-opt",
         "no-new-privileges",
         "--pids-limit",
-        "128",
+        str(actual_spec.pids_limit),
         "--memory",
-        "256m",
+        actual_spec.memory,
         "--memory-swap",
-        "256m",
+        actual_spec.memory,
         "--cpus",
         _cpu(settings.sandbox_cpus),
         "--ulimit",
@@ -303,12 +334,13 @@ def _argv(name: str, *, read_only: bool) -> list[str]:
         "none",
         "--env",
         "HOME=/tmp",
-        "--mount",
-        mount,
-        settings.upstream_fs_image,
-        "--confine-roots",
-        MOUNT,
     ]
+    mount = actual_spec.mount(read_only)
+    if mount is not None:
+        cmd.extend(["--mount", mount])
+    cmd.append(actual_spec.image())
+    cmd.extend(actual_spec.command)
+    return cmd
 
 
 def _cpu(value: float) -> str:
@@ -320,9 +352,13 @@ def _unsafe(path: str) -> bool:
     return any(char in path for char in (",", "=", "\n", "\r"))
 
 
-def _remaining(deadline: float | None) -> float:
+def _remaining(deadline: float | None, default_timeout_s: float | None = None) -> float:
     if deadline is None:
-        return settings.upstream_fs_timeout_s
+        return (
+            default_timeout_s
+            if default_timeout_s is not None
+            else settings.upstream_fs_timeout_s
+        )
     return max(0.05, deadline - time.monotonic())
 
 
@@ -343,7 +379,6 @@ async def _remove_container(name: str) -> None:
     Killing the CLI during create can leave a container in ``Created``. ``--rm``
     does not run in that case, so this keeps asking until the name is gone.
     """
-
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", name):
         return
     for _ in range(10):
@@ -445,4 +480,18 @@ def _raise_startup(code: int | None, stderr: bytes) -> None:
         raise SandboxUnavailableError(
             error_type=ERROR_DOCKER_UNAVAILABLE, exit_code=code
         )
-    raise SandboxToolError(ERROR_PROTOCOL_ERROR)
+    raise SandboxUpstreamError(
+        "Upstream process failed during startup.", exit_code=code
+    )
+
+
+__all__ = [
+    "FilesystemExecutor",
+    "FilesystemSession",
+    "UpstreamExecutor",
+    "UpstreamSession",
+    "discover_filesystem_tools",
+    "discover_tools",
+    "get_filesystem_executor",
+    "get_upstream_executor",
+]

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+import app.upstream.filesystem
+import app.upstream.lab  # noqa: F401
 from app.auth.dependencies import authorize_route
-from app.upstream.filesystem import filesystem_status
+from app.upstream.registry import all_specs, upstream_status
 
 router = APIRouter(
     prefix="/api/upstreams",
@@ -26,7 +30,6 @@ class UpstreamOut(BaseModel):
 
 
 @router.get("", response_model=list[UpstreamOut])
-def list_upstreams() -> list[dict[str, object]]:
-    """Upstreams this process registered. One entry today: the filesystem server."""
-
-    return [filesystem_status()]
+def list_upstreams() -> list[dict[str, Any]]:
+    """Upstreams registered on this gateway."""
+    return [upstream_status(spec) for spec in all_specs()]

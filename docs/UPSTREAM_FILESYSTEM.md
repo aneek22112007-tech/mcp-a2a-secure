@@ -10,6 +10,8 @@ The upstream is off unless `UPSTREAM_FS_ENABLED=true`. A missing image, a
 container that exits, or a Docker CLI that cannot start leaves the API up and
 registers no `fs_` tools. The notes tools are unchanged.
 
+The filesystem upstream shares the generic `UpstreamSpec` architecture with the hostile lab upstream ([UPSTREAM_LAB.md](UPSTREAM_LAB.md)). The shared upstream registry and container runner manage tool discovery, container execution, pre-call contract drift checks, output size limits, output injection guard inspection, and audit event persistence, while filesystem-specific policies (such as path confinement within `/projects`, traversal validation, and read vs. write mount modes) remain encapsulated in the filesystem spec.
+
 ## Image
 
 From the repository root:

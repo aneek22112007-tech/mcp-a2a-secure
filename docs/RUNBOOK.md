@@ -59,6 +59,9 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | `UPSTREAM_FS_DIR` | `api/data/shared` (`/app/data/shared` in container) | Local & Compose | Host or container path mapped to `/projects` |
 | `UPSTREAM_FS_SOURCE` | unset (`volume:mcpg_shared` in Compose) | Docker / Compose | `volume:<name>` mounted at `/projects` instead of bind mount |
 | `UPSTREAM_FS_TIMEOUT_S` | `30.0` | Local & Compose | Timeout in seconds for one filesystem container run, including image startup |
+| `UPSTREAM_LAB_ENABLED` | `false` | Local only | Register the hostile lab MCP server as `lab_` tools. Development/testing only |
+| `UPSTREAM_LAB_IMAGE` | `mcp-guard-upstream-lab:current` | Local only | Image tag started once per `lab_` call |
+| `UPSTREAM_LAB_TIMEOUT_S` | `10.0` | Local only | Timeout in seconds for one lab container execution |
 | `TOOL_PINNING_MODE` | `off` (`enforce` in Compose) | Local & Compose | Pinning enforcement: `off`, `warn`, or `enforce`. In Compose, defaults to `enforce` |
 | `TOOL_PINNING_BOOTSTRAP_APPROVE` | `false` | Local & Compose | Automatically approve current catalog at startup. Refused in production |
 | `TOOL_PINNING_CACHE_TTL_S` | `5` | Local & Compose | Seconds pin rows stay cached in memory. Approve, revoke, and sync clear cache |
@@ -286,6 +289,37 @@ To verify the end-to-end filesystem upstream container pipeline:
 5. Verify container cleanup: ensure `docker ps -a --filter label=mcp_guard.sandbox=1` returns 0 entries.
 
 `GET /api/upstreams` (`tools:read`) returns one object per upstream. `detail` is `disabled`, `unavailable`, or `ok`. A call that times out or is refused still removes its container. The same `docker ps` filter above should be empty.
+
+### Hostile lab upstream (Development / Testing Only)
+
+The hostile lab upstream provides a real, deliberately hostile MCP server in an isolated container to exercise gateway security defenses. See [docs/UPSTREAM_LAB.md](UPSTREAM_LAB.md) for full catalog, architecture, and attack verification procedures.
+
+**Configuration Settings**:
+- `UPSTREAM_LAB_ENABLED` (default: `false`): Enables discovery and registration of hostile lab tools as `lab_*` at startup. Must remain `false` in production. Setting this to `true` when `ENVIRONMENT` is `production`, `prod`, or `staging` causes `Settings` validation to fail fast with `ValueError("UPSTREAM_LAB_ENABLED is not allowed in production")`.
+- `UPSTREAM_LAB_IMAGE` (default: `mcp-guard-upstream-lab:current`): Container image tag used for tool discovery at startup and executed once per `lab_*` tool invocation by the generic upstream runner.
+- `UPSTREAM_LAB_TIMEOUT_S` (default: `10.0`): Execution timeout in seconds for one lab container execution. Independent of `SANDBOX_TIMEOUT_S` and `UPSTREAM_FS_TIMEOUT_S`.
+
+**Scopes and Authorization**:
+- The hostile lab is gated by the dedicated `lab:call` scope.
+- In addition to `agent:run` required by `/mcp/`, any API key invoking a lab tool must explicitly possess the `lab:call` scope. Calls from keys without `lab:call` are denied with HTTP 403 `FORBIDDEN` and an `auth.deny` audit event with reason `insufficient_scope:lab:call`.
+- All 15 v1 tools in `LAB_TOOLS` are mapped dynamically to `lab:call`.
+- In v2, `sync_contacts` is intentionally unmapped (`scope_for` returns `None`), causing invocations to fail closed with HTTP 403 `unmapped_tool`.
+
+**Production Safety & Docker Compose**:
+- **Deliberately kept out of `docker-compose.yml`**: The hostile lab is deliberately kept out of `docker-compose.yml` because Docker Compose is used for production deployment. The hostile lab image must never be deployed or orchestrated in production environments.
+
+**Container Isolation & Safe Development Usage**:
+- Build both versioned images before enabling the lab upstream:
+  ```bash
+  ./api/scripts/build_upstream_lab_image.sh
+  ```
+  This creates `mcp-guard-upstream-lab:v1`, `mcp-guard-upstream-lab:v2`, and tags `current` to `v1`.
+- To switch contract versions between tests, run `./api/scripts/build_upstream_lab_image.sh use v1` or `use v2`.
+- All lab tools execute in hardened, read-only containers (`read_only_for` returns `True`) with strict limits (128 MB RAM, 64 PIDs, `--network none`, dropped Linux capabilities, and no filesystem host mounts).
+- Containers are short-lived and automatically removed upon exit (`--rm`). Verify that no lingering containers remain with:
+  ```bash
+  docker ps -q --filter label=mcp_guard.sandbox=1
+  ```
 
 ---
 

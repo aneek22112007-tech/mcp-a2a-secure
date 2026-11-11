@@ -115,6 +115,21 @@ class Settings(BaseSettings):
             "Independent of SANDBOX_TIMEOUT_S."
         ),
     )
+    upstream_lab_enabled: bool = Field(
+        default=False,
+        description="Register the hostile lab MCP server as lab_ tools. Development only.",
+    )
+    upstream_lab_image: str = Field(
+        default="mcp-guard-upstream-lab:current",
+        min_length=1,
+        pattern=r"^[^\s]+$",
+        description="Image tag started once per lab_ call.",
+    )
+    upstream_lab_timeout_s: float = Field(
+        default=10.0,
+        gt=0,
+        description="Seconds for one lab container execution.",
+    )
 
     api_key_pepper: SecretStr | None = Field(
         default=None,
@@ -354,6 +369,9 @@ class Settings(BaseSettings):
 
         if self.is_production_like and self.demo_poison_tool:
             raise ValueError("MCPG_DEMO_POISON_TOOL is not allowed in production")
+
+        if self.is_production_like and self.upstream_lab_enabled:
+            raise ValueError("UPSTREAM_LAB_ENABLED is not allowed in production")
 
         if self.is_production_like:
             for origin in self.cors_origins:

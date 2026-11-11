@@ -26,6 +26,7 @@ from app.sandbox.errors import (
     SandboxTimeoutError,
     SandboxToolError,
     SandboxUnavailableError,
+    SandboxUpstreamError,
 )
 from app.sandbox.policy import TOOL_POLICIES
 from app.sandbox.recorder import get_run_recorder
@@ -38,6 +39,7 @@ from app.sandbox.types import (
     ERROR_TOOL_INTERNAL,
     ERROR_TOOL_INVALID_ARGUMENT,
     ERROR_TOOL_NOT_FOUND,
+    ERROR_UPSTREAM,
     MODE_DOCKER,
     MODE_INPROCESS,
     RUN_STATUS_ABANDONED,
@@ -231,16 +233,15 @@ async def run_tool(
 
     if not isinstance(args, dict):
         args = {}
-    from app.upstream.filesystem import is_filesystem_tool
+    from app.upstream.registry import spec_for
+    from app.upstream.runner import get_upstream_executor
 
-    filesystem = is_filesystem_tool(tool_name)
-    if filesystem:
-        from app.upstream.runner import get_filesystem_executor
-
-        executor = get_filesystem_executor()
+    spec = spec_for(tool_name)
+    if spec is not None:
+        executor = get_upstream_executor(spec)
         mode = MODE_DOCKER
-        image = settings.upstream_fs_image
-        budget = settings.upstream_fs_timeout_s
+        image = spec.image()
+        budget = spec.timeout_s()
     else:
         executor = get_executor()
         mode = getattr(executor, "mode", settings.sandbox_mode)
@@ -290,7 +291,7 @@ async def run_tool(
             ),
         )
 
-    if not filesystem and tool_name not in TOOL_POLICIES:
+    if spec is None and tool_name not in TOOL_POLICIES:
         await _record_start(start)
         await finish(RUN_STATUS_REJECTED, error_type=ERROR_TOOL_NOT_FOUND)
         raise SandboxToolError(ERROR_TOOL_NOT_FOUND)
@@ -480,6 +481,14 @@ async def _execute_bound(
             exit_code=exc.exit_code,
             output_bytes=exc.output_bytes or 0,
             error_type=exc.error_type,
+        )
+        raise
+    except SandboxUpstreamError as exc:
+        await finish(
+            RUN_STATUS_FAILED,
+            exit_code=exc.exit_code,
+            output_bytes=exc.output_bytes or 0,
+            error_type=ERROR_UPSTREAM,
         )
         raise
     except FileNotFoundError:

@@ -44,6 +44,7 @@ ERROR_BUSY = "busy"
 ERROR_OUTPUT_TOO_LARGE = "output_too_large"
 ERROR_PROTOCOL_ERROR = "protocol_error"
 ERROR_KILLED = "killed"
+ERROR_UPSTREAM = "upstream_error"
 
 
 @dataclass(frozen=True, slots=True)
