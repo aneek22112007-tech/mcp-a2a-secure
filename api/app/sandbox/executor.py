@@ -26,6 +26,7 @@ from app.sandbox.errors import (
     SandboxTimeoutError,
     SandboxToolError,
     SandboxUnavailableError,
+    SandboxUpstreamError,
 )
 from app.sandbox.policy import TOOL_POLICIES
 from app.sandbox.recorder import get_run_recorder
@@ -38,6 +39,7 @@ from app.sandbox.types import (
     ERROR_TOOL_INTERNAL,
     ERROR_TOOL_INVALID_ARGUMENT,
     ERROR_TOOL_NOT_FOUND,
+    ERROR_UPSTREAM,
     MODE_DOCKER,
     MODE_INPROCESS,
     RUN_STATUS_ABANDONED,
@@ -479,6 +481,14 @@ async def _execute_bound(
             exit_code=exc.exit_code,
             output_bytes=exc.output_bytes or 0,
             error_type=exc.error_type,
+        )
+        raise
+    except SandboxUpstreamError as exc:
+        await finish(
+            RUN_STATUS_FAILED,
+            exit_code=exc.exit_code,
+            output_bytes=exc.output_bytes or 0,
+            error_type=ERROR_UPSTREAM,
         )
         raise
     except FileNotFoundError:

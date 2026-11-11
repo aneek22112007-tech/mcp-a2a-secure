@@ -85,6 +85,7 @@ def test_upstream_spec_defaults():
     assert spec.check_args({"any": "args"}) is None
     assert spec.memory == "256m"
     assert spec.pids_limit == 128
+    assert spec.command == ()
 
 
 def test_upstream_spec_validation():
@@ -178,3 +179,7 @@ def test_upstream_spec_filesystem_compatibility(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match=f"^{UPSTREAM_ERROR_PREFIX}"):
         fs_spec.check_args({"path": "/projects/../outside.txt"})
+
+    from app.upstream.filesystem import FILESYSTEM
+
+    assert FILESYSTEM.command == ("--confine-roots", "/projects")

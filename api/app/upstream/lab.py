@@ -58,7 +58,7 @@ def check_args(arguments: dict[str, Any]) -> None:
 LAB = UpstreamSpec(
     id="lab",
     prefix=PREFIX,
-    label="hostile lab",
+    label="lab",
     enabled=lambda: settings.upstream_lab_enabled,
     image=lambda: settings.upstream_lab_image,
     timeout_s=lambda: settings.upstream_lab_timeout_s,
@@ -69,6 +69,7 @@ LAB = UpstreamSpec(
     check_args=check_args,
     memory="128m",
     pids_limit=64,
+    command=(),
 )
 LAB_SPEC = LAB
 

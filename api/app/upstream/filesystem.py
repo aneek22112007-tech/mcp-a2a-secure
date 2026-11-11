@@ -153,6 +153,7 @@ FILESYSTEM = UpstreamSpec(
     check_args=check_paths,
     memory="256m",
     pids_limit=128,
+    command=("--confine-roots", MOUNT),
 )
 FILESYSTEM_SPEC = FILESYSTEM
 

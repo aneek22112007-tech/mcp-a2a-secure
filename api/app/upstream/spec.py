@@ -56,6 +56,7 @@ class UpstreamSpec:
     check_args: Callable[[dict[str, Any]], None] = _default_check_args
     memory: str = "256m"
     pids_limit: int = 128
+    command: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.id or not self.id.strip():

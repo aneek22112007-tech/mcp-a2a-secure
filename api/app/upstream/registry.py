@@ -27,6 +27,7 @@ from app.sandbox.errors import (
     SandboxTimeoutError,
     SandboxToolError,
     SandboxUnavailableError,
+    SandboxUpstreamError,
 )
 from app.tools.catalog import (
     ToolDefinition,
@@ -274,6 +275,8 @@ async def _invoke(
 
     try:
         return await run_tool(public_name, arguments, mcp_context=ctx)
+    except SandboxUpstreamError as exc:
+        return _error_result(_guard_message(public_name, str(exc), ctx))
     except ValueError as exc:
         return _error_result(_guard_message(public_name, str(exc), ctx))
     except SandboxTimeoutError:

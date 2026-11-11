@@ -208,7 +208,7 @@ def test_lab_spec_properties():
     assert LAB.id == "lab"
     assert LAB.prefix == PREFIX
     assert PREFIX == "lab_"
-    assert LAB.label == "hostile lab"
+    assert LAB.label == "lab"
     assert LAB.memory == "128m"
     assert LAB.pids_limit == 64
     assert LAB.container_name_prefix == "mcpg-lab-"

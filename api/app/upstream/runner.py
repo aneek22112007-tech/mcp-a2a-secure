@@ -28,6 +28,7 @@ from app.sandbox.errors import (
     SandboxTimeoutError,
     SandboxToolError,
     SandboxUnavailableError,
+    SandboxUpstreamError,
 )
 from app.sandbox.executor import ExecutorStats, current_deadline, current_run_id
 from app.sandbox.types import (
@@ -38,7 +39,6 @@ from app.sandbox.types import (
 )
 from app.upstream.filesystem import (
     CONTRACT_CHANGED,
-    MOUNT,
     UPSTREAM_ERROR_PREFIX,
     contract_fingerprint,
 )
@@ -94,22 +94,22 @@ class UpstreamExecutor:
             live = _find_tool(listed, registered.upstream_name)
             if live is None:
                 await _audit_contract(tool_name, context)
-                raise ValueError(CONTRACT_CHANGED)
+                raise SandboxUpstreamError(CONTRACT_CHANGED)
             description = live.get("description")
             schema = live.get("inputSchema")
             if not isinstance(description, str) or not isinstance(schema, dict):
                 await _audit_contract(tool_name, context)
-                raise ValueError(CONTRACT_CHANGED)  # noqa: TRY004
+                raise SandboxUpstreamError(CONTRACT_CHANGED)
             live_fingerprint = contract_fingerprint(tool_name, description, schema)
             if live_fingerprint != registered.fingerprint:
                 await _audit_contract(tool_name, context)
-                raise ValueError(CONTRACT_CHANGED)
+                raise SandboxUpstreamError(CONTRACT_CHANGED)
             result = await session.call_tool(registered.upstream_name, args)
         finally:
             await session.close()
         if result.get("isError") is True:
             text = _content_text(result.get("content"))
-            raise ValueError(f"{UPSTREAM_ERROR_PREFIX}{text}")
+            raise SandboxUpstreamError(f"{UPSTREAM_ERROR_PREFIX}{text}")
         return _content_text(result.get("content"))
 
 
@@ -339,8 +339,7 @@ def _argv(
     if mount is not None:
         cmd.extend(["--mount", mount])
     cmd.append(actual_spec.image())
-    if actual_spec.id == "filesystem":
-        cmd.extend(["--confine-roots", MOUNT])
+    cmd.extend(actual_spec.command)
     return cmd
 
 
@@ -481,7 +480,9 @@ def _raise_startup(code: int | None, stderr: bytes) -> None:
         raise SandboxUnavailableError(
             error_type=ERROR_DOCKER_UNAVAILABLE, exit_code=code
         )
-    raise SandboxToolError(ERROR_PROTOCOL_ERROR)
+    raise SandboxUpstreamError(
+        "Upstream process failed during startup.", exit_code=code
+    )
 
 
 __all__ = [

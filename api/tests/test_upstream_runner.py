@@ -9,13 +9,13 @@ from app.sandbox.context import ExecutionContext
 from app.sandbox.errors import (
     SandboxOutputError,
     SandboxTimeoutError,
-    SandboxToolError,
     SandboxUnavailableError,
+    SandboxUpstreamError,
 )
 from app.sandbox.types import (
     ERROR_DOCKER_UNAVAILABLE,
     ERROR_IMAGE_MISSING,
-    ERROR_PROTOCOL_ERROR,
+    ERROR_UPSTREAM,
 )
 from app.upstream.filesystem import (
     CONTRACT_CHANGED,
@@ -465,7 +465,7 @@ async def test_upstream_executor_contract_changed_drift():
             UpstreamSession, "list_tools", new=AsyncMock(return_value=[drifted_tool])
         ),
         patch.object(UpstreamSession, "close", new=AsyncMock()),
-        pytest.raises(ValueError, match=CONTRACT_CHANGED),
+        pytest.raises(SandboxUpstreamError, match=CONTRACT_CHANGED),
     ):
         await executor.execute("drf_tool", {}, context)
 
@@ -525,7 +525,9 @@ async def test_upstream_executor_upstream_error_result():
             ),
         ),
         patch.object(UpstreamSession, "close", new=AsyncMock()),
-        pytest.raises(ValueError, match=f"^{UPSTREAM_ERROR_PREFIX}internal failure"),
+        pytest.raises(
+            SandboxUpstreamError, match=f"^{UPSTREAM_ERROR_PREFIX}internal failure"
+        ),
     ):
         await executor.execute("err_tool", {}, context)
 
@@ -568,10 +570,10 @@ def test_raise_startup_error_categorization():
         _raise_startup(1, b"Error: Unable to find image 'missing:latest' locally")
     assert exc.value.error_type == ERROR_IMAGE_MISSING
 
-    # Protocol / unexpected error
-    with pytest.raises(SandboxToolError) as exc:
+    # Upstream process failure during startup
+    with pytest.raises(SandboxUpstreamError) as exc:
         _raise_startup(1, b"unexpected error")
-    assert exc.value.error_type == ERROR_PROTOCOL_ERROR
+    assert exc.value.error_type == ERROR_UPSTREAM
 
 
 def test_content_text_output_size_cap(monkeypatch):
@@ -581,3 +583,34 @@ def test_content_text_output_size_cap(monkeypatch):
     monkeypatch.setattr(settings, "sandbox_max_output_bytes", 50)
     with pytest.raises(SandboxOutputError):
         _content_text([{"type": "text", "text": "x" * 100}])
+
+
+async def test_upstream_error_recorded_by_executor():
+    """Verify SandboxUpstreamError is recorded with error_type=ERROR_UPSTREAM."""
+    import time
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.sandbox.executor import _execute_bound
+
+    finish_mock = AsyncMock()
+    mock_exec = MagicMock()
+    mock_exec.execute = AsyncMock(side_effect=SandboxUpstreamError("custom failure"))
+
+    with pytest.raises(SandboxUpstreamError):
+        await _execute_bound(
+            mock_exec,
+            "test_tool",
+            {},
+            MagicMock(),
+            "run-123",
+            time.monotonic() + 10,
+            finish_mock,
+            None,
+        )
+
+    finish_mock.assert_awaited_once_with(
+        "failed",
+        exit_code=None,
+        output_bytes=0,
+        error_type=ERROR_UPSTREAM,
+    )

@@ -7,9 +7,11 @@ case a build of the server uses the older stdio framing.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
+from app.config import settings
 from app.sandbox.errors import SandboxOutputError, SandboxToolError
 from app.sandbox.types import ERROR_PROTOCOL_ERROR
 
@@ -17,9 +19,10 @@ from app.sandbox.types import ERROR_PROTOCOL_ERROR
 class StdioMcp:
     """One MCP session on an already started process."""
 
-    def __init__(self, stdin: Any, stdout: Any) -> None:
+    def __init__(self, stdin: Any, stdout: Any, max_bytes: int | None = None) -> None:
         self._stdin = stdin
         self._stdout = stdout
+        self._max_bytes = max_bytes
         self._next_id = 1
         self._content_length = False
 
@@ -79,7 +82,7 @@ class StdioMcp:
             raise SandboxToolError(ERROR_PROTOCOL_ERROR)
         if line.lower().startswith(b"content-length:"):
             self._content_length = True
-            length = _content_length(line)
+            length = _content_length(line, self._max_bytes)
             while True:
                 header = await self._stdout.readline()
                 if not header:
@@ -87,17 +90,35 @@ class StdioMcp:
                 if header in (b"\r\n", b"\n"):
                     break
                 if header.lower().startswith(b"content-length:"):
-                    length = _content_length(header)
-            body = await self._stdout.readexactly(length)
+                    length = _content_length(header, self._max_bytes)
+            try:
+                body = await self._stdout.readexactly(length)
+            except (asyncio.IncompleteReadError, asyncio.LimitOverrunError):
+                raise SandboxToolError(ERROR_PROTOCOL_ERROR) from None
             return _loads(body)
         return _loads(line)
 
 
-def _content_length(line: bytes) -> int:
+def _content_length(line: bytes, max_bytes: int | None = None) -> int:
     try:
-        return int(line.split(b":", 1)[1].strip())
+        parts = line.split(b":", 1)
+        if len(parts) != 2:
+            raise SandboxToolError(ERROR_PROTOCOL_ERROR)
+        length = int(parts[1].strip())
     except (IndexError, ValueError):
         raise SandboxToolError(ERROR_PROTOCOL_ERROR) from None
+
+    if length <= 0:
+        raise SandboxToolError(ERROR_PROTOCOL_ERROR)
+
+    limit = (
+        max_bytes
+        if max_bytes is not None
+        else (2 * settings.sandbox_max_output_bytes + 65536)
+    )
+    if length > limit:
+        raise SandboxOutputError()
+    return length
 
 
 def _loads(raw: bytes) -> Any:
