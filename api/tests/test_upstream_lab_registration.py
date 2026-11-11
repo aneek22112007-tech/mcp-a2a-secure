@@ -13,6 +13,8 @@ from app.auth.scopes import (
     FILES_READ,
     FILES_WRITE,
     LAB_CALL,
+    NOTES_READ,
+    NOTES_WRITE,
     TOOL_SCOPES,
 )
 from app.config import Settings, settings
@@ -448,3 +450,103 @@ def test_api_upstreams_route_includes_lab():
     assert lab_entry["tools"] == []
     assert lab_entry["detail"] == "disabled"
     assert lab_entry["image"] == "mcp-guard-upstream-lab:current"
+
+
+async def test_upstream_registration_preserves_static_tool_scopes(monkeypatch):
+    """Verify v1 requires lab:call, v2 sync_contacts has no scope, and static TOOL_SCOPES are unchanged."""
+    expected_static = {
+        "list_notes": NOTES_READ,
+        "read_note": NOTES_READ,
+        "write_note": NOTES_WRITE,
+    }
+
+    # Verify static entries before registration
+    for tool_name, expected_scope in expected_static.items():
+        assert TOOL_SCOPES.get(tool_name) == expected_scope
+
+    monkeypatch.setattr(settings, "upstream_lab_enabled", True)
+
+    # 1. Register v1: v1 tools require lab:call
+    v1_mock = [
+        {
+            "name": name,
+            "description": f"Tool {name}",
+            "inputSchema": {"type": "object"},
+        }
+        for name in V1_TOOL_NAMES
+    ]
+    await register_upstream(LAB, discover_fn=AsyncMock(return_value=v1_mock))
+
+    for name in V1_TOOL_NAMES:
+        assert TOOL_SCOPES.get(f"lab_{name}") == LAB_CALL
+
+    # Static entries unchanged
+    for tool_name, expected_scope in expected_static.items():
+        assert TOOL_SCOPES.get(tool_name) == expected_scope
+
+    # 2. Register v2: sync_contacts has no scope
+    v2_mock = [
+        {
+            "name": name,
+            "description": f"Tool {name}",
+            "inputSchema": {"type": "object"},
+        }
+        for name in V2_TOOL_NAMES
+    ]
+    await register_upstream(LAB, discover_fn=AsyncMock(return_value=v2_mock))
+
+    assert TOOL_SCOPES.get("lab_sync_contacts") is None
+    assert "lab_sync_contacts" not in TOOL_SCOPES
+
+    # Static entries remain strictly unchanged
+    for tool_name, expected_scope in expected_static.items():
+        assert TOOL_SCOPES.get(tool_name) == expected_scope
+
+    # 3. Call lab_sync_contacts through middleware -> 403 unmapped_tool
+    inner_called = False
+
+    async def mock_inner(scope, receive, send):
+        nonlocal inner_called
+        inner_called = True
+
+    mw = McpToolScopeMiddleware(mock_inner)
+    principal = Principal(
+        api_key_id="k-audit",
+        client_id="c-audit",
+        key_prefix="mcpg_audit",
+        scopes=frozenset({AGENT_RUN, LAB_CALL}),
+    )
+    req = {
+        "jsonrpc": "2.0",
+        "id": 42,
+        "method": "tools/call",
+        "params": {"name": "lab_sync_contacts", "arguments": {}},
+    }
+    response_messages = []
+
+    async def mock_receive():
+        return {
+            "type": "http.request",
+            "body": json.dumps(req).encode(),
+            "more_body": False,
+        }
+
+    async def mock_send(msg):
+        response_messages.append(msg)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/mcp/",
+        "headers": [(b"content-type", b"application/json")],
+        "state": {"principal": principal},
+    }
+
+    await mw(scope, mock_receive, mock_send)
+    assert inner_called is False
+    start_msg = next(m for m in response_messages if m["type"] == "http.response.start")
+    assert start_msg["status"] == 403
+    body_msg = next(m for m in response_messages if m["type"] == "http.response.body")
+    data = json.loads(body_msg["body"])
+    assert data["error"]["code"] == "FORBIDDEN"
+    assert "no configured scope mapping" in data["error"].get("message", "")

@@ -246,9 +246,7 @@ def _register_one(spec: UpstreamSpec, item: dict[str, Any]) -> None:
         context_kwarg="ctx",
     )
     mcp._tool_manager._tools[public_name] = tool
-    if scope is None:
-        TOOL_SCOPES.pop(public_name, None)
-    else:
+    if scope is not None:
         TOOL_SCOPES[public_name] = scope
 
     _tools[public_name] = RegisteredTool(
