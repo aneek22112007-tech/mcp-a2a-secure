@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useDialogA11y } from './a11y';
 import {
-  Shield, LayoutDashboard, Key, FileText, BarChart2,
+  Shield, LayoutDashboard, Key, FileText, Brain, BarChart2,
   Pin, Search, Box, Zap, HelpCircle, ChevronLeft, ChevronRight,
   RefreshCw, PanelLeft, Keyboard, LogOut, Command as CommandIcon,
   WifiOff,
@@ -36,6 +36,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'Monitor', key: 'o', desc: 'Health, KPIs and the request pipeline' },
   { id: 'audit', label: 'Live Audit', icon: FileText, scope: 'audit:read', group: 'Monitor', key: 'a', desc: 'Every gateway decision, streamed live' },
+  { id: 'analyst', label: 'AI Analyst', icon: Brain, scope: 'audit:read', group: 'Monitor', key: 'i', desc: 'Incidents grouped from the audit log, explained by the local model' },
   { id: 'metrics', label: 'Metrics', icon: BarChart2, scope: 'metrics:read', group: 'Monitor', key: 'm', desc: 'Latency, busiest keys and guard counters' },
   { id: 'pins', label: 'Tool Pinning', icon: Pin, scope: 'tools:read', group: 'Protect', key: 'p', desc: 'Approved tool fingerprints and drift' },
   { id: 'scanner', label: 'Scanner', icon: Search, scope: 'scanner:read', group: 'Protect', key: 's', desc: 'Static findings across registered tools' },

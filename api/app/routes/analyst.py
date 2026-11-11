@@ -136,6 +136,7 @@ class ExplainOut(BaseModel):
     cached: bool
     withheld_fields: int
     created_at: datetime
+    latency_ms: int
     refs: dict[str, str]
 
 
@@ -391,5 +392,6 @@ async def explain(body: ExplainRequest, request: Request) -> ExplainOut:
         cached=result.cached,
         withheld_fields=result.withheld_fields,
         created_at=result.created_at,
+        latency_ms=result.latency_ms,
         refs=result.refs,
     )

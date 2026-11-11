@@ -25,6 +25,9 @@ export const QK = {
   sandboxRuns:   (params: object) => ['sandboxRuns', params] as const,
   sandboxHealth: ['sandboxHealth']                      as const,
   upstreams:     ['upstreams']                          as const,
+  incidents:     (params: object) => ['analyst', 'incidents', params] as const,
+  incident:      (id: string) => ['analyst', 'incident', id] as const,
+  analystStatus: ['analyst', 'status']                 as const,
 };
 
 // ── Upstreams ─────────────────────────────────────────────────────────
@@ -402,4 +405,45 @@ export function useLastUpdated(): number {
     cb => cache.subscribe(cb),
     () => cache.getAll().reduce((m, q) => Math.max(m, q.state.dataUpdatedAt), 0),
   );
+}
+
+export function useIncidents(
+  params: { kind?: string; severity?: string },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: QK.incidents(params),
+    queryFn: () => consoleApi.listIncidents(params),
+    enabled,
+  });
+}
+
+export function useIncident(id: string | null, enabled = true) {
+  return useQuery({
+    queryKey: QK.incident(id ?? ''),
+    queryFn: () => consoleApi.getIncident(id as string),
+    enabled: enabled && !!id,
+  });
+}
+
+export function useAnalystStatus(enabled = true) {
+  return useQuery({
+    queryKey: QK.analystStatus,
+    queryFn: () => consoleApi.analystStatus(),
+    refetchInterval: 15_000,
+    retry: 0,
+    enabled,
+  });
+}
+
+export function useExplainIncident() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { incident_id: string; refresh?: boolean }) =>
+      consoleApi.explainIncident(body),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['analyst', 'incidents'] });
+      qc.invalidateQueries({ queryKey: QK.incident(data.incident_id) });
+    },
+  });
 }
