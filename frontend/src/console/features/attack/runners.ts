@@ -240,7 +240,9 @@ export async function runLabInjection(): Promise<AttackResult> {
   if (raw.status === 200) {
     const text = extractMcpText(raw.body);
     if (text.includes('[BLOCKED:')) {
-      return finish(raw, 'Tool output was evaluated by the injection guard and blocked (rule G1).', {
+      const m = text.match(/rule\s+(G\d+)/i);
+      const ruleText = m ? ` (rule ${m[1]})` : '';
+      return finish(raw, `Tool output was evaluated by the injection guard and blocked${ruleText}.`, {
         stage: 'Injection guard',
         stageColor: 'var(--c-deny)',
       });
@@ -268,7 +270,7 @@ export async function runLabScannerGate(): Promise<AttackResult> {
   const raw = await consoleApi.mcpToolsCall('lab_add_numbers', { a: 1, b: 2 });
   if (raw.status === 403) {
     const reason = await pinReasonFromAudit('lab_add_numbers');
-    if (reason) {
+    if (reason === 'pin_scan_blocked') {
       return finish(raw, `tools/call lab_add_numbers was blocked by the scanner gate (${reason}).`, {
         stage: 'Scanner gate',
         stageColor: 'var(--c-deny)',
@@ -277,8 +279,9 @@ export async function runLabScannerGate(): Promise<AttackResult> {
     }
     const err = errorOf(raw.body);
     return finish(raw, `tools/call lab_add_numbers was rejected (HTTP 403: ${err.message || 'forbidden'}).`, {
-      stage: 'Scanner gate',
+      stage: 'Denied',
       stageColor: 'var(--c-deny)',
+      pinReason: reason,
     });
   }
   if (raw.status === 200) {
@@ -291,12 +294,12 @@ export async function runLabScannerGate(): Promise<AttackResult> {
 }
 
 export async function runLabOutputCap(): Promise<AttackResult> {
-  const raw = await consoleApi.mcpToolsCall('lab_flood', { kib: 2048, size: 2048 });
+  const raw = await consoleApi.mcpToolsCall('lab_flood', { kib: 2048 });
   const text = extractMcpText(raw.body);
   const err = errorOf(raw.body);
   const jsonRpcErr = (raw.body as { error?: { message?: string } })?.error;
   const msg = `${text} ${err.message || ''} ${jsonRpcErr?.message || ''}`.toLowerCase();
-  if (msg.includes('too large') || msg.includes('output') || raw.status === 413) {
+  if (msg.includes('too large') || raw.status === 413) {
     return finish(raw, 'Tool output exceeded the 1 MB gateway output cap and execution was aborted.', {
       stage: 'Output cap',
       stageColor: 'var(--c-deny)',
@@ -327,14 +330,14 @@ export async function runLabTimeout(): Promise<AttackResult> {
     }
     return finish(raw, `lab_hang returned HTTP ${raw.status}: ${text || err.message || 'error'}`);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Execution timeout';
+    const message = err instanceof Error ? err.message : String(err);
     return finish({
-      status: 408,
+      status: 0,
       headers: {},
       body: { error: { message } },
       ok: false,
-    }, 'lab_hang hung until the sandbox execution deadline was reached.', {
-      stage: 'Timeout',
+    }, `Client error calling lab_hang: ${message}`, {
+      stage: 'Error',
       stageColor: 'var(--c-deny)',
     });
   }
@@ -345,7 +348,9 @@ export async function runLabEscapeProbe(): Promise<AttackResult> {
   if (raw.status === 200) {
     const text = extractMcpText(raw.body);
     if (text.includes('result=denied') || text.includes('unreachable') || text.includes('denied')) {
-      return finish(raw, 'Host escape probe failed: network egress was denied by container isolation (Network is unreachable).', {
+      const m = text.match(/detail=([^\n]+)/);
+      const detail = m ? ` (${m[1].trim()})` : '';
+      return finish(raw, `Host escape probe failed: network egress was denied by container isolation${detail}.`, {
         stage: 'Sandbox denied',
         stageColor: 'var(--c-deny)',
       });
