@@ -1,8 +1,9 @@
 import { useState, useCallback } from 'react';
 import { Play, Clock, Info } from 'lucide-react';
-import { ConsoleErrorBoundary } from '../../components/ui';
+import { ConsoleErrorBoundary, LoadingPanel, ErrorPanel } from '../../components/ui';
 import { PipelineStrip } from '../../components/Pipeline';
 import { lightsMatched, pipelineLights, type StageLight } from '../../components/pipelineLogic';
+import { useUpstreams } from '../../api/hooks';
 import { errorOf, waitForCaption, type AttackResult } from './runners';
 import {
   runBadKey,
@@ -10,13 +11,18 @@ import {
   runPinBlock,
   runRateLimit,
   runWrongScope,
+  runLabInjection,
+  runLabScannerGate,
+  runLabOutputCap,
+  runLabTimeout,
+  runLabEscapeProbe,
 } from './runners';
 
 interface AttackViewProps { offline: boolean }
 
 type StepStatus = 'idle' | 'running' | 'done' | 'error';
 
-interface AttackStep {
+export interface AttackStep {
   id: string;
   label: string;
   description: string;
@@ -55,6 +61,39 @@ const STEPS: AttackStep[] = [
     label: 'Path traversal',
     description: 'Requests a note name that leaves the notes directory. The status and message are the server response.',
     run: runPathTraversal,
+  },
+];
+
+const LAB_ATTACKS: AttackStep[] = [
+  {
+    id: 'lab-injection',
+    label: 'Output injection',
+    description: 'Calls lab_fetch_tip with the override variation. Prompt injection is caught and blocked by rule G1.',
+    run: runLabInjection,
+  },
+  {
+    id: 'lab-scanner-gate',
+    label: 'Scanner gate',
+    description: 'Calls lab_add_numbers. Because high-severity injection is present in its schema, execution is denied by the scan gate.',
+    run: runLabScannerGate,
+  },
+  {
+    id: 'lab-output-cap',
+    label: 'Output cap',
+    description: 'Calls lab_flood with size: 2048 (2 MB). The run exceeds the 1 MB sandbox limit and is aborted.',
+    run: runLabOutputCap,
+  },
+  {
+    id: 'lab-timeout',
+    label: 'Timeout',
+    description: 'Calls lab_hang. The tool runs indefinitely until the sandbox execution deadline terminates it.',
+    run: runLabTimeout,
+  },
+  {
+    id: 'lab-probe-host',
+    label: 'Host escape probe',
+    description: 'Calls lab_probe_host with target: "network". Verifies container network isolation blocks external access.',
+    run: runLabEscapeProbe,
   },
 ];
 
@@ -97,6 +136,15 @@ function AttackViewInner({ offline }: AttackViewProps) {
   const [runningAll, setRunningAll] = useState(false);
   const [lights, setLights] = useState<StageLight[]>(PIPELINE_IDLE);
 
+  const {
+    data: upstreams,
+    isLoading: upstreamsLoading,
+    isError: upstreamsError,
+    refetch: refetchUpstreams,
+  } = useUpstreams(!offline);
+  const labUpstream = upstreams?.find(u => u.id === 'lab');
+  const isLabAvailable = Boolean(labUpstream?.available);
+
   const runStep = useCallback(async (step: AttackStep) => {
     if (offline) return;
     const remember = (result: AttackResult) => {
@@ -128,12 +176,13 @@ function AttackViewInner({ offline }: AttackViewProps) {
 
   const runAll = useCallback(async () => {
     setRunningAll(true);
-    for (let index = 0; index < STEPS.length; index += 1) {
-      await runStep(STEPS[index]);
-      if (index < STEPS.length - 1) await waitForCaption();
+    const stepsToRun = isLabAvailable ? [...STEPS, ...LAB_ATTACKS] : STEPS;
+    for (let index = 0; index < stepsToRun.length; index += 1) {
+      await runStep(stepsToRun[index]);
+      if (index < stepsToRun.length - 1) await waitForCaption();
     }
     setRunningAll(false);
-  }, [runStep]);
+  }, [isLabAvailable, runStep]);
 
   return (
     <div className="console-page">
@@ -186,6 +235,56 @@ function AttackViewInner({ offline }: AttackViewProps) {
           );
         })}
       </div>
+
+      <section className="lab-attacks-section" style={{ marginTop: 24 }}>
+        <div className="section-label label-with-icon" style={{ marginBottom: 12 }}>
+          Hostile lab upstream attacks
+        </div>
+
+        {upstreamsLoading && <LoadingPanel label="Checking upstream status…" />}
+
+        {upstreamsError && (
+          <ErrorPanel
+            message="Failed to load upstream status."
+            onRetry={() => void refetchUpstreams()}
+          />
+        )}
+
+        {!upstreamsLoading && !upstreamsError && (
+          isLabAvailable ? (
+            <div className="attack-list">
+              {LAB_ATTACKS.map(step => {
+                const status = statuses[step.id] ?? 'idle';
+                const result = results[step.id];
+                return (
+                  <section key={step.id} className="panel panel-pad">
+                    <div className="row-between">
+                      <div>
+                        <h2 className="attack-label">{step.label}</h2>
+                        <p className="page-sub">{step.description}</p>
+                      </div>
+                      <button
+                        className="btn btn-sm btn-amber"
+                        onClick={() => void runStep(step)}
+                        disabled={offline || status === 'running' || runningAll}
+                      >
+                        <Play size={12} aria-hidden />
+                        {status === 'running' ? 'Running…' : 'Run'}
+                      </button>
+                    </div>
+                    {result && <ResultPanel result={result} />}
+                  </section>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="panel panel-note">
+              <Info size={14} aria-hidden />
+              <span>Hostile lab upstream is off (UPSTREAM_LAB_ENABLED).</span>
+            </p>
+          )
+        )}
+      </section>
 
       {offline && (
         <p className="panel panel-note">

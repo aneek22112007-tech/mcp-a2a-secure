@@ -195,6 +195,7 @@ export const ALL_SCOPES = [
   'notes:write',
   'files:read',
   'files:write',
+  'lab:call', // lab server's scope
   'audit:read',
   'metrics:read',
   'sandbox:read',
@@ -205,6 +206,21 @@ export const ALL_SCOPES = [
 ] as const;
 
 export type Scope = typeof ALL_SCOPES[number];
+
+export const SCOPE_LABELS: Record<Scope, string> = {
+  'notes:read': 'notes read',
+  'notes:write': 'notes write',
+  'files:read': 'files read',
+  'files:write': 'files write',
+  'lab:call': "lab server's scope",
+  'audit:read': 'audit read',
+  'metrics:read': 'metrics read',
+  'sandbox:read': 'sandbox read',
+  'tools:read': 'tools read',
+  'scanner:read': 'scanner read',
+  'agent:run': 'agent run',
+  'admin': 'admin',
+};
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 export const MOD_KEY = IS_MAC ? '⌘' : 'Ctrl';

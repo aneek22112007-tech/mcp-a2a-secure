@@ -262,6 +262,16 @@ export interface BusyKey {
   request_count: number;
 }
 
+export interface UpstreamInfo {
+  id: string;
+  enabled: boolean;
+  image: string;
+  available: boolean;
+  tool_count: number;
+  tools: string[];
+  detail: string;
+}
+
 export interface SandboxMetrics {
   available: boolean;
   runs_total: number;
@@ -511,6 +521,11 @@ export const consoleApi = {
 
   async sandboxHealth(): Promise<SandboxHealth> {
     return apiFetch<SandboxHealth>('/api/sandbox/health');
+  },
+
+  // Upstreams
+  async listUpstreams(): Promise<UpstreamInfo[]> {
+    return apiFetch<UpstreamInfo[]>('/api/upstreams');
   },
 
   // Notes (for Attack Simulator)

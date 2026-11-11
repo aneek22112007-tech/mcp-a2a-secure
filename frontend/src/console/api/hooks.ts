@@ -24,7 +24,19 @@ export const QK = {
   findings:      (params: object) => ['findings', params] as const,
   sandboxRuns:   (params: object) => ['sandboxRuns', params] as const,
   sandboxHealth: ['sandboxHealth']                      as const,
+  upstreams:     ['upstreams']                          as const,
 };
+
+// ── Upstreams ─────────────────────────────────────────────────────────
+export function useUpstreams(enabled = true) {
+  return useQuery({
+    queryKey: QK.upstreams,
+    queryFn:  () => consoleApi.listUpstreams(),
+    refetchInterval: 15_000,
+    retry: 1,
+    enabled,
+  });
+}
 
 // ── Health ────────────────────────────────────────────────────────────
 export function useHealth(enabled = true) {
