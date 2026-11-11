@@ -46,6 +46,9 @@ COPY --from=builder /app/.venv /app/.venv
 COPY alembic.ini ./
 COPY alembic ./alembic
 
+# Copy logging configuration
+COPY log_config.json ./
+
 # Copy application source tree
 COPY app ./app
 

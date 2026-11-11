@@ -31,12 +31,14 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | Variable | Default | Deployment Scope | Description |
 |----------|---------|------------------|-------------|
 | `APP_NAME` | `MCP Guard` | Local & Compose | Application display name |
-| `ENVIRONMENT` | `dev` | Local & Compose | Controls docs visibility. Set to `production` to disable `/docs`, `/redoc`, `/openapi.json` |
+| `ENVIRONMENT` | `dev` (`production` in Compose) | Local & Compose | Controls docs visibility. Set to `production` to disable `/docs`, `/redoc`, `/openapi.json` and enable production validations |
+| `POSTGRES_PASSWORD` | unset (no default) | Compose (Required) | Password for PostgreSQL service. Required by Compose syntax `${POSTGRES_PASSWORD:?...}` |
+| `API_KEY_PEPPER` | unset (no default) | Compose & Production | Pepper for hashing API keys. Required in production and Compose (`${API_KEY_PEPPER:?...}`) |
 | `CORS_ORIGINS` | `["http://localhost:5173"]` | Local & Compose | JSON array of allowed CORS origins |
 | `MCP_SELF_URL` | `http://127.0.0.1:8000/mcp/` | Local & Compose | URL probed by the `/api/status` endpoint |
 | `MCP_SELF_API_KEY` | unset (`None`) | Local & Compose | API key with `agent:run` used by `/api/status` to probe `/mcp/`. Amber status if unset |
 | `DATABASE_URL` | `sqlite+aiosqlite:///data/mcp_guard.db` | Local & Compose | Async SQLAlchemy URL. SQLite in local dev; `postgresql+asyncpg://...` in Compose |
-| `NOTES_DIR` | `api/data/notes` | Local & Compose | Directory for note `.md` files inside the API environment |
+| `NOTES_DIR` | `api/data/notes` (`/app/data/notes` in container) | Local & Compose | Directory for note `.md` files inside the API environment |
 | `MAX_BODY_BYTES` | `1048576` (1 MiB) | Local & Compose | HTTP request body size limit |
 | `TOOL_TIMEOUT_S` | `5.0` | Local & Compose | MCP tool invocation timeout (seconds). Must exceed `SANDBOX_TIMEOUT_S` |
 | `SANDBOX_MODE` | `docker` | Local & Compose | Sandbox executor mode: `docker` or `inprocess`. Production refuses `inprocess` |
@@ -50,12 +52,12 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | `SANDBOX_MAX_CONCURRENT` | `4` | Local & Compose | Active concurrent sandbox runs. A full queue returns 503 |
 | `SANDBOX_NETWORK` | `none` | Local & Compose | Docker network for sandbox containers. Production requires `none` |
 | `SANDBOX_RUN_AS` | `65534:65534` | Local & Compose | `uid:gid` inside the sandbox container (`nobody:nogroup`) |
-| `SANDBOX_NOTES_SOURCE` | unset (`None`) | Docker / Compose | Host path or `volume:<name>` (e.g. `volume:mcpg_notes`) mounted at `/notes` |
+| `SANDBOX_NOTES_SOURCE` | unset (`volume:mcpg_notes` in Compose) | Docker / Compose | Host path or `volume:<name>` mounted at `/notes` |
 | `SANDBOX_DOCKER_BIN` | `docker` | Local & Compose | Docker CLI binary executable |
-| `UPSTREAM_FS_ENABLED` | `false` | Local & Compose | Enable the official filesystem MCP server as `fs_` tools (`true` in Compose) |
+| `UPSTREAM_FS_ENABLED` | `false` (`true` in Compose) | Local & Compose | Enable the official filesystem MCP server as `fs_` tools |
 | `UPSTREAM_FS_IMAGE` | `mcp-guard-upstream-fs:2.2.0` | Local & Compose | Image tag built by `api/scripts/build_upstream_fs_image.sh` |
-| `UPSTREAM_FS_DIR` | `api/data/shared` | Local & Compose | Host or container path mapped to `/projects` (`/app/data/shared` in Compose) |
-| `UPSTREAM_FS_SOURCE` | unset (`None`) | Docker / Compose | `volume:<name>` (e.g. `volume:mcpg_shared`) mounted at `/projects` instead of bind mount |
+| `UPSTREAM_FS_DIR` | `api/data/shared` (`/app/data/shared` in container) | Local & Compose | Host or container path mapped to `/projects` |
+| `UPSTREAM_FS_SOURCE` | unset (`volume:mcpg_shared` in Compose) | Docker / Compose | `volume:<name>` mounted at `/projects` instead of bind mount |
 | `UPSTREAM_FS_TIMEOUT_S` | `30.0` | Local & Compose | Timeout in seconds for one filesystem container run, including image startup |
 | `TOOL_PINNING_MODE` | `off` (`enforce` in Compose) | Local & Compose | Pinning enforcement: `off`, `warn`, or `enforce`. In Compose, defaults to `enforce` |
 | `TOOL_PINNING_BOOTSTRAP_APPROVE` | `false` | Local & Compose | Automatically approve current catalog at startup. Refused in production |
@@ -64,9 +66,18 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | `SCANNER_BLOCK_SEVERITIES` | `critical,high` | Local & Compose | Comma-separated severities that block tool runs when pinning is enforced |
 | `RATE_LIMIT_CAPACITY` | `30` | Local & Compose | Token bucket maximum capacity for per-key rate limiting |
 | `RATE_LIMIT_REFILL_RATE_PER_SEC` | `5.0` | Local & Compose | Tokens refilled per second in the token bucket rate limiter |
-| `INJECTION_GUARD_MODE` | `warn` | Local & Compose | Injection guard mode: `off`, `warn`, or `enforce`. In production, `off` is rejected |
+| `INJECTION_GUARD_MODE` | `warn` (`enforce` in Compose) | Local & Compose | Injection guard mode: `off`, `warn`, or `enforce`. In production, `off` is rejected |
+| `ENABLE_RETENTION_SCHEDULER` | `false` (`true` in Compose) | Local & Compose | Enable background retention scheduler task |
+| `LLM_ENABLED` | `false` | Local & Compose | Enable LLM calls for notes agent. When false, agent returns 503 |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` (`http://host.docker.internal:11434` in Compose) | Local & Compose | Base URL of local Ollama server |
+| `GROQ_API_KEY` | unset (`None`) | Local & Compose | Optional Groq API key fallback |
+| `NOTES_AGENT_API_KEY` | unset (`None`) | Local & Compose | Optional API key for notes agent self-calls to `/mcp/` |
+| `WORKER_NOTES_API_KEY` | unset (`None`) | Local & Compose | Optional API key for A2A worker notes calls |
 
-> **Production requirement**: Set `ENVIRONMENT=production` to disable API documentation endpoints. The default `dev` keeps docs enabled and is suitable only for local development.
+> **Production requirement**: Set `ENVIRONMENT=production` to disable API documentation endpoints (`/docs`, `/redoc`, `/openapi.json`) and activate strict production validations in `Settings.model_post_init`. Docker Compose runs in `production` mode by default.
+
+> [!WARNING]
+> **Docker daemon socket security**: Mounting `/var/run/docker.sock` grants the API container control over the host Docker daemon. While the container attempts to step down to `nobody:nogroup` (UID 65534), socket access inherently carries host-level security implications. Protect access to the host and restrict container privileges in production.
 
 ### Express auth proxy (`backend/.env`)
 
@@ -252,7 +263,7 @@ Build the filesystem upstream container image:
 **Docker Named Volume & Mount Semantics**:
 - In Docker Compose, `UPSTREAM_FS_SOURCE=volume:mcpg_shared` configures the runner to mount the `mcpg_shared` Docker named volume as `/projects` inside each upstream container.
 - The API container mounts the same volume at `/app/data/shared`, enabling shared read/write access between the API service and the sandboxed filesystem tools.
-- **Read-only tools** (`fs_read_file`, `fs_list_directory`, `fs_directory_tree`, etc.) mount the volume in read-only mode (`readonly`).
+- **Read-only tools** (`fs_read_text_file`, `fs_list_directory`, `fs_directory_tree`, etc.) mount the volume in read-only mode (`readonly`).
 - **Write tools** (`fs_write_file`, `fs_edit_file`, `fs_create_directory`, etc.) mount the volume in writable mode.
 - Each filesystem tool call runs inside a fresh container with dropped Linux capabilities, network isolation (`none`), and non-root user execution (`nobody:nogroup`, UID/GID 65534:65534).
 - Containers are automatically removed upon completion (`--rm` and process cleanup).
@@ -261,6 +272,18 @@ Build the filesystem upstream container image:
 - The path guard validates all arguments (`path`, `source`, `destination`). Path traversal leaving `/projects` (`..`) and symlink references are rejected with an upstream error before execution.
 - When `TOOL_PINNING_MODE=enforce` is active (the default in Compose), filesystem tools are **not** automatically trusted or approved. They are discovered with `pending` status and must be approved individually via `POST /api/pins/{tool_name}/approve`.
 - More details, scopes (`files:read`, `files:write`), and schema contract hashing are documented in [docs/UPSTREAM_FILESYSTEM.md](UPSTREAM_FILESYSTEM.md).
+
+#### Part 0.1 Verification Procedure (Filesystem Upstream End-to-End)
+
+To verify the end-to-end filesystem upstream container pipeline:
+1. Write a test file into `/app/data/shared` inside the API container:
+   ```bash
+   docker compose exec api sh -c 'echo "hello from mcpg_shared" > /app/data/shared/hello.txt'
+   ```
+2. Read the file through the MCP gateway using `fs_read_text_file` (with an approved pin and an API key with `files:read` scope).
+3. Verify the recorded sandbox run reports `mode=docker` via `GET /api/sandbox/runs`.
+4. Verify the container image in the run record is `mcp-guard-upstream-fs:2.2.0`.
+5. Verify container cleanup: ensure `docker ps -a --filter label=mcp_guard.sandbox=1` returns 0 entries.
 
 `GET /api/upstreams` (`tools:read`) returns one object per upstream. `detail` is `disabled`, `unavailable`, or `ok`. A call that times out or is refused still removes its container. The same `docker ps` filter above should be empty.
 

@@ -37,11 +37,11 @@ if [ "$(id -u)" = "0" ]; then
         if ! gosu "$APP_USER" docker version >/dev/null 2>&1; then
             if docker version >/dev/null 2>&1; then
                 echo "==> Notice: Docker socket requires root permissions on this host. Running as root."
-                exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+                exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config log_config.json
             fi
         fi
     fi
-    exec gosu "$APP_USER" uvicorn app.main:app --host 0.0.0.0 --port 8000
+    exec gosu "$APP_USER" uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config log_config.json
 else
-    exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+    exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config log_config.json
 fi

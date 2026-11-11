@@ -5,16 +5,18 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-mcpg_guard}
       POSTGRES_USER: ${POSTGRES_USER:-mcpg_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mcpg_dev_password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - mcpg_pgdata:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    # PostgreSQL port is not exposed on the host by default for production security.
+    # To connect directly from the host during local debugging, uncomment the port mapping:
+    # ports:
+    #   - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mcpg_user} -d ${POSTGRES_DB:-mcpg_guard}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
       start_period: 5s
 
   notes-init:
@@ -37,26 +39,47 @@ services:
         condition: service_healthy
       notes-init:
         condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - mcpg_notes:/app/data/notes
       - mcpg_shared:/app/data/shared
+      # Mounting /var/run/docker.sock gives the API container control over the
+      # host Docker daemon (to launch ephemeral tool runner and upstream containers)
+      # and therefore carries host-level security implications.
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mcpg_user}:${POSTGRES_PASSWORD:-mcpg_dev_password}@postgres:5432/${POSTGRES_DB:-mcpg_guard}
-      SANDBOX_NOTES_SOURCE: volume:mcpg_notes
-      UPSTREAM_FS_SOURCE: volume:mcpg_shared
-      UPSTREAM_FS_DIR: /app/data/shared
-      NOTES_DIR: /app/data/notes
-      UPSTREAM_FS_ENABLED: "true"
-      SANDBOX_MODE: ${SANDBOX_MODE:-docker}
-      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-mcp-guard-tool-runner:local}
-      UPSTREAM_FS_IMAGE: ${UPSTREAM_FS_IMAGE:-mcp-guard-upstream-fs:2.2.0}
-      API_KEY_PEPPER: ${API_KEY_PEPPER:-mcpg_dev_pepper_do_not_use_in_production_32bytes!}
-      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      ENVIRONMENT: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-mcpg_user}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-mcpg_guard}}
+      API_KEY_PEPPER: ${API_KEY_PEPPER:?set API_KEY_PEPPER in .env}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173"]}
       TOOL_PINNING_MODE: ${TOOL_PINNING_MODE:-enforce}
+      INJECTION_GUARD_MODE: ${INJECTION_GUARD_MODE:-enforce}
+      ENABLE_RETENTION_SCHEDULER: ${ENABLE_RETENTION_SCHEDULER:-true}
+      RATE_LIMIT_CAPACITY: ${RATE_LIMIT_CAPACITY:-30}
+      RATE_LIMIT_REFILL_RATE_PER_SEC: ${RATE_LIMIT_REFILL_RATE_PER_SEC:-5.0}
+      NOTES_DIR: /app/data/notes
+      SANDBOX_NOTES_SOURCE: volume:mcpg_notes
+      SANDBOX_MODE: ${SANDBOX_MODE:-docker}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-mcp-guard-tool-runner:local}
+      SANDBOX_TIMEOUT_S: ${SANDBOX_TIMEOUT_S:-4}
+      SANDBOX_MEMORY: ${SANDBOX_MEMORY:-128m}
+      SANDBOX_CPUS: ${SANDBOX_CPUS:-0.5}
+      SANDBOX_PIDS_LIMIT: ${SANDBOX_PIDS_LIMIT:-64}
+      SANDBOX_NETWORK: ${SANDBOX_NETWORK:-none}
+      SANDBOX_RUN_AS: ${SANDBOX_RUN_AS:-65534:65534}
+      UPSTREAM_FS_ENABLED: "true"
+      UPSTREAM_FS_IMAGE: ${UPSTREAM_FS_IMAGE:-mcp-guard-upstream-fs:2.2.0}
+      UPSTREAM_FS_DIR: /app/data/shared
+      UPSTREAM_FS_SOURCE: volume:mcpg_shared
+      UPSTREAM_FS_TIMEOUT_S: ${UPSTREAM_FS_TIMEOUT_S:-30.0}
+      LLM_ENABLED: ${LLM_ENABLED:-false}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      NOTES_AGENT_API_KEY: ${NOTES_AGENT_API_KEY:-}
+      WORKER_NOTES_API_KEY: ${WORKER_NOTES_API_KEY:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
       interval: 10s

@@ -208,6 +208,21 @@ def test_docker_compose_and_env_example_pin_enforce():
 
     compose_text = compose_path.read_text(encoding="utf-8")
     assert "TOOL_PINNING_MODE: ${TOOL_PINNING_MODE:-enforce}" in compose_text
+    assert "ENVIRONMENT: production" in compose_text
+    assert "INJECTION_GUARD_MODE: ${INJECTION_GUARD_MODE:-enforce}" in compose_text
+    assert (
+        "ENABLE_RETENTION_SCHEDULER: ${ENABLE_RETENTION_SCHEDULER:-true}"
+        in compose_text
+    )
+    assert "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}" in compose_text
+    assert "${API_KEY_PEPPER:?set API_KEY_PEPPER in .env}" in compose_text
+    assert 'extra_hosts:\n      - "host.docker.internal:host-gateway"' in compose_text
+    assert "log_config.json" not in compose_text  # passed via entrypoint, not compose
 
     env_text = env_example_path.read_text(encoding="utf-8")
     assert "TOOL_PINNING_MODE=enforce" in env_text
+    assert "INJECTION_GUARD_MODE=enforce" in env_text
+    assert "POSTGRES_PASSWORD=change-me" in env_text
+    assert "API_KEY_PEPPER=change-me-to-a-long-random-value" in env_text
+    assert "mcpg_dev_password" not in env_text
+    assert "mcpg_dev_pepper" not in env_text
