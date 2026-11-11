@@ -1,4 +1,5 @@
 from app.models.a2a_tasks import A2ATask
+from app.models.analyst_reports import AnalystReport
 from app.models.api_keys import ApiKey
 from app.models.audit_events import AuditEvent
 from app.models.base import Base
@@ -11,6 +12,7 @@ from app.models.types import UTCDateTime
 
 __all__ = [
     "A2ATask",
+    "AnalystReport",
     "ApiKey",
     "AuditEvent",
     "Base",

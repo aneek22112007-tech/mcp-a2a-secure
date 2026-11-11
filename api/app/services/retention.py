@@ -7,6 +7,7 @@ from app.audit.sink import record_event
 from app.config import settings
 from app.database import async_session_maker
 from app.models.audit_events import AUDIT_DECISION_ALLOWED
+from app.repos.analyst_reports import cleanup_old_analyst_reports
 from app.repos.audit import delete_events_before
 from app.repos.llm_calls import cleanup_old_llm_calls
 from app.repos.sandbox_runs import delete_runs_before as delete_sandbox_runs_before
@@ -90,6 +91,26 @@ async def run_retention_cleanup() -> None:
             )
     except Exception:
         logger.exception("Failed to run LLM calls retention cleanup")
+
+    try:
+        report_deleted = await cleanup_old_analyst_reports(
+            retention_days=settings.llm_call_retention_days
+        )
+        if report_deleted > 0:
+            logger.info(
+                f"Deleted {report_deleted} analyst reports older than {settings.llm_call_retention_days} days."
+            )
+            await record_event(
+                AuditRecord(
+                    action="analyst_reports.retention",
+                    decision=AUDIT_DECISION_ALLOWED,
+                    status="ok",
+                    reason=f"deleted={report_deleted}",
+                ),
+                required=False,
+            )
+    except Exception:
+        logger.exception("Failed to run analyst report retention cleanup")
 
 
 async def retention_scheduler_task() -> None:
