@@ -86,9 +86,10 @@ async def lifespan(app: FastAPI):
     if type(get_recorder()) is LLMCallRecorder:
         set_recorder(DbLLMCallRecorder())
 
-    from app.upstream.filesystem import register_filesystem_upstream
+    import app.upstream.filesystem
+    from app.upstream.registry import register_upstreams
 
-    await register_filesystem_upstream()
+    await register_upstreams()
     install_pinned_tool_list()
     from app.auth.scopes import TOOL_SCOPES
     from app.tools.catalog import list_tool_definitions
