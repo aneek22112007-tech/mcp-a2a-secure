@@ -151,13 +151,10 @@ async def register_upstream(
     try:
         if discover_fn is not None:
             listed = await discover_fn()
-        elif spec.id == "filesystem":
-            from app.upstream.runner import discover_filesystem_tools
-
-            listed = await discover_filesystem_tools()
         else:
-            logger.warning("No discovery mechanism configured for upstream %s", spec.id)
-            return
+            from app.upstream.runner import discover_tools
+
+            listed = await discover_tools(spec)
     except SandboxUnavailableError:
         logger.warning(
             "%s upstream did not start; %s tools are not registered",

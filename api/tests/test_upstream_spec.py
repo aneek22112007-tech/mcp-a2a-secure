@@ -5,6 +5,7 @@ import pytest
 
 from app.auth.scopes import FILES_READ, FILES_WRITE
 from app.config import settings
+from app.main import app  # noqa: F401
 from app.upstream.filesystem import (
     READ_ONLY_TOOLS,
     UPSTREAM_ERROR_PREFIX,
