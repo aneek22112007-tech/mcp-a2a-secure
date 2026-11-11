@@ -111,11 +111,11 @@ On `main` today:
 
 - **MCP server.** Built on the official Python SDK (FastMCP) and mounted at `/mcp/` over Streamable HTTP. It exposes three notes tools, `list_notes`, `read_note` and `write_note`. Note names are checked against `[A-Za-z0-9_-]{1,64}` and the resolved path must stay inside the notes directory.
 - **Notes REST API.** `/api/notes` routes call tools only through `gateway.call_tool()`, which applies a tool allowlist, a 128 KiB argument limit, a 5 second timeout and error messages that don't leak paths or tracebacks.
-- **API-key auth and scopes.** Protected REST routes and `/mcp/` need `Authorization: Bearer mcpg_...`. Scopes are `notes:read`, `notes:write`, `files:read`, `files:write`, `audit:read`, `metrics:read`, `sandbox:read`, `tools:read`, `agent:run` and `admin`. The key verifier is pluggable and defaults to deny-all. Every route has to appear in the scope map or the app fails at startup.
+- **API-key auth and scopes.** Protected REST routes and `/mcp/` need `Authorization: Bearer mcpg_...`. Scopes are `notes:read`, `notes:write`, `files:read`, `files:write`, `audit:read`, `metrics:read`, `sandbox:read`, `tools:read`, `agent:run`, `analyst:run` and `admin`. The key verifier is pluggable and defaults to deny-all. Every route has to appear in the scope map or the app fails at startup.
 - **Consistent errors.** 401, 403 and other errors use one JSON shape and include `WWW-Authenticate` where it applies.
 - **HTTP hardening.** Request IDs on every response and log line, a request body size limit, security headers with a strict CSP, a CORS allowlist, and API docs disabled outside development.
 - **Status endpoint.** `/api/status` does a real MCP handshake against the server and reports latency, protocol version and tools.
-- **Database layer.** SQLAlchemy 2 (async) with Alembic migrations and repositories. Tables exist for clients, API keys, audit events, sandbox runs and tool pins. SQLite is used in development.
+- **Database layer.** SQLAlchemy 2 (async) with Alembic migrations and repositories. Tables exist for clients, API keys, audit events, sandbox runs, tool pins and analyst reports. SQLite is used in development.
 - **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Mutating REST calls (`PUT /api/notes/{name}`) and MCP `tools/call` are audit-first: a required row is written before the tool runs. Read tools are audited after execution, before the result is returned. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
 - **Rate limiting, metrics and retention.** Each API key has its own token bucket, with separate buckets for REST and `/mcp`. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler. Sandbox run records are pruned on the same retention cycle.
 - **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
@@ -124,6 +124,7 @@ On `main` today:
 - **Tool pinning.** Each tool's name, description, and JSON schema are hashed. `TOOL_PINNING_MODE=enforce` returns 403 `Tool is not approved.` until an admin approves that hash, and `tools/list` plus `GET /api/mcp/info` omit tools that are not approved. `warn` writes an audit row and still runs the tool. `off` (the default) skips the check. A schema or description change is drift and has to be approved again. The hash does not cover the function body. An optional source digest is stored for operators and is not an allow or deny input.
 - **Rule-based Scanner.** A static tool-poisoning scanner evaluates tools against phrase rules for prompt injection, data exfiltration, overbroad parameters, and size anomalies. Unsafe patterns generate `ToolScanFinding` records. The `DbScanGate` hooks into the pinning flow to block tools with `high` or `critical` severity findings before they can run, but only if `TOOL_PINNING_MODE=enforce`.
 - **Notes agent.** `POST /api/agents/notes/run` runs a LangGraph agent. Its tools call `/mcp/` with `NOTES_AGENT_API_KEY`, so auth, scopes, rate limits, pinning, the scanner, the sandbox and the audit log still apply. ChatOllama is the primary model. ChatGroq is used only when Ollama cannot be reached or times out.
+- **AI incident analyst.** Real audit denials and open scanner findings are grouped into incidents in code. `POST /api/analyst/explain` asks the local model to explain one incident. Every timeline line has to cite a real event, and a reply that fails the checks is not shown. The analyst never blocks, revokes, or approves. See [docs/AI_ANALYST.md](docs/AI_ANALYST.md).
 - **Frontend.** React 19, Vite and Tailwind. The live console at `/console` and `/dashboard` reads the real API.
 
 ## Status
@@ -148,7 +149,7 @@ uv run python scripts/run_notes_agent.py "List the notes"
 Still planned:
 
 - A prompt-injection check on tool output before it goes back to the model.
-- LLM-written explanations of schema changes and scanner findings, plus an assistant in the dashboard for reviewing audit events.
+- LLM-written explanations of schema changes and scanner findings. Audit incidents are explained by the AI incident analyst above.
 - A2A manager and worker agents, each with its own key.
 
 ```mermaid
@@ -341,6 +342,10 @@ npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 | `POST`, `GET`, `DELETE` | `/mcp/` | `agent:run` | MCP Streamable HTTP (`initialize`, `tools/list`, `tools/call`) |
 | `GET` | `/api/audit` | `audit:read` | Audit events, newest first |
 | `GET` | `/api/audit/stream` | `audit:read` | Live SSE stream of audit events. The key is sent only in the `Authorization` header |
+| `GET` | `/api/analyst/status` | `analyst:run` | Whether the analyst can run. Does not call the model or return a key |
+| `GET` | `/api/analyst/incidents` | `audit:read` | Incidents in the analyst window, newest first |
+| `GET` | `/api/analyst/incidents/{incident_id}` | `audit:read` | One incident, its events, and the last validated report |
+| `POST` | `/api/analyst/explain` | `analyst:run` and `audit:read` | Explain one incident. `audit:read` is checked in the handler. Returns 503 when the LLM is disabled |
 | `GET` | `/api/metrics` | `metrics:read` | Returns database totals and in-process rate limit counters |
 | `GET` | `/api/sandbox/runs` | `sandbox:read` | Sandbox execution records, newest first |
 | `GET` | `/api/sandbox/runs/{run_id}` | `sandbox:read` | Details for one sandbox run |
@@ -374,7 +379,8 @@ Gateway errors map to 400 (bad arguments), 403 (tool not approved when pinning i
 | `files:read` | Reading and listing through the filesystem upstream |
 | `files:write` | Writing, editing, moving, appending and copying through the filesystem upstream |
 | `agent:run` | Everything under `/mcp/` |
-| `audit:read` | `GET /api/audit` and `GET /api/audit/stream` |
+| `audit:read` | `GET /api/audit`, `GET /api/audit/stream`, the incident list and detail, and the `audit:read` check on explain |
+| `analyst:run` | `GET /api/analyst/status` and `POST /api/analyst/explain` |
 | `metrics:read` | `GET /api/metrics` |
 | `sandbox:read` | `GET /api/sandbox/runs` and `GET /api/sandbox/health` |
 | `tools:read` | `GET /api/pins`, `GET /api/pins/{tool_name}` and `GET /api/upstreams` |
@@ -433,7 +439,7 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `TOOL_PINNING_CACHE_TTL_S` | `5` | Seconds to cache pin rows. Approve, revoke, and sync clear the cache |
 | `SCANNER_ENABLED` | `True` | Run the static scanner at startup. `DbScanGate` blocks unapproved tools |
 | `SCANNER_BLOCK_SEVERITIES` | `critical,high` | Comma-separated severities that block a tool from running |
-| `LLM_ENABLED` | `false` | When false, LLM calls raise and `POST /api/agents/notes/run` returns 503 |
+| `LLM_ENABLED` | `false` | When false, LLM calls raise, `POST /api/agents/notes/run` returns 503, and `POST /api/analyst/explain` returns 503. Incident grouping still runs |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Local Ollama server. Must be an http or https URL |
 | `OLLAMA_MODEL` | `qwen3.5:9b` | Primary chat model |
 | `GROQ_API_KEY` | unset | Used only when Ollama cannot be reached or times out. Never logged or returned |

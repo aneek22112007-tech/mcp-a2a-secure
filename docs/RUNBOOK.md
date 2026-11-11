@@ -76,6 +76,14 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | `GROQ_API_KEY` | unset (`None`) | Local & Compose | Optional Groq API key fallback |
 | `NOTES_AGENT_API_KEY` | unset (`None`) | Local & Compose | Optional API key for notes agent self-calls to `/mcp/` |
 | `WORKER_NOTES_API_KEY` | unset (`None`) | Local & Compose | Optional API key for A2A worker notes calls |
+| `ANALYST_WINDOW_HOURS` | `24` | Local & Compose | How far back incidents are built, in hours (1 to 168) |
+| `ANALYST_INCIDENT_GAP_MINUTES` | `15` | Local & Compose | Rows further apart than this start a new incident (1 to 240) |
+| `ANALYST_MAX_ROWS` | `5000` | Local & Compose | Most audit rows read per grouping pass (100 to 20000) |
+| `ANALYST_MAX_EVENTS_PER_PROMPT` | `40` | Local & Compose | Most events sent to the model for one incident (5 to 100) |
+| `ANALYST_MAX_OUTPUT_CHARS` | `4000` | Local & Compose | Longest model reply accepted, before parsing (500 to 8000) |
+| `ANALYST_RATE_LIMIT_CAPACITY` | `3` | Local & Compose | Explain bucket size, per key |
+| `ANALYST_RATE_LIMIT_PER_MINUTE` | `3.0` | Local & Compose | Explain bucket refill, per minute, per key |
+| `ANALYST_MAX_CONCURRENCY` | `1` | Local & Compose | Explanations running at once in this process (1 to 4) |
 
 > **Production requirement**: Set `ENVIRONMENT=production` to disable API documentation endpoints (`/docs`, `/redoc`, `/openapi.json`) and activate strict production validations in `Settings.model_post_init`. Docker Compose runs in `production` mode by default.
 
@@ -170,6 +178,17 @@ curl http://localhost:8000/api/status | python -m json.tool
 The `error` field always contains the stable string `"mcp_unavailable"` when
 offline — not the raw exception message. Diagnostic details are logged
 server-side at `WARNING` level.
+
+### `GET /api/analyst/status`
+
+Needs `analyst:run`. It does not call the model. `enabled` follows `LLM_ENABLED`. `ollama_reachable` and `ollama_model_present` describe the configured Ollama URL and `OLLAMA_MODEL`. `groq_configured` is true only when `GROQ_API_KEY` is set. The response does not include that key. `busy` is true when this process is already at `ANALYST_MAX_CONCURRENCY`.
+
+```bash
+curl -s http://127.0.0.1:8000/api/analyst/status \
+  -H "Authorization: Bearer <key with analyst:run>"
+```
+
+Incident list and explain behaviour is in [AI_ANALYST.md](AI_ANALYST.md).
 
 ---
 

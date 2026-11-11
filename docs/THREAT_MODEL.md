@@ -73,6 +73,16 @@
 | **API ↔ Filesystem** | The notes directory is the only host path mounted into the container. Path checks live in `app/tools/notes.py`. |
 | **API ↔ SQLite** | Internal — SQLAlchemy async ORM; no raw SQL from user input in current routes. |
 | **API ↔ Express OAuth** | Separate process; no direct code dependency in current API. |
+| **API ↔ local model** | Explain sends a whitelisted JSON document to Ollama. Groq is used only when Ollama cannot be reached or times out and `GROQ_API_KEY` is set. |
+
+### Analyst scopes
+
+The route map is in [`api/app/auth/scopes.py`](../api/app/auth/scopes.py). The product scope table is in the README. The analyst adds:
+
+| Scope | Routes |
+|---|---|
+| `analyst:run` | `GET /api/analyst/status`, `POST /api/analyst/explain`. `admin` satisfies it. |
+| `audit:read` | `GET /api/analyst/incidents` and `GET /api/analyst/incidents/{incident_id}`. Explain checks this again in the handler and writes `auth.deny` with `insufficient_scope:audit:read` when it is missing. |
 
 ---
 
@@ -301,6 +311,18 @@ The hostile lab upstream ([`docs/UPSTREAM_LAB.md`](UPSTREAM_LAB.md)) serves as a
 
 ---
 
+## AI analyst
+
+The analyst explains incidents. It does not block, revoke, or approve. Severity and grouping are code in `app/analyst/`. Details are in [AI_ANALYST.md](AI_ANALYST.md).
+
+| Threat | Control |
+|---|---|
+| Injection through event fields (tool names, reasons, scanner evidence, a hostile `X-Request-ID`) | The prompt is a field whitelist. `request_id` is not sent. `safe_reason` redacts secrets. The scan view runs `normalize_for_scan`, then turns `_ . : -` into spaces, then `scan_text`. A match is replaced with a withheld marker. The JSON sits inside a random nonce fence. The reply guard rejects high and critical findings, `mcpg_`, and URLs. A failed reply is not stored or shown. |
+| The model invents events, causes, or a severity | Severity is `incident_severity` before the call. The system text says not to invent and not to change severity. `parse_report` requires one JSON object. Every timeline line must cite a ref that was sent. Any other ref is `unknown_ref`. There is no second prompt. |
+| Incident facts leave the machine | Ollama is local. The document has action names, status codes, reasons, tool names, and key prefixes. It does not have client IPs, client ids, key ids, argument hashes, request ids, or real event ids. Groq receives that same document only as the connection or timeout fallback. |
+| Cost and denial of service | Explain has its own token bucket (`ANALYST_RATE_LIMIT_CAPACITY`, `ANALYST_RATE_LIMIT_PER_MINUTE`) and an in-process counter (`ANALYST_MAX_CONCURRENCY`, default 1). A full counter returns 503 `ANALYST_BUSY` and does not queue. Output length, rows read, and events per prompt are capped. |
+| The analyst feeds itself | Grouping skips `guard.check` and every action that starts with `analyst.`. `analyst.explain` is recorded as allowed, so it is not a security event. Retention uses `analyst_reports.retention`, also allowed. |
+
 ## Implemented Controls Summary
 
 | Control | Status | Evidence |
@@ -324,3 +346,4 @@ The hostile lab upstream ([`docs/UPSTREAM_LAB.md`](UPSTREAM_LAB.md)) serves as a
 | Audit log persistence | Implemented | `tool.call` success and `mcp.tools_call` are fail-closed. `auth.allow` and `auth.deny` are fail-open. ORM rejects update/delete. The Postgres append-only trigger is installed (revision `cc48301ff61d`). |
 | A2A request signing | Not implemented | — |
 | Docker sandbox | Implemented | `docker run --rm --pull never --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit --memory --memory-swap --cpus --user`, tmpfs `/tmp`, no docker socket, no extra mounts, no env file. A daemon or image failure is HTTP 503 and is not retried in-process. |
+| AI incident analyst | Implemented | Grouping and severity are code. Explain needs `analyst:run` and `audit:read`. Replies that fail the checks are not stored. See [AI_ANALYST.md](AI_ANALYST.md). |
