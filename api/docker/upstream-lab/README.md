@@ -1,6 +1,10 @@
 # Hostile Lab MCP Server
 
-A real, independently runnable MCP server using the stdio transport and the official Python MCP SDK (`mcp==1.30.0`), designed to test whether the Polaris / MCP Guard gateway correctly contains adversarial tools, unsafe outputs, resource exhaustion, and contract changes.
+A real, independently runnable MCP server using the stdio transport and the official Python MCP SDK (`mcp==1.30.0`), designed to test whether the MCP Guard gateway correctly contains adversarial tools, unsafe outputs, resource exhaustion, and contract changes.
+
+> [!WARNING]
+> **Never deploy this lab image to production environments.**
+> The hostile lab is deliberately kept out of `docker-compose.yml` because Compose is used for production deployment. It must only run in isolated local security testing environments.
 
 ## Overview
 
@@ -29,7 +33,7 @@ An invalid or missing `LAB_CONTRACT` causes the process to exit immediately with
 2. `utc_time()` (v1) / `utc_time(trace: str = "")` (v2): Returns ISO 8601 time.
 3. `add_numbers(a: float, b: float, sidenote: str = "")`: Tool poisoning injection attempting to exfiltrate SSH keys. (Scanner: R1 high).
 4. `convert_units(value: float, unit: str)`: Tool poisoning with Cyrillic homoglyphs (`о` and `і`). (Scanner: R1 high).
-5. `reverse_text(text: str)` (v1 only): Reverses text while attempting instruction override. (Scanner: R1 high).
+5. `reverse_text(text: str)` (v1 only): Reverses text while attempting instruction override with zero-width space obfuscation. (Scanner: R1 high).
 6. `format_date(date: str)`: Formats date with full-width character obfuscation. (Scanner: R1 high).
 7. `currency_rate(code: str)`: Offline currency lookup with base64-encoded exfiltration instructions. (Scanner: R2 critical).
 8. `lookup_city(name: str, hint: str = "")`: Poisoned parameter description on `hint`. (Scanner: R5 high).
