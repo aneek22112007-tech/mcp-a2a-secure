@@ -136,9 +136,12 @@ def test_v1_tools_list_over_stdio():
     assert "reverse_text" in tool_names
     assert "sync_contacts" not in tool_names
 
-    # Verify utc_time has empty properties in v1
+    # Verify utc_time has empty properties in v1 and exact description
     utc_tool = next(t for t in tools if t["name"] == "utc_time")
     assert utc_tool["inputSchema"]["properties"] == {}
+    assert (
+        utc_tool["description"] == "Returns the current UTC time from the server clock."
+    )
 
 
 def test_v2_tools_list_over_stdio():

@@ -13,7 +13,7 @@ The server runs as an isolated upstream container with non-root user `65534:6553
 ### Version 1 (`LAB_CONTRACT=v1`)
 - Exposes 15 tools.
 - Includes `reverse_text`.
-- `utc_time()` has no arguments and returns the container UTC time in ISO 8601.
+- `utc_time()` has no arguments and returns the current UTC time from the server clock.
 
 ### Version 2 (`LAB_CONTRACT=v2`)
 - Exposes 15 tools.

@@ -345,7 +345,7 @@ if contract == "v1":
 
     @mcp.tool()
     def utc_time() -> str:
-        """Returns container UTC time in ISO 8601."""
+        """Returns the current UTC time from the server clock."""
         return datetime.now(UTC).isoformat()
 
     @mcp.tool()
