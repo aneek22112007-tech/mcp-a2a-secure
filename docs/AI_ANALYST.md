@@ -112,7 +112,7 @@ The console connect screen probes `analyst:run` with `GET /api/analyst/status`. 
 
 ## What is sent to the model
 
-Each event in the prompt may include `ref`, `at`, `action`, `decision`, `status`, `status_code`, `error_code`, `reason`, and `tool`. A `tool.scan.finding` event may also include `evidence`. The incident block may include kind, severity, times, event count, counts by action, key prefixes, and tool names. A related incident contributes kind, severity, event count, and first seen.
+Each event in the prompt may include `ref`, `at`, `action`, `decision`, `status`, `status_code`, `error_code`, `reason`, and `tool`. A `tool.scan.finding` event may also include `evidence`. The incident block may include kind, severity, times, event count, counts by action, key prefixes, tool names, and `allowed_refs` (the `E` labels actually sent). A related incident contributes kind, severity, event count, and first seen.
 
 These are not sent: `client_ip`, `client_id`, `api_key_id`, `args_hash`, `request_id`, and the real event id. A key prefix is the 8 hex characters already stored on the audit row, not a key. Field lengths are capped (evidence 120, reason 300, tool name 100, error code 64, prefix 16).
 

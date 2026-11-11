@@ -33,7 +33,8 @@ Reply with one JSON object and nothing else:
 {"summary": "...", "timeline": [{"text": "...", "refs": ["E1"]}],
  "likely_cause": "...", "impact": "...", "next_steps": ["..."], "confidence": "low|medium|high"}
 summary: at most 3 sentences, plain English, for a security admin.
-timeline: at most 6 items. Every item cites at least one ref from the data.
+timeline: 1 to 6 items. Every refs entry must be copied from allowed_refs.
+Do not invent ref names. Do not use "related" or "incident" as a ref.
 next_steps: at most 4 short actions an admin can take in MCP Guard, such as revoking a key,
 re-reviewing a pin, resolving a scanner finding or tightening a scope."""
 
@@ -154,6 +155,7 @@ def build_facts(
         },
         "events": events,
         "events_not_listed": hidden,
+        "allowed_refs": [event.ref for event in kept],
         "related": related_facts,
     }
     return facts, refs, withheld[0]
