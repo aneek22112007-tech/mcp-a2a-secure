@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit.events import AuditRecord
+from app.audit.redaction import safe_tool_name
 from app.audit.sink import record_event
 from app.database import async_session_maker
 from app.models.tool_scan_findings import ToolScanFinding
@@ -125,7 +126,10 @@ async def run_scan_one(tool_name: str) -> ScanStats | None:
                             action=ACTION_TOOL_SCAN_FINDING,
                             status="ok",
                             decision="allowed",
-                            reason=f"finding {new_f.rule_id} for {tool_name}",
+                            tool_name=safe_tool_name(tool_name),
+                            reason=(
+                                f"finding {new_f.rule_id} severity={new_f.severity}"
+                            ),
                         ),
                         required=False,
                     )
@@ -179,7 +183,11 @@ async def run_scan_all() -> ScanStats:
                                     action=ACTION_TOOL_SCAN_FINDING,
                                     status="ok",
                                     decision="allowed",
-                                    reason=f"finding {new_f.rule_id} for {defn.name}",
+                                    tool_name=safe_tool_name(defn.name),
+                                    reason=(
+                                        f"finding {new_f.rule_id} "
+                                        f"severity={new_f.severity}"
+                                    ),
                                 ),
                                 required=False,
                             )
