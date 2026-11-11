@@ -12,6 +12,7 @@ SANDBOX_READ = "sandbox:read"
 TOOLS_READ = "tools:read"
 SCANNER_READ = "scanner:read"
 LAB_CALL = "lab:call"
+ANALYST_RUN = "analyst:run"
 ADMIN = "admin"
 
 ALL_SCOPES = frozenset(
@@ -27,6 +28,7 @@ ALL_SCOPES = frozenset(
         SCANNER_READ,
         AGENT_RUN,
         LAB_CALL,
+        ANALYST_RUN,
         ADMIN,
     }
 )
@@ -74,6 +76,10 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("GET", "/api/a2a/tasks/{id}"): AGENT_RUN,
     ("GET", "/api/a2a/capabilities"): None,
     ("GET", "/api/a2a/agent-card"): None,
+    ("GET", "/api/analyst/status"): ANALYST_RUN,
+    ("GET", "/api/analyst/incidents"): AUDIT_READ,
+    ("GET", "/api/analyst/incidents/{incident_id}"): AUDIT_READ,
+    ("POST", "/api/analyst/explain"): ANALYST_RUN,
 }
 
 
