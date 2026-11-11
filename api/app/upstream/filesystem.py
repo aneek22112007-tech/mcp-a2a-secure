@@ -8,39 +8,26 @@ gateway with the notes tools only.
 
 from __future__ import annotations
 
-import json
-import logging
-from dataclasses import dataclass
+import re
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import Context
-from mcp.server.fastmcp.tools.base import Tool
-from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase, FuncMetadata
-from mcp.types import CallToolResult, TextContent
-from pydantic import ConfigDict
-
-from app.auth.scopes import FILES_READ, FILES_WRITE, TOOL_SCOPES
+from app.auth.scopes import FILES_READ, FILES_WRITE
 from app.config import settings
-from app.mcp_server import mcp
-from app.sandbox.errors import (
-    SandboxBusyError,
-    SandboxOutputError,
-    SandboxTimeoutError,
-    SandboxToolError,
-    SandboxUnavailableError,
+from app.sandbox.errors import SandboxUnavailableError
+from app.upstream.registry import (
+    UPSTREAM_ERROR_PREFIX,
+    RegisteredTool,
+    contract_fingerprint,
+    register_spec,
+    register_upstream,
+    upstream_status,
+    upstream_tool,
 )
-from app.tools.catalog import (
-    ToolDefinition,
-    fingerprint_tool,
-    get_tool_definition,
-)
-
-logger = logging.getLogger(__name__)
+from app.upstream.spec import UpstreamSpec
 
 PREFIX = "fs_"
 MOUNT = "/projects"
-UPSTREAM_ERROR_PREFIX = "Upstream error: "
 CONTRACT_CHANGED = (
     f"{UPSTREAM_ERROR_PREFIX}Upstream tool contract changed since startup"
 )
@@ -71,153 +58,8 @@ WRITE_TOOLS = frozenset(
 )
 _PATH_KEYS = ("path", "source", "destination")
 
-
-class _PassthroughArgs(ArgModelBase):
-    """Accept the arguments the published schema already validated."""
-
-    model_config = ConfigDict(extra="allow")
-
-    def model_dump_one_level(self) -> dict[str, Any]:
-        extra = self.__pydantic_extra__ or {}
-        return dict(extra)
-
-
-@dataclass(frozen=True, slots=True)
-class FilesystemTool:
-    upstream_name: str
-    public_name: str
-    read_only: bool
-    fingerprint: str
-
-
-_tools: dict[str, FilesystemTool] = {}
-_available = False
-_detail = "disabled"
-
-
-def is_filesystem_tool(tool_name: str) -> bool:
-    return tool_name in _tools
-
-
-def filesystem_tool(tool_name: str) -> FilesystemTool | None:
-    return _tools.get(tool_name)
-
-
-def filesystem_status() -> dict[str, Any]:
-    names = sorted(_tools)
-    return {
-        "id": "filesystem",
-        "enabled": settings.upstream_fs_enabled,
-        "image": settings.upstream_fs_image,
-        "available": _available,
-        "tool_count": len(names),
-        "tools": names,
-        "detail": _detail,
-    }
-
-
-def ensure_shared_dir() -> Path:
-    """Create the host directory mounted at ``/projects``. Settings does not."""
-
-    path = settings.upstream_fs_dir
-    if not path.exists():
-        path.mkdir(parents=True, mode=0o755)
-        path.chmod(0o755)
-    return path
-
-
-async def register_filesystem_upstream() -> None:
-    """List the upstream tools and register them. Failures are logged and ignored."""
-
-    global _available, _detail
-    _tools.clear()
-    _available = False
-    if not settings.upstream_fs_enabled:
-        _detail = "disabled"
-        return
-    _detail = "unavailable"
-    try:
-        from app.upstream.runner import discover_filesystem_tools
-
-        listed = await discover_filesystem_tools()
-    except SandboxUnavailableError:
-        logger.warning(
-            "filesystem upstream did not start; fs_ tools are not registered"
-        )
-        _detail = "unavailable"
-        return
-    except Exception:
-        logger.warning(
-            "filesystem upstream did not start; fs_ tools are not registered",
-            exc_info=True,
-        )
-        _detail = "unavailable"
-        return
-    if not listed:
-        logger.warning("filesystem upstream returned no tools")
-        return
-    for spec in listed:
-        _register_one(spec)
-    for public_name in list(_tools):
-        definition = get_tool_definition(public_name)
-        if definition is None:
-            _tools.pop(public_name, None)
-            TOOL_SCOPES.pop(public_name, None)
-            continue
-        current = _tools[public_name]
-        _tools[public_name] = FilesystemTool(
-            upstream_name=current.upstream_name,
-            public_name=public_name,
-            read_only=current.read_only,
-            fingerprint=fingerprint_tool(definition),
-        )
-    if _tools:
-        _available = True
-        _detail = "ok"
-        logger.info("registered %s filesystem tools", len(_tools))
-
-
-def _register_one(spec: dict[str, Any]) -> None:
-    upstream_name = spec.get("name")
-    if not isinstance(upstream_name, str) or not upstream_name.isidentifier():
-        return
-    if upstream_name.startswith("_"):
-        return
-    public_name = f"{PREFIX}{upstream_name}"
-    description = spec.get("description")
-    schema = spec.get("inputSchema")
-    if not isinstance(description, str) or not isinstance(schema, dict):
-        return
-    schema = json.loads(json.dumps(schema))
-    scope = _scope_for(upstream_name)
-    # Unknown names stay registered and unmapped. A read-only mount is the
-    # safe default if a call ever reaches the container.
-    read_only = upstream_name not in WRITE_TOOLS
-
-    if mcp._tool_manager.get_tool(public_name) is not None:
-        mcp._tool_manager.remove_tool(public_name)
-    # Built directly so the published schema stays the upstream document.
-    # FastMCP would replace it with a schema inferred from the Python function.
-    tool = Tool(
-        fn=_make_handler(public_name),
-        name=public_name,
-        description=description,
-        parameters=schema,
-        fn_metadata=FuncMetadata(arg_model=_PassthroughArgs, output_schema=None),
-        is_async=True,
-        context_kwarg="ctx",
-    )
-    mcp._tool_manager._tools[public_name] = tool
-    if scope is None:
-        TOOL_SCOPES.pop(public_name, None)
-    else:
-        TOOL_SCOPES[public_name] = scope
-    _tools[public_name] = FilesystemTool(
-        upstream_name=upstream_name,
-        public_name=public_name,
-        read_only=read_only,
-        fingerprint="",
-    )
+# Type alias for backwards compatibility
+FilesystemTool = RegisteredTool
 
 
 def _scope_for(upstream_name: str) -> str | None:
@@ -228,109 +70,34 @@ def _scope_for(upstream_name: str) -> str | None:
     return None
 
 
-def _make_handler(public_name: str):
-    async def _call(ctx: Context | None = None, **arguments: Any) -> Any:
-        arguments.pop("ctx", None)
-        return await _invoke(public_name, arguments, ctx)
-
-    _call.__name__ = public_name
-    return _call
-
-
-async def _invoke(public_name: str, arguments: dict[str, Any], ctx: Any) -> Any:
-    from app.sandbox.executor import run_tool
-
-    try:
-        return await run_tool(public_name, arguments, mcp_context=ctx)
-    except ValueError as exc:
-        return _error_result(_guard_message(public_name, str(exc), ctx))
-    except SandboxTimeoutError:
-        return _error_result(
-            _guard_message(
-                public_name,
-                f"{UPSTREAM_ERROR_PREFIX}The filesystem tool timed out.",
-                ctx,
-            )
-        )
-    except SandboxOutputError:
-        return _error_result(
-            _guard_message(
-                public_name,
-                f"{UPSTREAM_ERROR_PREFIX}The filesystem tool output is too large.",
-                ctx,
-            )
-        )
-    except SandboxBusyError:
-        return _error_result(
-            _guard_message(
-                public_name,
-                f"{UPSTREAM_ERROR_PREFIX}The filesystem tool is busy.",
-                ctx,
-            )
-        )
-    except SandboxUnavailableError:
-        return _error_result(
-            _guard_message(
-                public_name,
-                f"{UPSTREAM_ERROR_PREFIX}The filesystem upstream is unavailable.",
-                ctx,
-            )
-        )
-    except SandboxToolError:
-        return _error_result(
-            _guard_message(
-                public_name,
-                f"{UPSTREAM_ERROR_PREFIX}The filesystem tool failed.",
-                ctx,
-            )
-        )
+def _mount(read_only: bool) -> str | None:
+    fs_source = settings.upstream_fs_source
+    if fs_source is not None and fs_source.startswith("volume:"):
+        volume = fs_source.split(":", 1)[1]
+        if re.fullmatch(r"[A-Za-z0-9_.-]+", volume) is None:
+            raise SandboxUnavailableError()
+        mount = f"type=volume,source={volume},target={MOUNT}"
+    else:
+        source = ensure_shared_dir().resolve()
+        if any(char in str(source) for char in (",", "=", "\n", "\r")):
+            raise SandboxUnavailableError()
+        mount = f"type=bind,source={source},target={MOUNT}"
+    if read_only:
+        mount += ",readonly"
+    return mount
 
 
-def _guard_message(public_name: str, message: str, ctx: Any) -> str:
-    from app.guard import check_tool_output
-    from app.sandbox.context import resolve_execution_context
-
-    if not message.startswith(UPSTREAM_ERROR_PREFIX):
-        message = f"{UPSTREAM_ERROR_PREFIX}{message}"
-    context = resolve_execution_context(ctx)
-    return check_tool_output(
-        message,
-        tool_name=public_name,
-        key_prefix=context.key_prefix,
-        request_id=context.request_id,
-        client_id=context.client_id,
-        api_key_id=context.api_key_id,
-    ).text
-
-
-def _error_result(message: str) -> CallToolResult:
-    return CallToolResult(
-        content=[TextContent(type="text", text=message)],
-        isError=True,
-    )
-
-
-def contract_fingerprint(
-    public_name: str, description: str, schema: dict[str, Any]
-) -> str:
-    """Fingerprint one live upstream tool the same way pinning does.
-
-    Output schema and annotations are not part of the hash.
-    """
-
-    return fingerprint_tool(
-        ToolDefinition(
-            name=public_name,
-            description=description,
-            input_schema=schema,
-            output_schema=None,
-        )
-    )
+def ensure_shared_dir() -> Path:
+    """Create the host directory mounted at ``/projects``. Settings does not."""
+    path = settings.upstream_fs_dir
+    if not path.exists():
+        path.mkdir(parents=True, mode=0o755)
+        path.chmod(0o755)
+    return path
 
 
 def check_paths(arguments: dict[str, Any]) -> None:
     """Refuse a path that leaves ``/projects`` or names a symlink."""
-
     raw_paths: list[str] = []
     for key in _PATH_KEYS:
         value = arguments.get(key)
@@ -381,3 +148,69 @@ def _relative_to_mount(raw: str) -> tuple[str, ...]:
             f"{UPSTREAM_ERROR_PREFIX}Path is outside the allowed directory."
         )
     return pure.parts
+
+
+FILESYSTEM = UpstreamSpec(
+    id="filesystem",
+    prefix=PREFIX,
+    label="filesystem",
+    enabled=lambda: settings.upstream_fs_enabled,
+    image=lambda: settings.upstream_fs_image,
+    timeout_s=lambda: settings.upstream_fs_timeout_s,
+    container_name_prefix="mcpg-fs-",
+    scope_for=_scope_for,
+    read_only_for=lambda name: name not in WRITE_TOOLS,
+    mount=_mount,
+    check_args=check_paths,
+    memory="256m",
+    pids_limit=128,
+)
+FILESYSTEM_SPEC = FILESYSTEM
+
+# Auto-register filesystem spec into global registry
+register_spec(FILESYSTEM)
+
+
+# Compatibility wrappers delegating to the generic registry
+async def register_filesystem_upstream() -> None:
+    """List the upstream tools and register them."""
+    await register_upstream(FILESYSTEM)
+
+
+def filesystem_status() -> dict[str, Any]:
+    """Report the current registration status of the filesystem upstream."""
+    return upstream_status(FILESYSTEM)
+
+
+def is_filesystem_tool(tool_name: str) -> bool:
+    """Return True if the tool name belongs to the filesystem upstream."""
+    tool = upstream_tool(tool_name)
+    return tool is not None and tool.spec_id == "filesystem"
+
+
+def filesystem_tool(tool_name: str) -> FilesystemTool | None:
+    """Retrieve the filesystem tool metadata if it belongs to the filesystem upstream."""
+    tool = upstream_tool(tool_name)
+    if tool is not None and tool.spec_id == "filesystem":
+        return tool
+    return None
+
+
+__all__ = [
+    "CONTRACT_CHANGED",
+    "FILESYSTEM",
+    "FILESYSTEM_SPEC",
+    "MOUNT",
+    "PREFIX",
+    "READ_ONLY_TOOLS",
+    "UPSTREAM_ERROR_PREFIX",
+    "WRITE_TOOLS",
+    "FilesystemTool",
+    "check_paths",
+    "contract_fingerprint",
+    "ensure_shared_dir",
+    "filesystem_status",
+    "filesystem_tool",
+    "is_filesystem_tool",
+    "register_filesystem_upstream",
+]
