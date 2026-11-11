@@ -7,7 +7,8 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-import app.upstream.filesystem  # noqa: F401
+import app.upstream.filesystem
+import app.upstream.lab  # noqa: F401
 from app.auth.dependencies import authorize_route
 from app.upstream.registry import all_specs, upstream_status
 

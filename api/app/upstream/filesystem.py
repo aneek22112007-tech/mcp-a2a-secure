@@ -15,19 +15,11 @@ from typing import Any
 from app.auth.scopes import FILES_READ, FILES_WRITE
 from app.config import settings
 from app.sandbox.errors import SandboxUnavailableError
-from app.upstream.registry import (
-    UPSTREAM_ERROR_PREFIX,
-    RegisteredTool,
-    contract_fingerprint,
-    register_spec,
-    register_upstream,
-    upstream_status,
-    upstream_tool,
-)
 from app.upstream.spec import UpstreamSpec
 
 PREFIX = "fs_"
 MOUNT = "/projects"
+UPSTREAM_ERROR_PREFIX = "Upstream error: "
 CONTRACT_CHANGED = (
     f"{UPSTREAM_ERROR_PREFIX}Upstream tool contract changed since startup"
 )
@@ -57,9 +49,6 @@ WRITE_TOOLS = frozenset(
     }
 )
 _PATH_KEYS = ("path", "source", "destination")
-
-# Type alias for backwards compatibility
-FilesystemTool = RegisteredTool
 
 
 def _scope_for(upstream_name: str) -> str | None:
@@ -166,6 +155,18 @@ FILESYSTEM = UpstreamSpec(
     pids_limit=128,
 )
 FILESYSTEM_SPEC = FILESYSTEM
+
+from app.upstream.registry import (
+    RegisteredTool,
+    contract_fingerprint,
+    register_spec,
+    register_upstream,
+    upstream_status,
+    upstream_tool,
+)
+
+# Type alias for backwards compatibility
+FilesystemTool = RegisteredTool
 
 # Auto-register filesystem spec into global registry
 register_spec(FILESYSTEM)

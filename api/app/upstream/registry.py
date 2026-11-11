@@ -79,6 +79,9 @@ def get_spec(spec_id: str) -> UpstreamSpec | None:
 
 def all_specs() -> list[UpstreamSpec]:
     """Return all currently registered UpstreamSpecs."""
+    for spec in SPECS:
+        if spec.id not in _specs:
+            register_spec(spec)
     return list(_specs.values())
 
 
@@ -123,6 +126,9 @@ def upstream_status(spec: UpstreamSpec) -> dict[str, Any]:
 
 async def register_upstreams() -> None:
     """Iterate through all registered specs and discover/register tools."""
+    for spec in SPECS:
+        if spec.id not in _specs:
+            register_spec(spec)
     for spec in list(_specs.values()):
         await register_upstream(spec)
 
@@ -365,3 +371,12 @@ def reset_registry() -> None:
     _specs.clear()
     _spec_availability.clear()
     _spec_details.clear()
+
+
+# Static upstream specifications known to the gateway
+from app.upstream.filesystem import FILESYSTEM
+from app.upstream.lab import LAB
+
+SPECS: list[UpstreamSpec] = [FILESYSTEM, LAB]
+for _initial_spec in SPECS:
+    register_spec(_initial_spec)

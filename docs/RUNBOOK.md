@@ -59,6 +59,9 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | `UPSTREAM_FS_DIR` | `api/data/shared` (`/app/data/shared` in container) | Local & Compose | Host or container path mapped to `/projects` |
 | `UPSTREAM_FS_SOURCE` | unset (`volume:mcpg_shared` in Compose) | Docker / Compose | `volume:<name>` mounted at `/projects` instead of bind mount |
 | `UPSTREAM_FS_TIMEOUT_S` | `30.0` | Local & Compose | Timeout in seconds for one filesystem container run, including image startup |
+| `UPSTREAM_LAB_ENABLED` | `false` | Local only | Register the hostile lab MCP server as `lab_` tools. Development/testing only |
+| `UPSTREAM_LAB_IMAGE` | `mcp-guard-upstream-lab:current` | Local only | Image tag started once per `lab_` call |
+| `UPSTREAM_LAB_TIMEOUT_S` | `10.0` | Local only | Timeout in seconds for one lab container execution |
 | `TOOL_PINNING_MODE` | `off` (`enforce` in Compose) | Local & Compose | Pinning enforcement: `off`, `warn`, or `enforce`. In Compose, defaults to `enforce` |
 | `TOOL_PINNING_BOOTSTRAP_APPROVE` | `false` | Local & Compose | Automatically approve current catalog at startup. Refused in production |
 | `TOOL_PINNING_CACHE_TTL_S` | `5` | Local & Compose | Seconds pin rows stay cached in memory. Approve, revoke, and sync clear cache |
@@ -286,6 +289,29 @@ To verify the end-to-end filesystem upstream container pipeline:
 5. Verify container cleanup: ensure `docker ps -a --filter label=mcp_guard.sandbox=1` returns 0 entries.
 
 `GET /api/upstreams` (`tools:read`) returns one object per upstream. `detail` is `disabled`, `unavailable`, or `ok`. A call that times out or is refused still removes its container. The same `docker ps` filter above should be empty.
+
+### Hostile lab upstream (Development / Testing Only)
+
+`UPSTREAM_LAB_ENABLED` defaults to `false`. When enabled, the hostile lab MCP server is registered as `lab_` tools. During API startup, a container of `UPSTREAM_LAB_IMAGE` is started via the generic upstream registry to discover and register tool definitions.
+
+**Development-only safety constraints**:
+- Production-like environments (`ENVIRONMENT=prod` or `ENVIRONMENT=production`) strictly reject `UPSTREAM_LAB_ENABLED=true` during configuration initialization with `UPSTREAM_LAB_ENABLED is not allowed in production`.
+- The lab upstream is designed solely for testing gateway defenses against hostile or compromised MCP servers.
+
+**Docker Images & Selection**:
+- Build both versioned images before enabling the lab upstream:
+  ```bash
+  ./api/scripts/build_upstream_lab_image.sh
+  ```
+  This creates `mcp-guard-upstream-lab:v1`, `mcp-guard-upstream-lab:v2`, and tags `current` to `v1`.
+- `UPSTREAM_LAB_IMAGE` selects the container image tag executed by the generic upstream runner (default: `mcp-guard-upstream-lab:current`).
+- `UPSTREAM_LAB_TIMEOUT_S` controls the container execution timeout in seconds (default: `10.0`).
+- To switch versions between tests, run `./api/scripts/build_upstream_lab_image.sh use v1` or `use v2`.
+
+**Scopes and Authorization**:
+- All 15 v1 tools in `LAB_TOOLS` are mapped dynamically to the `lab:call` scope.
+- In v2, `sync_contacts` is intentionally unregistered in `LAB_TOOLS`, leaving its scope unmapped (`scope_for` returns `None`). Calls to `lab_sync_contacts` are fail-closed denied by `McpToolScopeMiddleware`.
+- All lab tools execute in read-only containers (`read_only_for` returns `True`) with strict resource limits (128 MB RAM, 64 PIDs, `--network none`, no filesystem host mounts).
 
 ---
 

@@ -87,6 +87,7 @@ async def lifespan(app: FastAPI):
         set_recorder(DbLLMCallRecorder())
 
     import app.upstream.filesystem
+    import app.upstream.lab
     from app.upstream.registry import register_upstreams
 
     await register_upstreams()

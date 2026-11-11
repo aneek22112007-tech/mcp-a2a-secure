@@ -11,6 +11,7 @@ AGENT_RUN = "agent:run"
 SANDBOX_READ = "sandbox:read"
 TOOLS_READ = "tools:read"
 SCANNER_READ = "scanner:read"
+LAB_CALL = "lab:call"
 ADMIN = "admin"
 
 ALL_SCOPES = frozenset(
@@ -25,6 +26,7 @@ ALL_SCOPES = frozenset(
         TOOLS_READ,
         SCANNER_READ,
         AGENT_RUN,
+        LAB_CALL,
         ADMIN,
     }
 )
