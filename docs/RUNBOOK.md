@@ -292,26 +292,31 @@ To verify the end-to-end filesystem upstream container pipeline:
 
 ### Hostile lab upstream (Development / Testing Only)
 
-`UPSTREAM_LAB_ENABLED` defaults to `false`. When enabled, the hostile lab MCP server is registered as `lab_` tools. During API startup, a container of `UPSTREAM_LAB_IMAGE` is started via the generic upstream registry to discover and register tool definitions.
+The hostile lab upstream provides a real, deliberately hostile MCP server in an isolated container to exercise gateway security defenses. See [docs/UPSTREAM_LAB.md](UPSTREAM_LAB.md) for full catalog, architecture, and attack verification procedures.
 
-**Development-only safety constraints**:
-- Production-like environments (`ENVIRONMENT=prod` or `ENVIRONMENT=production`) strictly reject `UPSTREAM_LAB_ENABLED=true` during configuration initialization with `UPSTREAM_LAB_ENABLED is not allowed in production`.
-- The lab upstream is designed solely for testing gateway defenses against hostile or compromised MCP servers.
+**Configuration Settings**:
+- `UPSTREAM_LAB_ENABLED` (default: `false`): Enables discovery and registration of hostile lab tools as `lab_*` at startup. Must remain `false` in production. Setting this to `true` when `ENVIRONMENT` is `production`, `prod`, or `staging` causes `Settings` validation to fail fast with `ValueError("UPSTREAM_LAB_ENABLED is not allowed in production")`.
+- `UPSTREAM_LAB_IMAGE` (default: `mcp-guard-upstream-lab:current`): Container image tag used for tool discovery at startup and executed once per `lab_*` tool invocation by the generic upstream runner.
+- `UPSTREAM_LAB_TIMEOUT_S` (default: `10.0`): Execution timeout in seconds for one lab container execution. Independent of `SANDBOX_TIMEOUT_S` and `UPSTREAM_FS_TIMEOUT_S`.
 
-**Docker Images & Selection**:
+**Scopes and Authorization**:
+- The hostile lab is gated by the dedicated `lab:call` scope.
+- In addition to `agent:run` required by `/mcp/`, any API key invoking a lab tool must explicitly possess the `lab:call` scope. Calls from keys without `lab:call` are denied with HTTP 403 `FORBIDDEN` and an `auth.deny` audit event with reason `insufficient_scope:lab:call`.
+- All 15 v1 tools in `LAB_TOOLS` are mapped dynamically to `lab:call`.
+- In v2, `sync_contacts` is intentionally unmapped (`scope_for` returns `None`), causing invocations to fail closed with HTTP 403 `unmapped_tool`.
+
+**Container Isolation & Safe Development Usage**:
 - Build both versioned images before enabling the lab upstream:
   ```bash
   ./api/scripts/build_upstream_lab_image.sh
   ```
   This creates `mcp-guard-upstream-lab:v1`, `mcp-guard-upstream-lab:v2`, and tags `current` to `v1`.
-- `UPSTREAM_LAB_IMAGE` selects the container image tag executed by the generic upstream runner (default: `mcp-guard-upstream-lab:current`).
-- `UPSTREAM_LAB_TIMEOUT_S` controls the container execution timeout in seconds (default: `10.0`).
-- To switch versions between tests, run `./api/scripts/build_upstream_lab_image.sh use v1` or `use v2`.
-
-**Scopes and Authorization**:
-- All 15 v1 tools in `LAB_TOOLS` are mapped dynamically to the `lab:call` scope.
-- In v2, `sync_contacts` is intentionally unregistered in `LAB_TOOLS`, leaving its scope unmapped (`scope_for` returns `None`). Calls to `lab_sync_contacts` are fail-closed denied by `McpToolScopeMiddleware`.
-- All lab tools execute in read-only containers (`read_only_for` returns `True`) with strict resource limits (128 MB RAM, 64 PIDs, `--network none`, no filesystem host mounts).
+- To switch contract versions between tests, run `./api/scripts/build_upstream_lab_image.sh use v1` or `use v2`.
+- All lab tools execute in hardened, read-only containers (`read_only_for` returns `True`) with strict limits (128 MB RAM, 64 PIDs, `--network none`, dropped Linux capabilities, and no filesystem host mounts).
+- Containers are short-lived and automatically removed upon exit (`--rm`). Verify that no lingering containers remain with:
+  ```bash
+  docker ps -q --filter label=mcp_guard.sandbox=1
+  ```
 
 ---
 

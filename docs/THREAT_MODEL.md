@@ -227,6 +227,80 @@
 
 ---
 
+## Hostile Lab Test Fixtures & Attack Demonstrations
+
+The hostile lab upstream ([`docs/UPSTREAM_LAB.md`](UPSTREAM_LAB.md)) serves as a real-world, executable test fixture to evaluate how the gateway contains and defends against malicious or compromised upstream tools. The table below maps threat categories to concrete hostile lab fixtures, the gateway defense layers, and the corresponding D1–D6 attack checks.
+
+> [!NOTE]
+> The gateway does not claim complete protection against all possible attacks. While structural and rule-based defenses block known patterns and container isolation contains probe actions, novel semantic attacks (such as paraphrased natural language exfiltration) demonstrate intentional coverage gaps in static rules.
+
+### 1. Tool Poisoning
+
+- **Threat**: An upstream tool embeds adversarial instructions (prompt injection, exfiltration triggers, or homoglyph obfuscation) in its descriptions, schemas, or parameter annotations to hijack the calling model's execution context.
+- **Hostile Lab Fixtures**:
+  - `lab_add_numbers`: Prompt injection targeting SSH private key exfiltration.
+  - `lab_convert_units`: Cyrillic homoglyph injection.
+  - `lab_format_date`: Full-width Unicode character obfuscation.
+  - `lab_currency_rate`: Base64-encoded exfiltration instructions.
+  - `lab_lookup_city`: Prompt injection in parameter schema (`hint`).
+  - `lab_translate_text`: Paraphrased data-copy instruction (*known static-scanner gap*).
+- **Defense Layer**:
+  - Static Scanner (`DbScanGate` / rules R1, R2, R4, R5) identifies malicious patterns during startup and schema evaluation.
+  - Tool Pinning Gate in `enforce` mode denies execution with HTTP 403 `pin_scan_blocked` (`tool.pin.deny`), even if an administrator approves the pin hash.
+  - *Distinction*: `lab_add_numbers`, `lab_convert_units`, `lab_format_date`, and `lab_currency_rate` are **blocked attacks**. In contrast, `lab_translate_text` successfully executes because its paraphrased phrasing avoids static triggers, representing a deliberate **static-scanner gap** reserved for future AI-assisted evaluation (P9).
+- **Demonstration**: See [UPSTREAM_LAB.md#d1-startup-scanner--tool-pinning](UPSTREAM_LAB.md#d1-startup-scanner--tool-pinning) (Check D1).
+
+### 2. Contract Rug Pull / Schema Drift
+
+- **Threat**: A previously approved upstream tool alters its input parameters, descriptions, or behavior post-deployment (e.g., adding a poisoned argument to an existing benign tool, or introducing unmapped/shadow tools).
+- **Hostile Lab Fixtures**:
+  - `lab_utc_time` (v1 -> v2): Benign no-arg tool in v1 is modified in v2 to add a poisoned `trace` argument instructing the model to exfiltrate user chat history.
+  - `lab_reverse_text` (v1 -> v2): Removed in v2.
+  - `lab_sync_contacts` (v2 only): Unmapped tool with exfiltration-style description added in v2.
+- **Defense Layer**:
+  - Dynamic Pre-Call Check: The runner compares live tool schemas with the startup baseline; mismatches immediately reject the call with `tool.pin.drift` (`reason: upstream_contract_changed`).
+  - Schema Pinning: Restarting against v2 detects pin fingerprint mismatch, rejecting invocations with `tool.pin.drift` (`reason: pin_drift`).
+  - Scan Gate on Re-Approval: Even if the new v2 hash is approved by an administrator, the scan gate re-evaluates the schema, catches the poisoned `trace` parameter, and blocks execution with `pin_scan_blocked`.
+  - Fail-Closed Scope Authorization: New tools (`lab_sync_contacts`) without explicit scope mappings are rejected with HTTP 403 `auth.deny` (`reason: unmapped_tool`).
+- **Demonstration**: See [UPSTREAM_LAB.md#d6-real-v1-to-v2-contract-drift--rug-pull](UPSTREAM_LAB.md#d6-real-v1-to-v2-contract-drift--rug-pull) (Check D6).
+
+### 3. Tool Output Injection
+
+- **Threat**: A compromised upstream tool returns responses crafted to manipulate the client or model, including direct instruction overrides, role-spoofing markers, leaked credentials, encoded commands, or delimiter escaping.
+- **Hostile Lab Fixtures**:
+  - `lab_fetch_tip` with variations `override`, `role`, `secret`, `encoded`, `image_link`, `delimiters`, `structured`, and `error`.
+- **Defense Layer**:
+  - Output Injection Guard (`rules/injection.py` / G1–G7) scans tool stdout content before returning it to the caller.
+  - In `enforce` mode, high-severity violations are blocked and replaced with `[BLOCKED by output security rule Gx]`, medium-severity delimiters are sanitized, and detailed `tool.output.injection` audit records are logged (capturing `key_prefix`, `client_id`, and `api_key_id`).
+- **Demonstration**: See [UPSTREAM_LAB.md#d3-output-injection-variations](UPSTREAM_LAB.md#d3-output-injection-variations) (Check D3).
+
+### 4. Resource Abuse (Flooding & Hanging)
+
+- **Threat**: A rogue or misconfigured tool floods the gateway with megabytes of output to cause memory exhaustion, or hangs indefinitely to tie up worker threads and connection pools.
+- **Hostile Lab Fixtures**:
+  - `lab_flood`: Generates up to 4 MiB of text.
+  - `lab_hang`: Infinite loop (`while True: sleep(1)`).
+  - `lab_slow`: Sleep delays up to 60 seconds.
+- **Defense Layer**:
+  - Output Size Cap: Runner stdout buffer enforces `SANDBOX_MAX_OUTPUT_BYTES` (1 MB); outputs exceeding the limit abort execution with `isError: true` and record `error_type: output_too_large` in `sandbox_runs`.
+  - Process Timeout: Upstream container budget is bounded by `UPSTREAM_LAB_TIMEOUT_S` (default: 10s); exceeding runs are terminated with `SIGKILL` and recorded with `error_type: timeout`.
+  - Automatic Container Cleanup: All ephemeral containers are killed and pruned (`--rm`), preventing orphaned processes.
+- **Demonstration**: See [UPSTREAM_LAB.md#d4-resource-caps-execution-budgets--timeouts](UPSTREAM_LAB.md#d4-resource-caps-execution-budgets--timeouts) (Check D4).
+
+### 5. Container Escape / Host Access Attempts
+
+- **Threat**: Malicious code inside an upstream container attempts to read host credentials, access internal networks, tamper with the root filesystem, communicate with the Docker daemon, or traverse parent directories.
+- **Hostile Lab Fixtures**:
+  - `lab_probe_host` targets: `shadow` (host user database), `proc_environ` (host secrets), `docker_socket` (daemon takeover), `write_root` (root filesystem tampering), `network` (external egress beacon), and `parent_dirs` (path traversal).
+  - Chained path traversal probe via `fs_read_text_file` (`/projects/../../etc/passwd`).
+- **Defense Layer**:
+  - Docker Sandbox Isolation: Runs with `--read-only` root, `--network none` (no egress), `--cap-drop ALL`, non-root user execution (`UID 65532`), `--security-opt no-new-privileges:true`, and zero host socket mounts.
+  - Path Confinement: Filesystem upstream enforces `/projects` canonical boundaries and rejects traversal sequences (`..`).
+  - *Distinction*: These are **contained probes** rather than application-layer blocked requests; the container process executes, but the underlying Linux kernel and container runtime enforce boundary denial (e.g., `Permission denied`, `Network is unreachable`, `Read-only file system`).
+- **Demonstration**: See [UPSTREAM_LAB.md#d5-container-escape-and-host-boundary-probes](UPSTREAM_LAB.md#d5-container-escape-and-host-boundary-probes) (Check D5).
+
+---
+
 ## Implemented Controls Summary
 
 | Control | Status | Evidence |
