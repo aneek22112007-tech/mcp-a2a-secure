@@ -305,6 +305,9 @@ The hostile lab upstream provides a real, deliberately hostile MCP server in an 
 - All 15 v1 tools in `LAB_TOOLS` are mapped dynamically to `lab:call`.
 - In v2, `sync_contacts` is intentionally unmapped (`scope_for` returns `None`), causing invocations to fail closed with HTTP 403 `unmapped_tool`.
 
+**Production Safety & Docker Compose**:
+- **Deliberately kept out of `docker-compose.yml`**: The hostile lab is deliberately kept out of `docker-compose.yml` because Docker Compose is used for production deployment. The hostile lab image must never be deployed or orchestrated in production environments.
+
 **Container Isolation & Safe Development Usage**:
 - Build both versioned images before enabling the lab upstream:
   ```bash

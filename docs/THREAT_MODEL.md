@@ -270,8 +270,8 @@ The hostile lab upstream ([`docs/UPSTREAM_LAB.md`](UPSTREAM_LAB.md)) serves as a
 - **Hostile Lab Fixtures**:
   - `lab_fetch_tip` with variations `override`, `role`, `secret`, `encoded`, `image_link`, `delimiters`, `structured`, and `error`.
 - **Defense Layer**:
-  - Output Injection Guard (`rules/injection.py` / G1–G7) scans tool stdout content before returning it to the caller.
-  - In `enforce` mode, high-severity violations are blocked and replaced with `[BLOCKED by output security rule Gx]`, medium-severity delimiters are sanitized, and detailed `tool.output.injection` audit records are logged (capturing `key_prefix`, `client_id`, and `api_key_id`).
+  - Output Injection Guard (`rules/injection.py` / G1–G6) scans tool stdout content before returning it to the caller.
+  - In `enforce` mode, high-severity violations are blocked and replaced with `[BLOCKED: Tool output blocked by injection guard (rule Gx)]`, medium-severity delimiters are sanitized, and detailed `tool.output.injection` audit records are logged (capturing `key_prefix`, `client_id`, and `api_key_id`).
 - **Demonstration**: See [UPSTREAM_LAB.md#d3-output-injection-variations](UPSTREAM_LAB.md#d3-output-injection-variations) (Check D3).
 
 ### 4. Resource Abuse (Flooding & Hanging)
@@ -282,7 +282,7 @@ The hostile lab upstream ([`docs/UPSTREAM_LAB.md`](UPSTREAM_LAB.md)) serves as a
   - `lab_hang`: Infinite loop (`while True: sleep(1)`).
   - `lab_slow`: Sleep delays up to 60 seconds.
 - **Defense Layer**:
-  - Output Size Cap: Runner stdout buffer enforces `SANDBOX_MAX_OUTPUT_BYTES` (1 MB); outputs exceeding the limit abort execution with `isError: true` and record `error_type: output_too_large` in `sandbox_runs`.
+  - Output Size Cap: Runner stdout buffer enforces `SANDBOX_MAX_OUTPUT_BYTES` (1 MB); outputs exceeding the limit abort execution with `isError: true`, message `"The lab tool output is too large."`, and record `error_type: output_too_large` in `sandbox_runs`.
   - Process Timeout: Upstream container budget is bounded by `UPSTREAM_LAB_TIMEOUT_S` (default: 10s); exceeding runs are terminated with `SIGKILL` and recorded with `error_type: timeout`.
   - Automatic Container Cleanup: All ephemeral containers are killed and pruned (`--rm`), preventing orphaned processes.
 - **Demonstration**: See [UPSTREAM_LAB.md#d4-resource-caps-execution-budgets--timeouts](UPSTREAM_LAB.md#d4-resource-caps-execution-budgets--timeouts) (Check D4).
@@ -294,7 +294,7 @@ The hostile lab upstream ([`docs/UPSTREAM_LAB.md`](UPSTREAM_LAB.md)) serves as a
   - `lab_probe_host` targets: `shadow` (host user database), `proc_environ` (host secrets), `docker_socket` (daemon takeover), `write_root` (root filesystem tampering), `network` (external egress beacon), and `parent_dirs` (path traversal).
   - Chained path traversal probe via `fs_read_text_file` (`/projects/../../etc/passwd`).
 - **Defense Layer**:
-  - Docker Sandbox Isolation: Runs with `--read-only` root, `--network none` (no egress), `--cap-drop ALL`, non-root user execution (`UID 65532`), `--security-opt no-new-privileges:true`, and zero host socket mounts.
+  - Docker Sandbox Isolation: Runs with `--read-only` root, `--network none` (no egress), `--cap-drop ALL`, non-root user execution (`UID 65534:65534`), `--security-opt no-new-privileges:true`, and zero host socket mounts.
   - Path Confinement: Filesystem upstream enforces `/projects` canonical boundaries and rejects traversal sequences (`..`).
   - *Distinction*: These are **contained probes** rather than application-layer blocked requests; the container process executes, but the underlying Linux kernel and container runtime enforce boundary denial (e.g., `Permission denied`, `Network is unreachable`, `Read-only file system`).
 - **Demonstration**: See [UPSTREAM_LAB.md#d5-container-escape-and-host-boundary-probes](UPSTREAM_LAB.md#d5-container-escape-and-host-boundary-probes) (Check D5).
