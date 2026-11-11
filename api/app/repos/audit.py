@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit_events import (
@@ -93,6 +93,37 @@ async def list_events(
     else:
         statement = statement.order_by(AuditEvent.created_at.asc(), AuditEvent.id.asc())
     statement = statement.limit(limit).offset(offset)
+    result = await session.execute(statement)
+    return list(result.scalars().all())
+
+
+async def list_security_events(
+    session: AsyncSession,
+    *,
+    start: datetime,
+    limit: int,
+) -> list[AuditEvent]:
+    """Denied rows, plus injection hits, newest first.
+
+    A warn-mode or cleaned injection is ``allowed`` and still a security event.
+    ``limit`` is the caller's cap. It is not the audit page size.
+    """
+
+    if limit < 1:
+        raise ValueError("limit must be at least 1")
+    statement = (
+        select(AuditEvent)
+        .where(AuditEvent.created_at >= start)
+        .where(
+            or_(
+                AuditEvent.decision == AUDIT_DECISION_DENIED,
+                # String, not the events constant: app.audit imports this module.
+                AuditEvent.action == "tool.output.injection",
+            )
+        )
+        .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
+        .limit(limit)
+    )
     result = await session.execute(statement)
     return list(result.scalars().all())
 
