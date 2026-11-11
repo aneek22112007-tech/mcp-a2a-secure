@@ -38,9 +38,7 @@ def upgrade() -> None:
             "latency_ms", sa.Float(), nullable=False, server_default=sa.text("0.0")
         ),
         sa.Column("status", sa.String(length=50), nullable=False),
-        sa.Column(
-            "fell_back", sa.Boolean(), nullable=False, server_default=sa.text("0")
-        ),
+        sa.Column("fell_back", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("key_prefix", sa.String(length=20), nullable=True),
         sa.Column("request_id", sa.String(length=64), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False),

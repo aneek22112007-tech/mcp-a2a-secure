@@ -23,41 +23,61 @@
 
 ## Environment Variables
 
-All API variables are loaded from `api/.env` (copy `api/.env.example`).
+All API variables can be loaded from `api/.env` for local development (copy `api/.env.example`) or from the repository root `.env` for Docker Compose deployments (copy `.env.compose.example`).
 **Never commit `.env` files or secret values to version control.**
 
-### FastAPI backend (`api/.env`)
+### Configuration table
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_NAME` | `MCP Guard` | Application display name |
-| `ENVIRONMENT` | `dev` | Controls docs visibility. Set to `production` to disable `/docs`, `/redoc`, `/openapi.json` |
-| `CORS_ORIGINS` | `["http://localhost:5173"]` | JSON array of allowed CORS origins |
-| `MCP_SELF_URL` | `http://127.0.0.1:8000/mcp/` | URL the status endpoint probes |
-| `DATABASE_URL` | `sqlite+aiosqlite:///data/mcp_guard.db` | Async SQLAlchemy connection URL |
-| `NOTES_DIR` | `api/data/notes` | Directory for note `.md` files |
-| `MAX_BODY_BYTES` | `1048576` (1 MiB) | HTTP request body size limit |
-| `TOOL_TIMEOUT_S` | `5.0` | MCP tool invocation timeout (seconds). Must be greater than `SANDBOX_TIMEOUT_S` |
-| `SANDBOX_MODE` | `docker` | `docker` or `inprocess`. Production refuses `inprocess` |
-| `SANDBOX_IMAGE` | `mcp-guard-tool-runner:local` | Image built by `api/scripts/build_sandbox_image.sh` |
-| `SANDBOX_TIMEOUT_S` | `4` | Seconds for one sandbox run |
-| `SANDBOX_MEMORY` | `128m` | Container memory and memory-swap limit |
-| `SANDBOX_CPUS` | `0.5` | Container CPU limit |
-| `SANDBOX_PIDS_LIMIT` | `64` | Process limit inside the container |
-| `SANDBOX_MAX_FILE_BYTES` | `1048576` | Largest file the container may write |
-| `SANDBOX_MAX_OUTPUT_BYTES` | `1048576` | Largest tool result accepted |
-| `SANDBOX_MAX_CONCURRENT` | `4` | Active sandbox runs. A full queue returns 503 |
-| `SANDBOX_NETWORK` | `none` | Docker network. `host` is rejected. Production requires `none` |
-| `SANDBOX_RUN_AS` | `65534:65534` | `uid:gid` inside the container |
-| `SANDBOX_NOTES_SOURCE` | unset | Absolute host path or `volume:<name>` mounted at `/notes` |
-| `SANDBOX_DOCKER_BIN` | `docker` | Docker CLI binary |
-| `TOOL_PINNING_MODE` | `off` | `off`, `warn`, or `enforce`. `enforce` denies a tool until its schema hash is approved |
-| `TOOL_PINNING_BOOTSTRAP_APPROVE` | `false` | Approve the current catalog at startup. Refused when `ENVIRONMENT` is production-like |
-| `TOOL_PINNING_CACHE_TTL_S` | `5` | Seconds pin rows stay cached. Approve, revoke, and sync clear the cache |
-| `SCANNER_ENABLED` | `True` | Scan tools for poisoning risks at startup |
-| `SCANNER_BLOCK_SEVERITIES` | `critical,high` | Comma-separated severities that block tool runs |
+| Variable | Default | Deployment Scope | Description |
+|----------|---------|------------------|-------------|
+| `APP_NAME` | `MCP Guard` | Local & Compose | Application display name |
+| `ENVIRONMENT` | `dev` (`production` in Compose) | Local & Compose | Controls docs visibility. Set to `production` to disable `/docs`, `/redoc`, `/openapi.json` and enable production validations |
+| `POSTGRES_PASSWORD` | unset (no default) | Compose (Required) | Password for PostgreSQL service. Required by Compose syntax `${POSTGRES_PASSWORD:?...}` |
+| `API_KEY_PEPPER` | unset (no default) | Compose & Production | Pepper for hashing API keys. Required in production and Compose (`${API_KEY_PEPPER:?...}`) |
+| `CORS_ORIGINS` | `["http://localhost:5173"]` | Local & Compose | JSON array of allowed CORS origins |
+| `MCP_SELF_URL` | `http://127.0.0.1:8000/mcp/` | Local & Compose | URL probed by the `/api/status` endpoint |
+| `MCP_SELF_API_KEY` | unset (`None`) | Local & Compose | API key with `agent:run` used by `/api/status` to probe `/mcp/`. Amber status if unset |
+| `DATABASE_URL` | `sqlite+aiosqlite:///data/mcp_guard.db` | Local & Compose | Async SQLAlchemy URL. SQLite in local dev; `postgresql+asyncpg://...` in Compose |
+| `NOTES_DIR` | `api/data/notes` (`/app/data/notes` in container) | Local & Compose | Directory for note `.md` files inside the API environment |
+| `MAX_BODY_BYTES` | `1048576` (1 MiB) | Local & Compose | HTTP request body size limit |
+| `TOOL_TIMEOUT_S` | `5.0` | Local & Compose | MCP tool invocation timeout (seconds). Must exceed `SANDBOX_TIMEOUT_S` |
+| `SANDBOX_MODE` | `docker` | Local & Compose | Sandbox executor mode: `docker` or `inprocess`. Production refuses `inprocess` |
+| `SANDBOX_IMAGE` | `mcp-guard-tool-runner:local` | Local & Compose | Image built by `api/scripts/build_sandbox_image.sh` |
+| `SANDBOX_TIMEOUT_S` | `4` | Local & Compose | Seconds for one tool-runner sandbox run |
+| `SANDBOX_MEMORY` | `128m` | Local & Compose | Container memory and memory-swap limit |
+| `SANDBOX_CPUS` | `0.5` | Local & Compose | Container CPU limit |
+| `SANDBOX_PIDS_LIMIT` | `64` | Local & Compose | Process limit inside the sandbox container |
+| `SANDBOX_MAX_FILE_BYTES` | `1048576` | Local & Compose | Largest file the sandbox container may write |
+| `SANDBOX_MAX_OUTPUT_BYTES` | `1048576` | Local & Compose | Largest tool result accepted |
+| `SANDBOX_MAX_CONCURRENT` | `4` | Local & Compose | Active concurrent sandbox runs. A full queue returns 503 |
+| `SANDBOX_NETWORK` | `none` | Local & Compose | Docker network for sandbox containers. Production requires `none` |
+| `SANDBOX_RUN_AS` | `65534:65534` | Local & Compose | `uid:gid` inside the sandbox container (`nobody:nogroup`) |
+| `SANDBOX_NOTES_SOURCE` | unset (`volume:mcpg_notes` in Compose) | Docker / Compose | Host path or `volume:<name>` mounted at `/notes` |
+| `SANDBOX_DOCKER_BIN` | `docker` | Local & Compose | Docker CLI binary executable |
+| `UPSTREAM_FS_ENABLED` | `false` (`true` in Compose) | Local & Compose | Enable the official filesystem MCP server as `fs_` tools |
+| `UPSTREAM_FS_IMAGE` | `mcp-guard-upstream-fs:2.2.0` | Local & Compose | Image tag built by `api/scripts/build_upstream_fs_image.sh` |
+| `UPSTREAM_FS_DIR` | `api/data/shared` (`/app/data/shared` in container) | Local & Compose | Host or container path mapped to `/projects` |
+| `UPSTREAM_FS_SOURCE` | unset (`volume:mcpg_shared` in Compose) | Docker / Compose | `volume:<name>` mounted at `/projects` instead of bind mount |
+| `UPSTREAM_FS_TIMEOUT_S` | `30.0` | Local & Compose | Timeout in seconds for one filesystem container run, including image startup |
+| `TOOL_PINNING_MODE` | `off` (`enforce` in Compose) | Local & Compose | Pinning enforcement: `off`, `warn`, or `enforce`. In Compose, defaults to `enforce` |
+| `TOOL_PINNING_BOOTSTRAP_APPROVE` | `false` | Local & Compose | Automatically approve current catalog at startup. Refused in production |
+| `TOOL_PINNING_CACHE_TTL_S` | `5` | Local & Compose | Seconds pin rows stay cached in memory. Approve, revoke, and sync clear cache |
+| `SCANNER_ENABLED` | `True` | Local & Compose | Scan tools for poisoning risks at startup |
+| `SCANNER_BLOCK_SEVERITIES` | `critical,high` | Local & Compose | Comma-separated severities that block tool runs when pinning is enforced |
+| `RATE_LIMIT_CAPACITY` | `30` | Local & Compose | Token bucket maximum capacity for per-key rate limiting |
+| `RATE_LIMIT_REFILL_RATE_PER_SEC` | `5.0` | Local & Compose | Tokens refilled per second in the token bucket rate limiter |
+| `INJECTION_GUARD_MODE` | `warn` (`enforce` in Compose) | Local & Compose | Injection guard mode: `off`, `warn`, or `enforce`. In production, `off` is rejected |
+| `ENABLE_RETENTION_SCHEDULER` | `false` (`true` in Compose) | Local & Compose | Enable background retention scheduler task |
+| `LLM_ENABLED` | `false` | Local & Compose | Enable LLM calls for notes agent. When false, agent returns 503 |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` (`http://host.docker.internal:11434` in Compose) | Local & Compose | Base URL of local Ollama server |
+| `GROQ_API_KEY` | unset (`None`) | Local & Compose | Optional Groq API key fallback |
+| `NOTES_AGENT_API_KEY` | unset (`None`) | Local & Compose | Optional API key for notes agent self-calls to `/mcp/` |
+| `WORKER_NOTES_API_KEY` | unset (`None`) | Local & Compose | Optional API key for A2A worker notes calls |
 
-> **Production requirement**: Set `ENVIRONMENT=production` to disable API documentation endpoints. The default `dev` keeps docs enabled and is suitable only for local development.
+> **Production requirement**: Set `ENVIRONMENT=production` to disable API documentation endpoints (`/docs`, `/redoc`, `/openapi.json`) and activate strict production validations in `Settings.model_post_init`. Docker Compose runs in `production` mode by default.
+
+> [!WARNING]
+> **Docker daemon socket security**: Mounting `/var/run/docker.sock` grants the API container control over the host Docker daemon. While the container attempts to step down to `nobody:nogroup` (UID 65534), socket access inherently carries host-level security implications. Protect access to the host and restrict container privileges in production.
 
 ### Express auth proxy (`backend/.env`)
 
@@ -232,13 +252,38 @@ SANDBOX_NOTES_SOURCE=volume:<name>
 
 ### Filesystem upstream
 
-`UPSTREAM_FS_ENABLED` defaults to false. The notes tools do not change. With it set to true, startup runs one container of `UPSTREAM_FS_IMAGE` to copy that server's tool list. If that container cannot start, the API still starts and registers no `fs_` tools.
+`UPSTREAM_FS_ENABLED` defaults to `false`. When enabled, the official filesystem MCP server is registered as `fs_` tools. During API startup, a short-lived container of `UPSTREAM_FS_IMAGE` is started to discover and copy the upstream tool definitions. If that container cannot start, the API still starts safely and registers no `fs_` tools.
+
+Build the filesystem upstream container image:
 
 ```bash
 ./api/scripts/build_upstream_fs_image.sh
 ```
 
-Each `fs_` call uses a new container. Read tools mount `UPSTREAM_FS_DIR` read-only at `/projects`. The directory is created on first use. Details, scopes, path rules, and the two pin checks are in [UPSTREAM_FILESYSTEM.md](UPSTREAM_FILESYSTEM.md).
+**Docker Named Volume & Mount Semantics**:
+- In Docker Compose, `UPSTREAM_FS_SOURCE=volume:mcpg_shared` configures the runner to mount the `mcpg_shared` Docker named volume as `/projects` inside each upstream container.
+- The API container mounts the same volume at `/app/data/shared`, enabling shared read/write access between the API service and the sandboxed filesystem tools.
+- **Read-only tools** (`fs_read_text_file`, `fs_list_directory`, `fs_directory_tree`, etc.) mount the volume in read-only mode (`readonly`).
+- **Write tools** (`fs_write_file`, `fs_edit_file`, `fs_create_directory`, etc.) mount the volume in writable mode.
+- Each filesystem tool call runs inside a fresh container with dropped Linux capabilities, network isolation (`none`), and non-root user execution (`nobody:nogroup`, UID/GID 65534:65534).
+- Containers are automatically removed upon completion (`--rm` and process cleanup).
+
+**Path Security & Tool Pinning**:
+- The path guard validates all arguments (`path`, `source`, `destination`). Path traversal leaving `/projects` (`..`) and symlink references are rejected with an upstream error before execution.
+- When `TOOL_PINNING_MODE=enforce` is active (the default in Compose), filesystem tools are **not** automatically trusted or approved. They are discovered with `pending` status and must be approved individually via `POST /api/pins/{tool_name}/approve`.
+- More details, scopes (`files:read`, `files:write`), and schema contract hashing are documented in [docs/UPSTREAM_FILESYSTEM.md](UPSTREAM_FILESYSTEM.md).
+
+#### Part 0.1 Verification Procedure (Filesystem Upstream End-to-End)
+
+To verify the end-to-end filesystem upstream container pipeline:
+1. Write a test file into `/app/data/shared` inside the API container:
+   ```bash
+   docker compose exec api sh -c 'echo "hello from mcpg_shared" > /app/data/shared/hello.txt'
+   ```
+2. Read the file through the MCP gateway using `fs_read_text_file` (with an approved pin and an API key with `files:read` scope).
+3. Verify the recorded sandbox run reports `mode=docker` via `GET /api/sandbox/runs`.
+4. Verify the container image in the run record is `mcp-guard-upstream-fs:2.2.0`.
+5. Verify container cleanup: ensure `docker ps -a --filter label=mcp_guard.sandbox=1` returns 0 entries.
 
 `GET /api/upstreams` (`tools:read`) returns one object per upstream. `detail` is `disabled`, `unavailable`, or `ok`. A call that times out or is refused still removes its container. The same `docker ps` filter above should be empty.
 
@@ -361,7 +406,7 @@ uv run alembic check       # verify the DB matches the latest head
 
 ## Rate Limiting
 
-The application uses an in-memory token bucket rate limiter to protect both REST routes and the MCP stream. Each API key consumes a single shared token bucket across both REST and MCP requests, preventing clients from doubling their allowance across interfaces. By default, the capacity is `100` and the refill rate is `10.0` tokens per second.
+The application uses an in-memory token bucket rate limiter to protect both REST routes and the MCP stream. Each API key consumes a single shared token bucket across both REST and MCP requests, preventing clients from doubling their allowance across interfaces. By default, the capacity is `30` tokens and the refill rate is `5.0` tokens per second.
 
 If 429 Too Many Requests responses are frequent:
 
@@ -381,31 +426,52 @@ If 504 Gateway Timeout responses occur frequently:
 
 ---
 
-## Verifying the audit trigger on Postgres
+## PostgreSQL audit protection
 
-After applying the append-only migration on Postgres:
+PostgreSQL enforces append-only audit immutability directly in the database catalog using PostgreSQL triggers installed by migration `cc48301ff61d`:
+- `audit_events_append_only`: Rejects any direct `UPDATE` or `DELETE` attempt on `audit_events` (with an exception only for the foreign key `ON DELETE SET NULL` cascade on `api_key_id`).
+- `audit_events_no_truncate`: Rejects any `TRUNCATE` operation on `audit_events`.
+
+This protection is enforced by PostgreSQL at the database engine level, independent of and strictly stronger than application-level ORM checks:
 
 ```bash
 # Verify INSERT works
-psql -c "INSERT INTO audit_events (id, action, decision, status, created_at) VALUES ('t1', 'tool.call', 'allowed', 'ok', now())"
+docker compose exec postgres psql -U mcpg_user -d mcpg_guard -c \
+  "INSERT INTO audit_events (id, action, decision, status, created_at) VALUES ('t1', 'tool.call', 'allowed', 'ok', now());"
 
-# Verify UPDATE is blocked
-psql -c "UPDATE audit_events SET status = 'ok' WHERE id = 't1'"  # should FAIL
+# Verify UPDATE is rejected by trigger
+docker compose exec postgres psql -U mcpg_user -d mcpg_guard -c \
+  "UPDATE audit_events SET status = 'ok' WHERE id = 't1';"
+# Expected error: ERROR: audit_events is append-only: updates are not allowed
 
-# Verify DELETE is blocked
-psql -c "DELETE FROM audit_events WHERE id = 't1'"  # should FAIL
+# Verify DELETE is rejected by trigger
+docker compose exec postgres psql -U mcpg_user -d mcpg_guard -c \
+  "DELETE FROM audit_events WHERE id = 't1';"
+# Expected error: ERROR: audit_events is append-only: deletes are not allowed
 
-# Verify TRUNCATE is blocked
-psql -c "TRUNCATE audit_events CASCADE"  # should FAIL
-
-# Verify retention still works (uses SET LOCAL mcp_guard.audit_retention = 'on')
-uv run --with asyncpg python scripts/prune_audit.py --dry-run
-
-# Downgrade removes the triggers
-uv run --with asyncpg alembic downgrade bb37200ee50c
-psql -c "SELECT tgname FROM pg_trigger WHERE tgrelid = 'audit_events'::regclass"
-# expect 0 rows
+# Verify TRUNCATE is rejected by trigger
+docker compose exec postgres psql -U mcpg_user -d mcpg_guard -c \
+  "TRUNCATE audit_events CASCADE;"
+# Expected error: ERROR: audit_events is append-only: truncate is not allowed
 ```
+
+### Supported audit retention mechanism
+Pruning and retention are permitted exclusively through the supported retention pathway (`delete_events_before` in `app/repos/audit.py` or `scripts/prune_audit.py`). The retention query operates inside a dedicated transaction that sets the transaction-local configuration override:
+
+```sql
+BEGIN;
+SET LOCAL mcp_guard.audit_retention = 'on';
+DELETE FROM audit_events WHERE created_at < ...;
+COMMIT;
+```
+
+Because `SET LOCAL` is used, the bypass is strictly scoped to that single transaction and reverts automatically upon commit or rollback. Operators must never manually disable triggers or delete audit records outside this supported retention pathway.
+
+### SQLite audit protection limitation (M7)
+In local development environments using SQLite:
+- Audit immutability is enforced solely by the application-level SQLAlchemy ORM listener in `app/models/audit_events.py` (`before_update` and `before_delete`).
+- SQLite does not install database triggers and does not provide the same database-engine-level enforcement guarantees as PostgreSQL. Direct SQLite database queries outside the ORM can modify records.
+- PostgreSQL 16 is the supported database for deployments requiring guaranteed database-level audit immutability. SQLite remains supported for local developer workflows and unit tests.
 
 ---
 

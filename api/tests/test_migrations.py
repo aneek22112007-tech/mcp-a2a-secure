@@ -98,3 +98,40 @@ async def test_schema_validity(alembic_config):
         assert result.scalar() == "test_client"
 
     await engine.dispose()
+
+
+def test_llm_calls_boolean_default_compiles_across_dialects():
+    """Verify that fell_back column server_default compiles to false on PostgreSQL and 0 on SQLite."""
+    import sqlalchemy as sa
+    from sqlalchemy.dialects import postgresql, sqlite
+
+    col = sa.Column(
+        "fell_back", sa.Boolean(), nullable=False, server_default=sa.false()
+    )
+    pg_ddl = str(sa.schema.CreateColumn(col).compile(dialect=postgresql.dialect()))
+    sqlite_ddl = str(sa.schema.CreateColumn(col).compile(dialect=sqlite.dialect()))
+
+    assert "DEFAULT false" in pg_ddl
+    assert "DEFAULT 0" in sqlite_ddl
+
+
+def test_llm_calls_migration_generates_valid_postgres_ddl():
+    """Verify that Alembic offline migration for PostgreSQL generates valid boolean defaults."""
+    import io
+    import sys
+
+    cfg = Config("alembic.ini")
+    cfg.set_main_option(
+        "sqlalchemy.url",
+        "postgresql+asyncpg://mcpg_user:mcpg_dev_password@localhost:5432/mcpg_guard",
+    )
+
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+    try:
+        command.upgrade(cfg, "head", sql=True)
+        out = sys.stdout.getvalue()
+    finally:
+        sys.stdout = old_stdout
+
+    assert "fell_back BOOLEAN DEFAULT false" in out

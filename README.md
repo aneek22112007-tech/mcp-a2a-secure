@@ -131,7 +131,6 @@ Planned for v1.0 (target 31 October 2026):
 
 - An LLM-assisted scanner to catch complex semantic poisoning.
 - The rest of the GenAI work described below.
-- Docker Compose with PostgreSQL 16.
 
 ## GenAI
 
@@ -174,7 +173,128 @@ The LLM is never the final security authority. Authentication, scope checks, fin
 
 The full threat model is in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
-## Getting started
+## Run with Docker
+
+For a containerized deployment using Docker Compose and PostgreSQL 16:
+
+### 1. Environment configuration
+
+Copy the template environment file to the repository root:
+
+```bash
+cp .env.compose.example .env
+```
+
+> [!IMPORTANT]
+> The environment file requires two mandatory secrets without default fallbacks:
+> - `POSTGRES_PASSWORD`: Strong password for the PostgreSQL service.
+> - `API_KEY_PEPPER`: Cryptographically secure random pepper (at least 32 bytes) for hashing API keys.
+>
+> Compose strictly requires both variables (`${POSTGRES_PASSWORD:?...}` and `${API_KEY_PEPPER:?...}`) and will refuse to render or start if they are missing or unset. The placeholder values in `.env.compose.example` (`change-me` and `change-me-to-a-long-random-value`) **must** be replaced with generated secrets before starting services. Never commit `.env` or any file containing secret credentials to version control.
+
+### 2. Build images and start services
+
+Before starting Compose, build the required container images:
+
+```bash
+# Build the local Docker sandbox runner image
+./api/scripts/build_sandbox_image.sh
+
+# Build the official upstream filesystem MCP server image (tag: mcp-guard-upstream-fs:2.2.0)
+./api/scripts/build_upstream_fs_image.sh
+
+# Build the API image and start all services in the background
+docker compose up -d --build
+
+# Verify container status
+docker compose ps
+```
+
+Expected service states:
+- `mcp-a2a-secure-postgres-1`: `Up (healthy)` (PostgreSQL 16)
+- `mcp-a2a-secure-api-1`: `Up (healthy)` (FastAPI backend on port 8000)
+- `mcp-a2a-secure-notes-init-1`: `Exited (0)` (one-shot permissions initialization completed successfully)
+
+**Key architecture and security notes:**
+- **Production mode**: Compose sets `ENVIRONMENT=production` explicitly. Production post-init validations are active (enforcing `none` network for sandboxes, non-root run-as, and injection guard enforcement), and interactive API documentation (`/docs`, `/redoc`, `/openapi.json`) is disabled.
+- **Database isolation**: PostgreSQL does not publish a host port by default; the API connects via the internal Compose bridge network. To debug the database locally, uncomment the `ports` mapping in `docker-compose.yml`.
+- **Database migrations**: Alembic migrations run automatically on container startup via `api/docker/entrypoint.sh` before Uvicorn starts.
+- **Docker socket exposure**: The API container mounts `/var/run/docker.sock` to launch ephemeral sandbox runners and upstream filesystem containers. Mounting the Docker socket gives the container control over the host Docker daemon and carries host-level security implications.
+- **Structured logging**: Uvicorn runs with `--log-config log_config.json`, including request IDs (`rid=...`) on all log records.
+
+### 3. Verify health
+
+Verify the running API health endpoint:
+
+```bash
+curl http://127.0.0.1:8000/health
+# Response: {"status":"ok","app":"MCP Guard"}
+```
+
+### 4. Admin key and tool pin approvals
+
+Docker Compose defaults to `TOOL_PINNING_MODE=enforce`. When enforcement is active, unapproved tools are rejected with HTTP 403.
+
+1. **Generate an initial administrator key**:
+   ```bash
+   docker compose exec api python scripts/create_admin_key.py
+   ```
+   Store the printed API key securely. It is displayed only once.
+
+2. **Approve built-in notes tools**:
+   The built-in notes tools (`list_notes`, `read_note`, `write_note`) can be approved in bulk:
+   ```bash
+   docker compose exec api python scripts/approve_current_tools.py
+   ```
+
+3. **Synchronize and approve filesystem tools**:
+   Filesystem tools are **not** automatically trusted or approved. They must be registered as pending pins and approved individually through the REST API using an admin key:
+   ```bash
+   # Synchronize pending pins from the live tool catalog
+   curl -X POST -H "Authorization: Bearer <ADMIN_KEY>" http://127.0.0.1:8000/api/pins/sync
+
+   # Approve specific filesystem tools individually
+   curl -X POST -H "Authorization: Bearer <ADMIN_KEY>" \
+     -H "Content-Type: application/json" \
+     -d '{"note": "Approved for filesystem read"}' \
+     http://127.0.0.1:8000/api/pins/fs_read_text_file/approve
+
+   curl -X POST -H "Authorization: Bearer <ADMIN_KEY>" \
+     -H "Content-Type: application/json" \
+     -d '{"note": "Approved for directory listing"}' \
+     http://127.0.0.1:8000/api/pins/fs_list_directory/approve
+
+   curl -X POST -H "Authorization: Bearer <ADMIN_KEY>" \
+     -H "Content-Type: application/json" \
+     -d '{"note": "Approved for filesystem write"}' \
+     http://127.0.0.1:8000/api/pins/fs_write_file/approve
+   ```
+
+### 5. Filesystem upstream named-volume semantics and verification
+
+- The `mcpg_shared` Docker named volume is shared between the API container and ephemeral upstream filesystem containers.
+- The API container path `/app/data/shared` maps directly to `/projects` inside upstream containers.
+- Read-only filesystem tools (`fs_read_text_file`, `fs_list_directory`, etc.) mount `/projects` with read-only permissions (`readonly`).
+- Write tools (`fs_write_file`, `fs_edit_file`, etc.) mount `/projects` with writable permissions.
+- Path traversal outside `/projects` and symlinks targeting unapproved paths are blocked by the path validation guard.
+
+#### Verification procedure (Part 0.1)
+
+To verify the end-to-end filesystem upstream container pipeline:
+1. Write a test file into `/app/data/shared` inside the API container:
+   ```bash
+   docker compose exec api sh -c 'echo "hello from mcpg_shared" > /app/data/shared/hello.txt'
+   ```
+2. Read the file through the MCP gateway using `fs_read_text_file` (with an approved pin and an API key with `files:read` scope).
+3. Verify the recorded sandbox run reports `mode=docker` via `GET /api/sandbox/runs`.
+4. Verify the container image in the run record is `mcp-guard-upstream-fs:2.2.0`.
+5. Verify container cleanup: ensure `docker ps -a --filter label=mcp_guard.sandbox=1` returns 0 entries.
+
+---
+
+## Getting started (local development with uv + SQLite)
+
+The main local development path uses `uv` and a local SQLite database in `api/data/`. For containerized deployment with PostgreSQL 16, see [Run with Docker](#run-with-docker) above.
 
 You need Python 3.11+, [uv](https://docs.astral.sh/uv/), and Node 20.19+ or 22.12+ (Vite 8 requires it).
 

@@ -15,6 +15,24 @@ _DEFAULT_DB_PATH = _API_ROOT / "data" / "mcp_guard.db"
 _DEFAULT_DB_URL = f"sqlite+aiosqlite:///{_DEFAULT_DB_PATH}"
 
 
+def normalize_database_url(url: str) -> str:
+    """Normalize a database URL for async SQLAlchemy.
+
+    PostgreSQL connection strings starting with ``postgres://`` or
+    ``postgresql://`` (without driver specification) are mapped to
+    ``postgresql+asyncpg://``. Already-specified driver schemes (such as
+    ``postgresql+asyncpg://``) and SQLite URLs are preserved unchanged.
+    """
+    if not isinstance(url, str):
+        return url
+    stripped = url.strip()
+    if stripped.startswith("postgres://"):
+        return f"postgresql+asyncpg://{stripped[len('postgres://') :]}"
+    if stripped.startswith("postgresql://"):
+        return f"postgresql+asyncpg://{stripped[len('postgresql://') :]}"
+    return stripped
+
+
 class Settings(BaseSettings):
     """Process configuration.
 
@@ -80,6 +98,10 @@ class Settings(BaseSettings):
         min_length=1,
         pattern=r"^[^\s]+$",
         description="Image tag started once per fs_ call.",
+    )
+    upstream_fs_source: str | None = Field(
+        default=None,
+        description="Docker named volume for filesystem upstream (volume:<name>).",
     )
     upstream_fs_dir: Path = Field(
         default=_API_ROOT / "data" / "shared",
@@ -231,6 +253,13 @@ class Settings(BaseSettings):
         ),
     )
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def validate_database_url(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return normalize_database_url(v)
+        return v
+
     @field_validator("injection_guard_mode", mode="before")
     @classmethod
     def strip_and_lower_guard_mode(cls, v: Any) -> Any:
@@ -260,6 +289,24 @@ class Settings(BaseSettings):
     def blank_notes_source(cls, v: Any) -> Any:
         if isinstance(v, str) and v.strip() == "":
             return None
+        return v
+
+    @field_validator("upstream_fs_source", mode="before")
+    @classmethod
+    def blank_upstream_fs_source(cls, v: Any) -> Any:
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
+
+    @field_validator("upstream_fs_source")
+    @classmethod
+    def validate_upstream_fs_source(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not re.fullmatch(r"volume:[A-Za-z0-9_.-]+", v):
+            raise ValueError(
+                "UPSTREAM_FS_SOURCE must be in the form volume:<name> matching volume:[A-Za-z0-9_.-]+"
+            )
         return v
 
     @field_validator(
