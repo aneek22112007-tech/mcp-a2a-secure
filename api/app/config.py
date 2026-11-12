@@ -452,6 +452,14 @@ class Settings(BaseSettings):
         if self.is_production_like and not self.api_key_pepper:
             raise ValueError("API_KEY_PEPPER is required in production environment")
 
+        if self.is_production_like:
+            # An unset mode follows the safe production default. An explicit
+            # value, including warn, is left alone and checked below.
+            if "tool_pinning_mode" not in self.model_fields_set:
+                self.tool_pinning_mode = "enforce"
+            if "injection_guard_mode" not in self.model_fields_set:
+                self.injection_guard_mode = "enforce"
+
         if self.multi_instance and (
             self.database_url.startswith("sqlite") or self.redis_url is None
         ):
@@ -573,3 +581,30 @@ def _is_exact_http_origin(origin: str) -> bool:
 
 
 settings = Settings()
+
+
+def warn_explicit_production_modes() -> None:
+    """Log when production explicitly chooses warn instead of enforce.
+
+    Called from lifespan so importing settings stays quiet.
+    """
+
+    if not settings.is_production_like:
+        return
+    import logging
+
+    logger = logging.getLogger(__name__)
+    if (
+        "tool_pinning_mode" in settings.model_fields_set
+        and settings.tool_pinning_mode == "warn"
+    ):
+        logger.warning(
+            "TOOL_PINNING_MODE=warn in production; an unset mode defaults to enforce"
+        )
+    if (
+        "injection_guard_mode" in settings.model_fields_set
+        and settings.injection_guard_mode == "warn"
+    ):
+        logger.warning(
+            "INJECTION_GUARD_MODE=warn in production; an unset mode defaults to enforce"
+        )

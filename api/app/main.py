@@ -25,7 +25,7 @@ from app.auth.verifier import (
     get_api_key_verifier,
     set_api_key_verifier,
 )
-from app.config import settings
+from app.config import settings, warn_explicit_production_modes
 from app.errors import register_error_handlers
 from app.llm.recording import (
     DbLLMCallRecorder,
@@ -128,6 +128,7 @@ async def lifespan(app: FastAPI):
 
     await start_shared_state()
     await start_relay()
+    warn_explicit_production_modes()
 
     if isinstance(get_api_key_verifier(), DenyAllVerifier):
         set_api_key_verifier(HmacApiKeyVerifier())
