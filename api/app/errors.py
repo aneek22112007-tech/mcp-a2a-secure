@@ -5,6 +5,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.analyst.errors import AnalystError, AnalystUnavailableError
+from app.llm.health import check_health
 from app.middleware import request_id_context
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,25 @@ def register_error_handlers(app: FastAPI) -> None:
                     "code": _ERROR_CODES.get(exc.status_code, "HTTP_ERROR"),
                     "message": _public_http_message(exc),
                     "details": None,
+                    "request_id": _request_id(request),
+                }
+            },
+        )
+
+    @app.exception_handler(AnalystError)
+    async def analyst_error_handler(request: Request, exc: AnalystError):
+        details = exc.details
+        if isinstance(exc, AnalystUnavailableError):
+            health = await check_health()
+            details = {"reason": exc.reason, "health": health.model_dump()}
+        return JSONResponse(
+            status_code=exc.status_code,
+            headers=exc.headers,
+            content={
+                "error": {
+                    "code": exc.code,
+                    "message": exc.message,
+                    "details": details,
                     "request_id": _request_id(request),
                 }
             },

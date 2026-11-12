@@ -197,6 +197,7 @@ export const ALL_SCOPES = [
   'files:write',
   'lab:call', // lab server's scope
   'audit:read',
+  'analyst:run',
   'metrics:read',
   'sandbox:read',
   'tools:read',
@@ -214,6 +215,7 @@ export const SCOPE_LABELS: Record<Scope, string> = {
   'files:write': 'files write',
   'lab:call': "lab server's scope",
   'audit:read': 'audit read',
+  'analyst:run': 'analyst run',
   'metrics:read': 'metrics read',
   'sandbox:read': 'sandbox read',
   'tools:read': 'tools read',

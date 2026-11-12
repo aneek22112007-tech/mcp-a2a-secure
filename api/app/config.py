@@ -267,6 +267,54 @@ class Settings(BaseSettings):
             "Required for POST /api/a2a/tasks/run."
         ),
     )
+    analyst_window_hours: int = Field(
+        default=24,
+        ge=1,
+        le=168,
+        description="How far back incidents are built, in hours.",
+    )
+    analyst_incident_gap_minutes: int = Field(
+        default=15,
+        ge=1,
+        le=240,
+        description=(
+            "Rows in the same group further apart than this start a new incident."
+        ),
+    )
+    analyst_max_rows: int = Field(
+        default=5000,
+        ge=100,
+        le=20000,
+        description="Most audit rows read per grouping pass, newest first.",
+    )
+    analyst_max_events_per_prompt: int = Field(
+        default=40,
+        ge=5,
+        le=100,
+        description="Most events sent to the model for one incident.",
+    )
+    analyst_max_output_chars: int = Field(
+        default=4000,
+        ge=500,
+        le=8000,
+        description="Longest model reply accepted, before parsing.",
+    )
+    analyst_rate_limit_capacity: int = Field(
+        default=3,
+        gt=0,
+        description="Bucket size for POST /api/analyst/explain, per key.",
+    )
+    analyst_rate_limit_per_minute: float = Field(
+        default=3.0,
+        gt=0,
+        description="Refill per minute for POST /api/analyst/explain, per key.",
+    )
+    analyst_max_concurrency: int = Field(
+        default=1,
+        ge=1,
+        le=4,
+        description="Explanations running at once in this process.",
+    )
 
     @field_validator("database_url", mode="before")
     @classmethod

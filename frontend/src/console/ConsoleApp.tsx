@@ -22,6 +22,9 @@ const KeysView = lazy(() =>
 const AuditView = lazy(() =>
   import('./features/audit/AuditView').then(m => ({ default: m.AuditView }))
 );
+const AnalystView = lazy(() =>
+  import('./features/analyst/AnalystView').then(m => ({ default: m.AnalystView }))
+);
 const MetricsView = lazy(() =>
   import('./features/metrics/MetricsView').then(m => ({ default: m.MetricsView }))
 );
@@ -105,6 +108,7 @@ function ConsoleBody({
         {view === 'overview' && <OverviewView offline={offline} />}
         {view === 'keys' && <KeysView offline={offline} clientIds={session.clientId ? [session.clientId] : []} />}
         {view === 'audit' && <AuditView offline={offline} />}
+        {view === 'analyst' && <AnalystView offline={offline} scopes={session.scopes} />}
         {view === 'metrics' && <MetricsView offline={offline} />}
         {view === 'pins' && <PinsView offline={offline} />}
         {view === 'scanner' && <ScannerView offline={offline} />}

@@ -35,6 +35,16 @@ export function getApiBase(): string {
   return _base;
 }
 
+function explainSignal(): AbortSignal {
+  const ms = 75_000;
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
 function timeoutSignal(): AbortSignal {
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
     return AbortSignal.timeout(REQUEST_TIMEOUT_MS);
@@ -119,6 +129,7 @@ async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
   key?: string,
+  timeoutMessage?: string,
 ): Promise<T> {
   const resolvedKey = key ?? getApiKey();
   const headers: Record<string, string> = {
@@ -138,7 +149,18 @@ async function apiFetch<T>(
     });
   } catch (err) {
     const timeout = asTimeout(err);
-    if (timeout) throw timeout;
+    if (timeout) {
+      if (timeoutMessage) {
+        throw new ConsoleApiError({
+          code: 'TIMEOUT',
+          message: timeoutMessage,
+          details: null,
+          request_id: null,
+          status: 0,
+        });
+      }
+      throw timeout;
+    }
     throw err;
   }
 
@@ -379,6 +401,101 @@ export interface SandboxPage {
   limit: number;
   offset: number;
   next_offset: number | null;
+}
+
+export interface AnalystTimelineItem {
+  text: string;
+  refs: string[];
+}
+
+export interface AnalystReportBody {
+  summary: string;
+  timeline: AnalystTimelineItem[];
+  likely_cause: string;
+  impact: string;
+  next_steps: string[];
+  confidence: 'low' | 'medium' | 'high' | string;
+}
+
+export interface AnalystLatestReport {
+  created_at: string;
+  provider: string;
+  stale: boolean;
+}
+
+export interface Incident {
+  id: string;
+  kind: string;
+  severity: string;
+  group_key: string;
+  key_prefixes: string[];
+  tool_names: string[];
+  first_seen: string;
+  last_seen: string;
+  event_count: number;
+  counts_by_action: Record<string, number>;
+  events_fingerprint: string;
+  related_ids: string[];
+  latest_report: AnalystLatestReport | null;
+}
+
+export interface IncidentEventRow {
+  ref: string;
+  event_id: string;
+  created_at: string;
+  action: string;
+  decision: string;
+  status: string;
+  status_code: number | null;
+  error_code: string | null;
+  reason: string | null;
+  tool_name: string | null;
+  key_prefix: string | null;
+}
+
+export interface StoredAnalystReport extends AnalystReportBody {
+  provider: string;
+  model: string;
+  fell_back: boolean;
+  withheld_fields: number;
+  created_at: string;
+  latency_ms: number;
+}
+
+export interface IncidentDetail extends Incident {
+  events: IncidentEventRow[];
+  truncated: boolean;
+  report: StoredAnalystReport | null;
+}
+
+export interface IncidentList {
+  items: Incident[];
+  window_hours: number;
+  generated_at: string;
+}
+
+export interface ExplainResult {
+  incident_id: string;
+  report: AnalystReportBody;
+  provider: string;
+  model: string;
+  fell_back: boolean;
+  cached: boolean;
+  withheld_fields: number;
+  created_at: string;
+  latency_ms: number;
+  refs: Record<string, string>;
+}
+
+export interface AnalystStatus {
+  enabled: boolean;
+  ollama_reachable: boolean;
+  ollama_model: string;
+  ollama_model_present: boolean;
+  groq_configured: boolean;
+  rate_limit_per_minute: number;
+  max_concurrency: number;
+  busy: boolean;
 }
 
 export interface SandboxHealth {
@@ -650,6 +767,36 @@ export const consoleApi = {
     });
     return readRawResponse(callRes);
   },
+
+  async listIncidents(params: { kind?: string; severity?: string; limit?: number } = {}): Promise<IncidentList> {
+    const q = new URLSearchParams();
+    if (params.kind) q.set('kind', params.kind);
+    if (params.severity) q.set('severity', params.severity);
+    if (params.limit) q.set('limit', String(params.limit));
+    const query = q.toString();
+    return apiFetch<IncidentList>(`/api/analyst/incidents${query ? `?${query}` : ''}`);
+  },
+
+  async getIncident(id: string): Promise<IncidentDetail> {
+    return apiFetch<IncidentDetail>(`/api/analyst/incidents/${encodeURIComponent(id)}`);
+  },
+
+  async explainIncident(body: {
+    incident_id?: string;
+    event_id?: string;
+    refresh?: boolean;
+  }): Promise<ExplainResult> {
+    return apiFetch<ExplainResult>(
+      '/api/analyst/explain',
+      { method: 'POST', body: JSON.stringify(body), signal: explainSignal() },
+      undefined,
+      'The analyst did not reply within 75 seconds.',
+    );
+  },
+
+  async analystStatus(): Promise<AnalystStatus> {
+    return apiFetch<AnalystStatus>('/api/analyst/status');
+  },
 };
 
 async function readRawResponse(res: Response): Promise<{
@@ -778,6 +925,8 @@ export function createAuditStream(options: AuditStreamOptions): () => void {
 const SCOPE_PROBES: { scope: string; run: () => Promise<unknown> }[] = [
   { scope: 'metrics:read', run: () => consoleApi.metrics() },
   { scope: 'audit:read', run: () => consoleApi.listAudit({ limit: 1 }) },
+  // A key without analyst:run writes one real auth.deny row for this probe.
+  { scope: 'analyst:run', run: () => consoleApi.analystStatus() },
   { scope: 'tools:read', run: () => consoleApi.listPins() },
   { scope: 'scanner:read', run: () => consoleApi.listFindings({ limit: 1 }) },
   { scope: 'sandbox:read', run: () => consoleApi.sandboxHealth() },

@@ -59,6 +59,13 @@ const LIVE: Item[] = [
       { label: 'a2a.* events in Live Audit', href: '#/audit' },
     ],
   },
+  {
+    icon: Brain,
+    title: 'AI analyst',
+    description:
+      'Groups real audit events into incidents and explains them in plain English with the local model. Every sentence cites the events it is based on.',
+    links: [{ label: 'Open the AI Analyst', href: '#/analyst' }],
+  },
 ];
 
 const UPCOMING: Item[] = [
@@ -67,13 +74,6 @@ const UPCOMING: Item[] = [
     title: 'AI-assisted scanner',
     description:
       'A model-based pass over tool descriptions and schemas that adds to the current rule-based findings.',
-    target: 'Block 9',
-  },
-  {
-    icon: Brain,
-    title: 'AI analyst',
-    description:
-      'Reads the audit stream, groups related events and flags unusual patterns, such as a key active outside its normal hours.',
     target: 'Block 9',
   },
 ];

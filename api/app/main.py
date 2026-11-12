@@ -47,6 +47,7 @@ from app.pins.mcp_asgi import McpToolPinMiddleware
 from app.rate_limit import McpRateLimitMiddleware, rate_limit_dependency
 from app.routes.a2a import router as a2a_router
 from app.routes.agents import router as agents_router
+from app.routes.analyst import router as analyst_router
 from app.routes.api_keys import router as api_keys_router
 from app.routes.audit import router as audit_router
 from app.routes.guard import router as guard_router
@@ -201,6 +202,7 @@ app.include_router(notes_router)
 
 app.include_router(api_keys_router)
 app.include_router(audit_router)
+app.include_router(analyst_router)
 app.include_router(metrics_router)
 app.include_router(sandbox_router)
 app.include_router(pins_router)

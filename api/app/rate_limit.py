@@ -1,6 +1,7 @@
 import math
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
@@ -35,7 +36,13 @@ class TokenBucketRateLimiter:
     capacity * number_of_workers.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        capacity: Callable[[], int] | None = None,
+        refill_per_sec: Callable[[], float] | None = None,
+    ) -> None:
+        self._capacity = capacity
+        self._refill = refill_per_sec
         self._buckets: dict[tuple[str, str], BucketState] = {}
         self._lock = threading.Lock()
         self.rejected_total = 0
@@ -46,8 +53,10 @@ class TokenBucketRateLimiter:
         Returns (allowed: bool, retry_after_s: float, should_audit: bool).
         """
         now = time.monotonic()
-        capacity = settings.rate_limit_capacity
-        refill_rate = settings.rate_limit_refill_rate_per_sec
+        capacity = self._capacity() if self._capacity else settings.rate_limit_capacity
+        refill_rate = (
+            self._refill() if self._refill else settings.rate_limit_refill_rate_per_sec
+        )
 
         key = (surface, key_id)
 
@@ -81,6 +90,45 @@ class TokenBucketRateLimiter:
 
 
 limiter = TokenBucketRateLimiter()
+
+ANALYST_SURFACE = "analyst"
+analyst_limiter = TokenBucketRateLimiter(
+    capacity=lambda: settings.analyst_rate_limit_capacity,
+    refill_per_sec=lambda: settings.analyst_rate_limit_per_minute / 60.0,
+)
+
+
+async def analyst_rate_limit(request: Request) -> None:
+    """One small bucket for POST /api/analyst/explain, separate from the shared bucket."""
+
+    principal = getattr(request.state, "principal", None)
+    if principal is None or not principal.api_key_id:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+
+    allowed, retry_after, should_audit = analyst_limiter.acquire(
+        ANALYST_SURFACE, principal.api_key_id
+    )
+    if allowed:
+        return
+    if should_audit:
+        await record_event(
+            AuditRecord(
+                action="rate_limit.deny",
+                decision="denied",
+                status="denied",
+                reason="rate_limit_exceeded surface=analyst",
+                status_code=429,
+                error_code="RATE_LIMITED",
+                request_id=current_request_id(request.scope),
+                **AuditRecord.actor_fields(principal),
+            ),
+            required=False,
+        )
+    raise HTTPException(
+        status_code=429,
+        detail="Too Many Requests",
+        headers={"Retry-After": str(math.ceil(retry_after))},
+    )
 
 
 async def rate_limit_dependency(

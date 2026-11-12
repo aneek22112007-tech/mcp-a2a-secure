@@ -99,6 +99,22 @@ Overview counts requests from `GET /api/metrics` and pin totals from `GET /api/p
 
 API Keys lists every client id found in the audit log. Live Audit hides the console's own `GET /api` allow rows until you turn on "Show console GET /api polls". The scanner button is "Scan all tools".
 
+### AI Analyst
+
+`#/analyst` (keyboard `i`) lists incidents from `GET /api/analyst/incidents`. The nav item needs `audit:read`. The window label uses `window_hours` from that response. Kind and severity chips filter the list. Each row shows severity, kind, the group key, the event count, and first and last seen. A stored report is tagged explained or stale.
+
+The live audit stream does not refetch the list on every event. A new event with decision `denied`, or action `tool.output.injection`, shows "New security events. Refresh". The empty state is "No security incidents in the last N hours." with N from `window_hours`.
+
+The right side shows facts and the events table from the detail response. Event text is rendered as text. Each row links to `#/audit` and shows the event id. The hash router has no query filter, so the link is only `#/audit`. Related incidents are buttons that clear the filters and select that incident.
+
+Explain needs `analyst:run`. Without it, the page says "You need the analyst:run scope to ask for an explanation." Facts and events still show. The button calls `POST /api/analyst/explain` with a 75 second timeout. It sends `refresh: true` only when the stored report is stale. The label while it runs is "Asking <model>..." using `ollama_model` from `GET /api/analyst/status`.
+
+The explanation is labelled "AI explanation, checked against N events". It shows the summary, a timeline whose ref chips scroll to that event row, likely cause, impact, next steps, and confidence. The footer shows provider, model, latency, a withheld count when it is greater than zero, the time, "via Groq fallback" when `fell_back` is true, and "cached" when the report was reused. It is not shown as a verdict.
+
+When the status says the analyst is down, a previously stored report is hidden. The sentences are "Analyst unavailable. LLM_ENABLED is false.", "Analyst unavailable. Ollama is not reachable at the configured URL and Groq is not configured.", and "Analyst unavailable. The configured Ollama model is not present and Groq is not configured." If Ollama is down but Groq is configured, Explain stays enabled. A 502 says the reply failed the checks and names the reason. Busy and 429 name `ANALYST_BUSY` and `429`.
+
+Connecting a key probes `analyst:run`. A key without that scope writes one real `auth.deny` per connect. See [AI_ANALYST.md](AI_ANALYST.md).
+
 If `GET /health` fails, the console enters an offline state. It never falls back to fabricated demo data; instead, it continues displaying the last genuine backend data cached by React Query alongside an honest offline indicator ("Backend offline. Showing the last data received at HH:MM IST."). The timestamp reflects the actual last successful data update from the backend, or shows that no data has been loaded yet if the cache is empty. The health pill and stream status indicator remain visible to reflect current connection health. Actions that perform backend mutations (creating/revoking API keys, running scans, approving/revoking pins, and running attack sequences) are disabled while offline. When the backend becomes reachable again, queries resume and actions are re-enabled. A request that does not finish within 5 seconds shows an error instead of a spinner.
 
 ## What was not changed
@@ -111,5 +127,7 @@ These paths were not edited for the console:
 - the `/signin` and `/signup` routes and the Google OAuth provider in `frontend/src/App.tsx`
 - `api/app/auth/`
 - `api/app/rate_limit.py`
+
+That list is the boundary of the original console change. The AI Analyst page uses `analyst:run` from `api/app/auth/scopes.py` and the explain bucket in `api/app/rate_limit.py`. Sign-in, `frontend/src/lib/api.ts`, `backend/`, and the rest of `api/app/auth/` are unchanged.
 
 `App.tsx` only lost the old dashboard routes. `/dashboard` and `/console` both render `ConsoleApp`.
