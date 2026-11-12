@@ -1,13 +1,38 @@
-import React from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import Auth3D from './Auth3D';
+
+const Auth3D = lazy(() => import('./Auth3D'));
 
 interface AuthLayoutProps {
   children: React.ReactNode;
   isSignUp?: boolean;
 }
 
+function useShowAuthVisual(): boolean {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const wide = window.matchMedia('(min-width: 1024px)').matches;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!wide || reduced) return;
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const id = idleWindow.requestIdleCallback(() => setShow(true), { timeout: 2500 });
+      return () => idleWindow.cancelIdleCallback?.(id);
+    }
+    const timer = window.setTimeout(() => setShow(true), 1200);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return show;
+}
+
 export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, isSignUp }) => {
+  const showVisual = useShowAuthVisual();
   return (
     <div style={{
       display: 'flex',
@@ -128,7 +153,11 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, isSignUp }) =>
           pointerEvents: 'none',
         }} />
 
-        <Auth3D isSignUp={isSignUp} />
+        {showVisual && (
+          <Suspense fallback={null}>
+            <Auth3D isSignUp={isSignUp} />
+          </Suspense>
+        )}
 
         {/* Bottom right hint */}
         <div style={{
