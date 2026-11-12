@@ -237,6 +237,20 @@ The route map is in [`api/app/auth/scopes.py`](../api/app/auth/scopes.py). The p
 
 ---
 
+### Risk 7: Guard rules could stall the server
+
+| Field | Detail |
+|-------|--------|
+| **Scenario** | Several injection-guard patterns backtracked. `check_tool_output()` ran on the event loop, so one slow tool output made every request wait, including `/health`. A REST read was also scanned twice, because `asyncio.wait_for` copies the context and the "already guarded" flag set inside the tool task did not reach the gateway. |
+| **Likelihood** | Was: High for any caller who could put a few thousand crafted characters in a note or call `POST /api/guard/check`. Now: Mitigated |
+| **Impact** | High — the API process stopped answering while one core ran the scan |
+| **Existing mitigation** | **Fixed in A11.** The slow rules use bounded windows or one forward pass per line or per URL. `run_tool`, the gateway fallback, and `POST /api/guard/check` evaluate the guard on a worker thread. Audit rows are still written on the event loop. The guarded flag is a mutable object shared with the tool task, so a REST output is logged once. A tool that does not go through `run_tool` is still scanned. |
+| **Residual risk** | Low — a 1 MiB tool output is still scanned, and the notes agent still runs the sync guard on output that `/mcp/` already scanned. Measured on this machine before the change, guard mode `warn`: reading a 7,000-character note (`curl http://a ` repeated) took 18.215 s and `/health` during that read took 17.207 s. The same text on `POST /api/guard/check` took 9.117 s and `/health` took 8.112 s. `print ` repeated to 18,000 characters took 1.351 s (`/health` 0.346 s). `<!-- ` repeated to 100,000 characters took 20.925 s (`/health` 19.920 s). One injected note read wrote two identical `tool.output.injection` rows. After the change: the 7,000-character read took 0.010 s and `/health` 0.002 s; the same guard check took 0.009 s and `/health` 0.002 s; the print check took 0.054 s and `/health` 0.002 s; the comment check took 0.027 s and `/health` 0.002 s. A 100,000-character `print ` note read took 0.239 s, and `/health` started with that read took 0.001 s. `scan_text` on 100,000 characters was 0.042 s (`curl http://a `), 0.245 s (`print `), 0.016 s (`<!-- `), 0.069 s (`![ `), 0.038 s (`http://a?`), 0.034 s (`curl -X `), and 0.362 s (`echo `). Each 100,000-character time was about twice the 50,000-character time. The same REST read then wrote one row, and `tools/call` `read_note` wrote one row. |
+| **Next action** | Keep new rules on a bounded window or a forward-only scan. The notes agent still re-checks `/mcp/` output on the calling task. |
+| **Source files** | `api/app/guard/rules.py`, `api/app/guard/engine.py`, `api/app/sandbox/executor.py`, `api/app/sandbox/context.py`, `api/app/gateway.py` |
+
+---
+
 ## Hostile Lab Test Fixtures & Attack Demonstrations
 
 The hostile lab upstream ([`docs/UPSTREAM_LAB.md`](UPSTREAM_LAB.md)) serves as a real-world, executable test fixture to evaluate how the gateway contains and defends against malicious or compromised upstream tools. The table below maps threat categories to concrete hostile lab fixtures, the gateway defense layers, and the corresponding D1–D6 attack checks.
@@ -280,7 +294,7 @@ The hostile lab upstream ([`docs/UPSTREAM_LAB.md`](UPSTREAM_LAB.md)) serves as a
 - **Hostile Lab Fixtures**:
   - `lab_fetch_tip` with variations `override`, `role`, `secret`, `encoded`, `image_link`, `delimiters`, `structured`, and `error`.
 - **Defense Layer**:
-  - Output Injection Guard (`rules/injection.py` / G1–G6) scans tool stdout content before returning it to the caller.
+  - Output Injection Guard (`api/app/guard/rules.py` / G1–G6) scans tool stdout content before returning it to the caller.
   - In `enforce` mode, high-severity violations are blocked and replaced with `[BLOCKED: Tool output blocked by injection guard (rule Gx)]`, medium-severity delimiters are sanitized, and detailed `tool.output.injection` audit records are logged (capturing `key_prefix`, `client_id`, and `api_key_id`).
 - **Demonstration**: See [UPSTREAM_LAB.md#d3-output-injection-variations](UPSTREAM_LAB.md#d3-output-injection-variations) (Check D3).
 
