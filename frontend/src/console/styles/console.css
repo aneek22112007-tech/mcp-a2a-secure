@@ -531,7 +531,8 @@
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-row { position: relative; }
 .field-row .input { flex: 1; }
-.icon-btn { position: absolute; right: 8px; top: 8px; background: none; border: 0; color: var(--c-text-muted); cursor: pointer; }
+.icon-btn { position: absolute; right: 8px; top: 8px; background: none; border: 0; color: var(--c-text-muted); cursor: pointer; min-width: 24px; min-height: 24px; display: inline-flex; align-items: center; justify-content: center; }
+button { min-width: 24px; min-height: 24px; }
 .connect-submit { width: 100%; justify-content: center; }
 .connect-foot { text-align: center; color: var(--c-text-muted); font-size: 12px; }
 .banner { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: var(--radius); border: 1px solid; font-size: 13px; }

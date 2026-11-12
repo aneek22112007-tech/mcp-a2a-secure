@@ -2,13 +2,34 @@ import { useRef } from 'react'
 import { motion, useInView } from 'framer-motion'
 import { useReducedMotion } from '../../hooks/useReducedMotion'
 
+const EQUIXLY = 'https://equixly.com/blog/2025/03/29/mcp-server-new-security-nightmare'
+const OWASP_MCP = 'https://owasp.org/projects/mcp-top-10'
+
 const STATS = [
-  { label: 'Command injection — 43% of tested MCP servers vulnerable', value: '43%', sub: '(Equixly 2025–Feb 2026; arXiv "Parasites in the Toolchain")' },
-  { label: 'Path traversal — 82% of surveyed implementations at risk', value: '82%', sub: '(Endor Labs, 2,614 implementations, 2025)' },
-  { label: 'Critical vulnerability — 33% of 1,000 scanned servers', value: '33%', sub: '(Enkrypt AI, Oct 2025)' },
-  { label: 'Code injection / missing auth — 67% code-injection risk; 34–38% no authentication', value: '67%', sub: '(Endor Labs + 2026 follow-up analyses)' },
-  { label: 'CVE filing volume — 30+ CVEs in a single 60-day window, early 2026', value: '30+', sub: '(incl. CVE-2025-6514 mcp-remote, Anthropic Git server)' },
-  { label: 'Tool poisoning — OWASP MCP Top 10, ranked #3', value: '#3', sub: 'Named a primary industry-wide attack surface (Invariant Labs, Apr 2025)' },
+  {
+    label: 'Command injection — 43% of tested implementations contained command injection flaws',
+    value: '43%',
+    source: 'Equixly, 29 Mar 2025',
+    href: EQUIXLY,
+  },
+  {
+    label: 'Path traversal — 22% allowed accessing files outside intended directories',
+    value: '22%',
+    source: 'Equixly, 29 Mar 2025',
+    href: EQUIXLY,
+  },
+  {
+    label: 'SSRF — 30% permitted unrestricted URL fetching',
+    value: '30%',
+    source: 'Equixly, 29 Mar 2025',
+    href: EQUIXLY,
+  },
+  {
+    label: 'Tool poisoning — MCP03:2025 is the third entry in the OWASP MCP Top 10',
+    value: '#3',
+    source: 'OWASP MCP Top 10',
+    href: OWASP_MCP,
+  },
 ]
 
 function StatBlock({ stat, delay }: { stat: typeof STATS[0]; delay: number }) {
@@ -58,7 +79,7 @@ function StatBlock({ stat, delay }: { stat: typeof STATS[0]; delay: number }) {
         color: 'var(--text-secondary)',
         lineHeight: 1.5,
       }}>
-        {stat.sub}
+        <a href={stat.href} style={{ color: '#D9D9D9', textDecoration: 'underline' }}>{stat.source}</a>
       </div>
     </motion.div>
   )

@@ -1,0 +1,80 @@
+{
+    admin off
+    servers {
+        timeouts {
+            read_header 5s
+            read_body 15s
+            idle 2m
+        }
+    }
+}
+
+:8080 {
+    request_body {
+        max_size 1MiB
+    }
+
+    @mcp path /mcp /mcp/*
+    handle @mcp {
+        reverse_proxy api1:8000 api2:8000 {
+            lb_policy header Authorization {
+                fallback least_conn
+            }
+            lb_try_duration 5s
+            health_uri /ready
+            health_interval 5s
+            health_timeout 2s
+            health_fails 2
+            fail_duration 10s
+            flush_interval -1
+            transport http {
+                keepalive 60s
+                # Queue at the proxy instead of exceeding uvicorn's
+                # --limit-concurrency 256. With the /api pool (160) this
+                # is 224 connections per replica, leaving room for /ready.
+                max_conns_per_host 64
+            }
+        }
+    }
+
+    @api path /api/* /health /ready
+    handle @api {
+        reverse_proxy api1:8000 api2:8000 {
+            lb_policy least_conn
+            lb_try_duration 5s
+            health_uri /ready
+            health_interval 5s
+            health_timeout 2s
+            health_fails 2
+            fail_duration 10s
+            flush_interval -1
+            transport http {
+                keepalive 60s
+                # Queue at the proxy instead of exceeding uvicorn's
+                # --limit-concurrency 256. With the /mcp pool (64) this
+                # is 224 connections per replica, leaving room for /ready.
+                max_conns_per_host 160
+            }
+        }
+    }
+
+    handle {
+        root * /srv
+        encode zstd gzip
+        @assets path /assets/*
+        header @assets Cache-Control "public, max-age=31536000, immutable"
+        @pages not path /assets/*
+        header @pages Cache-Control "no-cache"
+        header {
+            Content-Security-Policy "default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; font-src 'self'; img-src 'self' data: https://*.googleusercontent.com; connect-src 'self' https://accounts.google.com/gsi/ {$SIGNIN_API_ORIGIN:http://localhost:5001}; frame-src https://accounts.google.com/gsi/; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+            X-Content-Type-Options "nosniff"
+            Referrer-Policy "strict-origin-when-cross-origin"
+            Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+            Cross-Origin-Opener-Policy "same-origin-allow-popups"
+            X-Frame-Options "DENY"
+            -Server
+        }
+        try_files {path} /index.html
+        file_server
+    }
+}

@@ -13,6 +13,9 @@ export default defineConfig({
     cssMinify: true,
     // Do not modulepreload heavy lazy chunks in index.html head
     modulePreload: false,
+    // The page CSP allows only same-origin fonts. A font under the default
+    // 4 KiB limit was inlined as data: and the console blocked it.
+    assetsInlineLimit: 0,
     // Raise the warning limit — we have intentional large async chunks
     chunkSizeWarningLimit: 600,
     rolldownOptions: {

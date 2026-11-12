@@ -207,7 +207,7 @@ export default function BuiltToLastSection() {
                     cursor: 'pointer',
                     transition: 'background 0.2s, color 0.2s',
                     background: activeTab === tab ? 'var(--accent)' : 'transparent',
-                    color: activeTab === tab ? '#fff' : 'rgba(255,255,255,0.5)',
+                    color: activeTab === tab ? '#fff' : 'rgba(255,255,255,0.85)',
                   }}
                 >
                   {tab}

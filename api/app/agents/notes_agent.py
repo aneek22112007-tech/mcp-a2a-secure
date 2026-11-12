@@ -9,6 +9,7 @@ retried. At most five tool calls are made.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -227,16 +228,37 @@ def _compile(gateway: NotesGateway, backend: LLMBackend):
 
         output_text = result.text
         if result.ok and output_text:
-            from app.guard import check_tool_output
-
-            guard_res = check_tool_output(
-                output_text,
-                tool_name=name,
-                key_prefix=state.get("key_prefix"),
-                request_id=state.get("request_id"),
-                client_id=state.get("client_id"),
-                api_key_id=state.get("api_key_id"),
+            from app.guard import (
+                check_tool_output,
+                check_tool_output_async,
+                record_tool_output_audit,
             )
+
+            guard_kwargs = {
+                "tool_name": name,
+                "key_prefix": state.get("key_prefix"),
+                "request_id": state.get("request_id"),
+                "client_id": state.get("client_id"),
+                "api_key_id": state.get("api_key_id"),
+            }
+            # /mcp/ already wrote the injection row. Scan again for the block
+            # decision, and do not write a second row for the same output.
+            if isinstance(gateway, McpGatewaySession):
+                guard_res = await check_tool_output_async(
+                    output_text,
+                    audit=False,
+                    **guard_kwargs,
+                )
+            else:
+                # Any other gateway did not guard this output. Scan it in a
+                # worker thread, then write the row on this loop.
+                guard_res = await asyncio.to_thread(
+                    check_tool_output,
+                    output_text,
+                    audit=False,
+                    **guard_kwargs,
+                )
+                guard_res = record_tool_output_audit(guard_res, **guard_kwargs)
             output_text = guard_res.text
             if guard_res.blocked or output_text.startswith(
                 "[BLOCKED: Tool output blocked by injection guard"

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
+from uuid import uuid4
 
 MAX_NOTE_BYTES = 100 * 1024
 
@@ -60,5 +62,17 @@ def write_note(notes_dir: Path, name: str, content: str) -> str:
 
     path = resolve_note_path(notes_dir, name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
     return f"saved {name}"

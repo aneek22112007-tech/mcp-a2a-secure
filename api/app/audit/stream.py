@@ -1,6 +1,6 @@
 """In-process fan-out for the audit SSE stream.
 
-Single-process only. Multi-worker fan-out (Postgres LISTEN/NOTIFY) is future work.
+Events stay in this process. When REDIS_URL is set, replicas relay them through Valkey.
 """
 
 from __future__ import annotations

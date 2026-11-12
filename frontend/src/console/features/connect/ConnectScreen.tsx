@@ -74,7 +74,13 @@ export function ConnectScreen({ onConnected }: ConnectProps) {
           Type an API key to connect. It stays in this browser tab (sessionStorage) and is sent only to the backend URL below.
         </p>
 
-        <div className="panel panel-pad connect-form">
+        <form
+          className="panel panel-pad connect-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleConnect();
+          }}
+        >
           <label className="field" htmlFor="base-url">
             <span className="section-label">Backend URL</span>
             <span className="field-row">
@@ -145,10 +151,10 @@ export function ConnectScreen({ onConnected }: ConnectProps) {
             </div>
           )}
 
-          <button className="btn btn-primary connect-submit" onClick={() => void handleConnect()} disabled={state === 'checking' || state === 'success'}>
+          <button type="submit" className="btn btn-primary connect-submit" disabled={state === 'checking' || state === 'success'}>
             {state === 'checking' ? <><Loader2 size={14} className="spin" aria-hidden /> Checking…</> : <><Shield size={14} aria-hidden /> Connect</>}
           </button>
-        </div>
+        </form>
 
         <p className="connect-foot">Backend URL <span className="mono">{getApiBase()}</span></p>
       </div>

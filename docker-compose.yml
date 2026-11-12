@@ -18,6 +18,23 @@ services:
       timeout: 5s
       retries: 10
       start_period: 5s
+    networks:
+      - mcpg_net
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    command: ["sh", "-c", "exec valkey-server --requirepass \"$$REDIS_PASSWORD\" --save '' --appendonly no --maxmemory 64mb --maxmemory-policy noeviction"]
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - mcpg_net
 
   notes-init:
     image: alpine:3.20
@@ -28,16 +45,24 @@ services:
       - mcpg_shared:/shared
     command: >
       sh -c "chown -R 65534:65534 /notes /shared && find /notes /shared -type d -exec chmod 775 {} +"
+    networks:
+      - mcpg_net
 
-  api:
+  # api1 is defined before migrate and api2 so the YAML anchor exists.
+  api1: &api-service
     build:
       context: ./api
       dockerfile: Dockerfile
+    image: mcp-guard-api:local
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      valkey:
+        condition: service_healthy
       notes-init:
+        condition: service_completed_successfully
+      migrate:
         condition: service_completed_successfully
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -48,13 +73,11 @@ services:
       # host Docker daemon (to launch ephemeral tool runner and upstream containers)
       # and therefore carries host-level security implications.
       - /var/run/docker.sock:/var/run/docker.sock
-    ports:
-      - "127.0.0.1:${API_PORT:-8000}:8000"
-    environment:
+    environment: &api-env
       ENVIRONMENT: production
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-mcpg_user}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-mcpg_guard}}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mcpg_user}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-mcpg_guard}
       API_KEY_PEPPER: ${API_KEY_PEPPER:?set API_KEY_PEPPER in .env}
-      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173"]}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173","http://localhost:8000"]}
       TOOL_PINNING_MODE: ${TOOL_PINNING_MODE:-enforce}
       INJECTION_GUARD_MODE: ${INJECTION_GUARD_MODE:-enforce}
       ENABLE_RETENTION_SCHEDULER: ${ENABLE_RETENTION_SCHEDULER:-true}
@@ -70,6 +93,7 @@ services:
       SANDBOX_PIDS_LIMIT: ${SANDBOX_PIDS_LIMIT:-64}
       SANDBOX_NETWORK: ${SANDBOX_NETWORK:-none}
       SANDBOX_RUN_AS: ${SANDBOX_RUN_AS:-65534:65534}
+      SANDBOX_MAX_CONCURRENT: ${SANDBOX_MAX_CONCURRENT:-3}
       UPSTREAM_FS_ENABLED: "true"
       UPSTREAM_FS_IMAGE: ${UPSTREAM_FS_IMAGE:-mcp-guard-upstream-fs:2.2.0}
       UPSTREAM_FS_DIR: /app/data/shared
@@ -80,12 +104,66 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       NOTES_AGENT_API_KEY: ${NOTES_AGENT_API_KEY:-}
       WORKER_NOTES_API_KEY: ${WORKER_NOTES_API_KEY:-}
+      RUN_MIGRATIONS: "false"
+      MULTI_INSTANCE: "true"
+      INSTANCE_ID: api1
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@valkey:6379/0
+      TRUSTED_PROXIES: '["172.30.57.10/32"]'
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
-      interval: 10s
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/ready"]
+      interval: 5s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 20s
+    networks:
+      - mcpg_net
+
+  migrate:
+    <<: *api-service
+    entrypoint: ["alembic", "upgrade", "head"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *api-env
+
+  api2:
+    <<: *api-service
+    environment:
+      <<: *api-env
+      INSTANCE_ID: api2
+
+  proxy:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
+    image: mcp-guard-proxy:local
+    restart: unless-stopped
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      SIGNIN_API_ORIGIN: ${SIGNIN_API_ORIGIN:-http://localhost:5001}
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8080"
+    networks:
+      mcpg_net:
+        ipv4_address: 172.30.57.10
+    depends_on:
+      api1:
+        condition: service_healthy
+      api2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
 volumes:
   mcpg_pgdata:
@@ -94,3 +172,9 @@ volumes:
     name: mcpg_notes
   mcpg_shared:
     name: mcpg_shared
+
+networks:
+  mcpg_net:
+    ipam:
+      config:
+        - subnet: 172.30.57.0/24

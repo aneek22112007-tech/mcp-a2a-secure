@@ -65,13 +65,13 @@ function ThreatRow({
 }
 
 const ROWS: Array<{ icon: LucideIcon, threat: string, mitigation: string, test: string }> = [
-  { icon: KeyRound, threat: 'Secret exposure', mitigation: 'hashed keys, minimized persistence', test: 'secret test' },
-  { icon: ShieldAlert, threat: 'Scope creep', mitigation: 'per-client scopes', test: 'denied-scope test' },
-  { icon: FlaskConical, threat: 'Tool poisoning', mitigation: 'fingerprinting + optional LLM analysis', test: 'seeded fixture' },
-  { icon: PackageCheck, threat: 'Supply-chain tampering', mitigation: 'pinned deps + integrity checks', test: 'CI + fixture' },
-  { icon: Terminal, threat: 'Command injection', mitigation: 'validation + sandbox + scanner', test: 'seeded injection test' },
-  { icon: Fingerprint, threat: 'Missing auth', mitigation: 'API-key allowlist', test: 'unauthorized-request test' },
-  { icon: Database, threat: 'Audit gaps', mitigation: 'SQLite events + SSE', test: 'audit reconstruction' },
+  { icon: KeyRound, threat: 'Secret exposure', mitigation: 'hashed keys, minimized persistence', test: 'test_api_keys.py' },
+  { icon: ShieldAlert, threat: 'Scope creep', mitigation: 'per-client scopes', test: 'test_mcp_tool_scope.py' },
+  { icon: FlaskConical, threat: 'Tool poisoning', mitigation: 'static scanner R1-R6 + fingerprint pinning', test: 'test_scanner.py' },
+  { icon: PackageCheck, threat: 'Supply-chain tampering', mitigation: 'locked dependencies (uv.lock, package-lock.json), pinned fs upstream image, tool fingerprint pinning', test: 'test_upstream_runner.py' },
+  { icon: Terminal, threat: 'Command injection', mitigation: 'Docker sandbox, no network, capabilities dropped', test: 'test_upstream_integration.py' },
+  { icon: Fingerprint, threat: 'Missing auth', mitigation: 'API key required', test: 'test_routes_upstreams_unauthorized' },
+  { icon: Database, threat: 'Audit gaps', mitigation: 'append-only audit table (Postgres trigger) + live stream', test: 'test_audit_integrity.py' },
 ]
 
 export default function ThreatModelSection() {

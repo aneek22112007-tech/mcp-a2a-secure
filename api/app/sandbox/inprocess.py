@@ -12,7 +12,7 @@ import anyio
 from app.config import settings
 from app.sandbox.context import ExecutionContext
 from app.sandbox.errors import SandboxTimeoutError, SandboxToolError
-from app.sandbox.executor import ExecutorStats, _limits, current_deadline
+from app.sandbox.executor import _limits, current_deadline, shared_stats
 from app.sandbox.types import (
     ERROR_TOOL_INTERNAL,
     MODE_INPROCESS,
@@ -56,7 +56,7 @@ class InProcessExecutor:
     mode = MODE_INPROCESS
 
     def __init__(self) -> None:
-        self.stats = ExecutorStats()
+        self.stats = shared_stats()
 
     async def execute(
         self,

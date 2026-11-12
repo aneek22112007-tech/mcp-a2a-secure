@@ -145,7 +145,7 @@ export default function Nav() {
             fontWeight: 700,
             letterSpacing: '0.12em',
             textTransform: 'uppercase',
-            color: '#fff',
+            color: '#140800',
             background: 'var(--accent)',
             padding: '0.55rem 1.1rem',
             borderRadius: '999px',

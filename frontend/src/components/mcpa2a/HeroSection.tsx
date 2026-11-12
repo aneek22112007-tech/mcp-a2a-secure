@@ -1,21 +1,36 @@
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 
+const EQUIXLY = 'https://equixly.com/blog/2025/03/29/mcp-server-new-security-nightmare'
+const OWASP_MCP = 'https://owasp.org/projects/mcp-top-10'
+
 const STATS = [
-  { label: 'COMMAND INJECTION', value: '43%' },
-  { label: 'PATH TRAVERSAL', value: '82%' },
-  { label: 'CRITICAL VULNS', value: '33%' },
-  { label: 'CVEs / 60 DAYS', value: '30+' },
+  { label: 'COMMAND INJECTION', value: '43%', source: 'Equixly, 29 Mar 2025', href: EQUIXLY },
+  { label: 'PATH TRAVERSAL', value: '22%', source: 'Equixly, 29 Mar 2025', href: EQUIXLY },
+  { label: 'SSRF', value: '30%', source: 'Equixly, 29 Mar 2025', href: EQUIXLY },
+  { label: 'TOOL POISONING', value: '#3', source: 'OWASP MCP Top 10', href: OWASP_MCP },
 ]
 
-function StatBlock({ label, value, delay }: { label: string; value: string; delay: number }) {
+function StatBlock({
+  label,
+  value,
+  source,
+  href,
+  delay,
+}: {
+  label: string
+  value: string
+  source: string
+  href: string
+  delay: number
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.8, delay, ease: [0.16, 1, 0.3, 1] }}
       style={{ textAlign: 'center', flex: 1 }}
-      aria-label={`${label}: ${value}`}
+      aria-label={`${label}: ${value}. Source: ${source}`}
     >
       <div style={{
         fontFamily: 'var(--font-body)',
@@ -36,6 +51,19 @@ function StatBlock({ label, value, delay }: { label: string; value: string; dela
       }}>
         {value}
       </div>
+      <a
+        href={href}
+        style={{
+          display: 'inline-block',
+          marginTop: '0.4rem',
+          fontFamily: 'var(--font-body)',
+          fontSize: '0.65rem',
+          color: '#D9D9D9',
+          textDecoration: 'underline',
+        }}
+      >
+        {source}
+      </a>
     </motion.div>
   )
 }
@@ -74,10 +102,7 @@ export default function HeroSection() {
           alignItems: 'center',
         }}
       >
-        <motion.h1
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
+        <h1
           style={{
             fontFamily: 'var(--font-display)',
             fontSize: 'clamp(3.8rem, 15vw, 15rem)',
@@ -89,10 +114,11 @@ export default function HeroSection() {
             textAlign: 'center',
             whiteSpace: 'nowrap',
             width: '100%',
+            margin: 0,
           }}
         >
           MCP·A2A
-        </motion.h1>
+        </h1>
 
         {/* Sub-labels beneath headline */}
         <div style={{
@@ -149,7 +175,7 @@ export default function HeroSection() {
         >
           {STATS.map((stat, i) => (
             <div role="listitem" key={stat.label} style={{ flex: '1 1 160px', minWidth: '140px' }}>
-              <StatBlock label={stat.label} value={stat.value} delay={1 + i * 0.12} />
+              <StatBlock label={stat.label} value={stat.value} source={stat.source} href={stat.href} delay={1 + i * 0.12} />
             </div>
           ))}
         </div>
@@ -159,7 +185,6 @@ export default function HeroSection() {
           <motion.a
             href="#architecture"
             className="pill-outline"
-            aria-label="View MCP·A2A Architecture"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 1.6, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}

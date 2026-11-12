@@ -180,11 +180,13 @@ def _from_finding(row: ToolScanFinding, blocked: set[str]) -> _Row | None:
 
 
 def _unique(values: list[str | None]) -> list[str]:
-    seen: list[str] = []
+    seen: set[str] = set()
+    ordered: list[str] = []
     for value in values:
         if value and value not in seen:
-            seen.append(value)
-    return seen
+            seen.add(value)
+            ordered.append(value)
+    return ordered
 
 
 def _incident_id(kind: str, group_key: str, first_event_id: str) -> str:
@@ -264,12 +266,26 @@ def _share(left: Incident, right: Incident) -> bool:
     return bool(set(left.tool_names) & set(right.tool_names))
 
 
+# Each incident keeps the nearest matches, then related_ids are sorted.
+# Past this, another shared key or tool does not add a link.
+_RELATED_LIMIT = 20
+
+
+def _separation_seconds(left: Incident, right: Incident) -> float:
+    if left.last_seen < right.first_seen:
+        return (right.first_seen - left.last_seen).total_seconds()
+    if right.last_seen < left.first_seen:
+        return (left.first_seen - right.last_seen).total_seconds()
+    return 0.0
+
+
 def _relate(incidents: list[Incident], gap: timedelta) -> list[Incident]:
     """Link incidents that share a key prefix or a tool name and sit within one gap.
 
     Each index is ordered by first_seen. An incident is compared only with later
-    rows in that index, and the walk stops at the first row that starts after
-    last_seen plus the gap.
+    rows in that index. The walk stops at the first row that starts after
+    last_seen plus the gap, or after _RELATED_LIMIT candidates. A pair is
+    checked once. Each incident then keeps the nearest _RELATED_LIMIT ids.
     """
     by_key: dict[str, list[Incident]] = defaultdict(list)
     by_tool: dict[str, list[Incident]] = defaultdict(list)
@@ -281,18 +297,33 @@ def _relate(incidents: list[Incident], gap: timedelta) -> list[Incident]:
             if tool_name:
                 by_tool[tool_name].append(incident)
 
-    pairs: dict[str, set[str]] = {incident.id: set() for incident in incidents}
+    checked: set[tuple[str, str]] = set()
+    linked: dict[str, list[tuple[float, str]]] = {
+        incident.id: [] for incident in incidents
+    }
+
+    def consider(left: Incident, right: Incident) -> None:
+        pair = (left.id, right.id) if left.id < right.id else (right.id, left.id)
+        if pair in checked:
+            return
+        checked.add(pair)
+        if not (_share(left, right) and _near(left, right, gap)):
+            return
+        seconds = _separation_seconds(left, right)
+        linked[left.id].append((seconds, right.id))
+        linked[right.id].append((seconds, left.id))
 
     def link(group: list[Incident]) -> None:
         ordered = sorted(group, key=lambda item: (item.first_seen, item.id))
         for index, left in enumerate(ordered):
             limit = left.last_seen + gap
-            for right in ordered[index + 1 :]:
+            later = ordered[index + 1 :]
+            for seen, right in enumerate(later, start=1):
                 if right.first_seen > limit:
                     break
-                if _share(left, right) and _near(left, right, gap):
-                    pairs[left.id].add(right.id)
-                    pairs[right.id].add(left.id)
+                consider(left, right)
+                if seen >= _RELATED_LIMIT:
+                    break
 
     for group in by_key.values():
         link(group)
@@ -301,7 +332,8 @@ def _relate(incidents: list[Incident], gap: timedelta) -> list[Incident]:
 
     finished: list[Incident] = []
     for incident in incidents:
-        ids = sorted(pairs[incident.id])
+        nearest = sorted(set(linked[incident.id]))[:_RELATED_LIMIT]
+        ids = sorted(item_id for _, item_id in nearest)
         finished.append(
             Incident(
                 id=incident.id,

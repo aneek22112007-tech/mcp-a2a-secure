@@ -141,9 +141,19 @@ async def record_event(record: AuditRecord, *, required: bool) -> AuditEventOut 
             raise AuditUnavailableError from None
         return None
 
+    relayed = False
     try:
-        audit_broadcaster.publish(event)
-    except Exception as exc:  # noqa: BLE001
-        logger.error("[audit] publish failed type=%s", type(exc).__name__)
+        from app.shared_state import publish_message, relay_connected
+
+        if relay_connected():
+            await publish_message("mcpg:audit", event.model_dump_json())
+            relayed = True
+    except Exception as exc:  # noqa: BLE001 - fall back to this process's subscribers
+        logger.error("[audit] relay failed type=%s", type(exc).__name__)
+    if not relayed:
+        try:
+            audit_broadcaster.publish(event)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("[audit] publish failed type=%s", type(exc).__name__)
     _notify_event(event)
     return event

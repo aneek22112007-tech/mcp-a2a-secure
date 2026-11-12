@@ -1,8 +1,11 @@
 """Audit log data model.
 
-SQLite keeps only the ORM guard in this file; Postgres uses an append-only trigger
-to enforce immutability at the database level. A database owner or superuser can still
-disable triggers, so production should run the app as a non-owner role.
+Postgres rejects UPDATE, DELETE and TRUNCATE on audit_events with a trigger
+(revision cc48301ff61d). SQLite rejects UPDATE and DELETE with triggers
+(revision 9db563fdadd8), except the retention delete and an update that only
+clears api_key_id. The ORM listener below also rejects session updates and
+deletes. A database owner can still disable triggers, so production should
+run the app as a non-owner role.
 """
 
 import uuid

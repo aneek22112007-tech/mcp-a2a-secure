@@ -174,7 +174,7 @@ export default function ArchitectureLayersSection() {
                   }}
                 >
                   <span style={{ fontSize: 'clamp(3rem, 6vw, 5rem)', color: ACCENT }}>{pad(layer.num)}</span>
-                  <span style={{ fontSize: '1.5rem', color: 'rgba(255,255,255,0.45)' }}>/ {pad(LAYERS.length)}</span>
+                  <span style={{ fontSize: '1.5rem', color: 'rgba(255,255,255,0.85)' }}>/ {pad(LAYERS.length)}</span>
                 </div>
                 <div style={{ marginTop: '0.9rem', fontFamily: 'var(--font-display)', fontSize: '1.05rem', color: '#fff', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   {layer.title}

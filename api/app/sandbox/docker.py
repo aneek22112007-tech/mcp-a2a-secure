@@ -20,10 +20,10 @@ from app.sandbox.errors import (
     SandboxUnavailableError,
 )
 from app.sandbox.executor import (
-    ExecutorStats,
     _limits,
     current_deadline,
     current_run_id,
+    shared_stats,
 )
 from app.sandbox.policy import TOOL_POLICIES
 from app.sandbox.types import (
@@ -78,7 +78,7 @@ class DockerExecutor:
     mode = MODE_DOCKER
 
     def __init__(self) -> None:
-        self.stats = ExecutorStats()
+        self.stats = shared_stats()
         self._probe: _Probe | None = None
 
     def snapshot(self) -> dict[str, Any]:

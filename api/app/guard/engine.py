@@ -165,11 +165,15 @@ def check_tool_output(
     audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
     client_id: str | None = None,
     api_key_id: str | None = None,
+    audit: bool = True,
 ) -> GuardResult:
     """Evaluate tool output text against prompt injection rules G1–G6.
 
     Contract:
         check_tool_output(text, *, tool_name, key_prefix, request_id) -> GuardResult
+
+    ``audit=False`` still returns the block or clean decision and does not
+    write a row. Use it when the caller already audited this output.
     """
     return _schedule_audit(
         evaluate_output(text),
@@ -179,6 +183,7 @@ def check_tool_output(
         audit_action=audit_action,
         client_id=client_id,
         api_key_id=api_key_id,
+        audit=audit,
     )
 
 
@@ -191,9 +196,10 @@ def _schedule_audit(
     audit_action: str,
     client_id: str | None,
     api_key_id: str | None,
+    audit: bool,
 ) -> GuardResult:
     """Write the audit row on the running loop when the result has findings."""
-    if not result.findings:
+    if not audit or not result.findings:
         return result
     result._audit_task = _write_guard_audit(
         tool_name=tool_name,
@@ -212,6 +218,33 @@ def _schedule_audit(
     return result
 
 
+def record_tool_output_audit(
+    result: GuardResult,
+    *,
+    tool_name: str,
+    key_prefix: str | None = None,
+    request_id: str | None = None,
+    audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
+    client_id: str | None = None,
+    api_key_id: str | None = None,
+) -> GuardResult:
+    """Schedule the audit row for a result scanned with ``audit=False``.
+
+    Lets a caller run the scan in a worker thread and still write the row
+    on the running loop, exactly as check_tool_output would.
+    """
+    return _schedule_audit(
+        result,
+        tool_name=tool_name,
+        key_prefix=key_prefix,
+        request_id=request_id,
+        audit_action=audit_action,
+        client_id=client_id,
+        api_key_id=api_key_id,
+        audit=True,
+    )
+
+
 async def check_tool_output_async(
     text: str,
     *,
@@ -221,11 +254,13 @@ async def check_tool_output_async(
     audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
     client_id: str | None = None,
     api_key_id: str | None = None,
+    audit: bool = True,
 ) -> GuardResult:
     """Same contract as check_tool_output. The scan runs in a worker thread.
 
     Mode ``off`` returns on the loop. The audit row is scheduled on the
     running loop, never inside the worker and never through asyncio.run.
+    ``audit=False`` keeps the decision and skips the row.
     """
     if settings.injection_guard_mode == "off":
         result = evaluate_output(text)
@@ -239,6 +274,7 @@ async def check_tool_output_async(
         audit_action=audit_action,
         client_id=client_id,
         api_key_id=api_key_id,
+        audit=audit,
     )
 
 

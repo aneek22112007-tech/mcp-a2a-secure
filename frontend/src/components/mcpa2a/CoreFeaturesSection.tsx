@@ -199,7 +199,6 @@ export default function CoreFeaturesSection() {
       <a
         href="#architecture"
         className="pill-solid"
-        aria-label="Explore the architecture"
         style={{ position: 'relative', zIndex: 2, fontSize: '0.7rem', letterSpacing: '0.15em' }}
       >
         Explore the Architecture

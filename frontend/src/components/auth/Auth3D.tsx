@@ -146,41 +146,41 @@ export default function Auth3D({ isSignUp }: Auth3DProps) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#FE6E44', boxShadow: '0 0 8px rgba(254,110,68,0.8)' }} />
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.75rem', color: '#fff', fontWeight: 600 }}>Sandbox Status: Active</span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.75rem', color: '#fff', fontWeight: 600 }}>Docker sandbox</span>
               </div>
               <span style={{
                 fontFamily: 'var(--font-body)', fontSize: '0.55rem', letterSpacing: '0.18em',
                 textTransform: 'uppercase', color: '#FE6E44',
                 padding: '0.2rem 0.5rem', border: '1px solid rgba(254,110,68,0.3)',
                 borderRadius: '3px', background: 'rgba(254,110,68,0.06)',
-              }}>Cluster_Live</span>
+              }}>No network</span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1rem' }}>
               {[
-                { icon: '⬡', label: 'gVisor Enclave', value: 'Isolated (Tier-0)', color: '#FE6E44' },
-                { icon: '⬡', label: 'Active Policy', value: 'OWASP-LLM-01:10 Enforced', color: 'rgba(255,255,255,0.5)' },
-                { icon: '⬡', label: 'Syscall Interception', value: 'eBPF Ring Buffer (0.8µs)', color: 'rgba(255,255,255,0.5)' },
+                { icon: '⬡', label: 'Runner', value: 'Non-root, no capabilities', color: '#FE6E44' },
+                { icon: '⬡', label: 'Active Policy', value: 'Guard G1-G6 · enforce', color: '#D9D9D9' },
+                { icon: '⬡', label: 'Audit log', value: 'Append-only', color: '#D9D9D9' },
               ].map((row, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.7rem', color: 'rgba(255,255,255,0.45)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.7rem', color: '#D9D9D9', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     <span style={{ color: row.color }}>{row.icon}</span> {row.label}
                   </span>
-                  <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.65rem', color: i === 0 ? '#FE6E44' : 'rgba(255,255,255,0.55)', fontWeight: 500 }}>{row.value}</span>
+                  <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.65rem', color: i === 0 ? '#FE6E44' : '#D9D9D9', fontWeight: 500 }}>{row.value}</span>
                 </div>
               ))}
             </div>
 
             <div style={{ paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.55rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: '0.3rem' }}>Telemetry Counter</div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.55rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#D9D9D9', marginBottom: '0.3rem' }}>API key</div>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.5rem', fontWeight: 700, color: '#FE6E44', letterSpacing: '0.02em' }}>
-                14,289,655 <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', fontWeight: 400 }}>pkts/s</span>
+                Hashed <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.65rem', color: '#D9D9D9', fontWeight: 400 }}>secret is not stored</span>
               </div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.75rem' }}>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.55rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)' }}>Node: node-eu-central-04</span>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.55rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)' }}>Latency: 1.4ms</span>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.55rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#D9D9D9' }}>Same key for REST and MCP</span>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.55rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: '#D9D9D9' }}>Sessions stay on one replica</span>
             </div>
           </>
         ) : (
@@ -188,23 +188,23 @@ export default function Auth3D({ isSignUp }: Auth3DProps) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#FE6E44', animation: 'pulse 2s infinite', boxShadow: '0 0 8px rgba(254,110,68,0.8)' }} />
-                <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.6rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#FE6E44', fontWeight: 600 }}>Live Security Enclave</span>
+                <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.6rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#FE6E44', fontWeight: 600 }}>API key required</span>
               </div>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.55rem', color: 'rgba(255,255,255,0.3)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Latency 12ms</span>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.55rem', color: '#D9D9D9', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Hashed secret</span>
             </div>
 
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', fontWeight: 700, color: '#fff', letterSpacing: '0.02em' }}>
-                1,280 <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.65rem', color: '#FE6E44', fontWeight: 400, letterSpacing: '0.14em', textTransform: 'uppercase' }}>Events</span>
+                Scopes <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.65rem', color: '#FE6E44', fontWeight: 400, letterSpacing: '0.14em', textTransform: 'uppercase' }}>per key</span>
               </div>
-              <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>events processed today across active sessions</div>
+              <div style={{ fontFamily: 'var(--font-body)', fontSize: '0.7rem', color: '#D9D9D9' }}>checked before a tool call</div>
             </div>
 
             <div style={{ background: 'rgba(0,0,0,0.4)', borderRadius: '6px', padding: '0.75rem', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {[
-                { icon: '✓', label: '0.82ms AST check passed', time: 'Just now', ok: true },
-                { icon: '🔒', label: 'mcp:fs.read authorized', time: '3s ago', ok: false },
-                { icon: '✓', label: 'Zero-Trust Ed25519 verified', time: '9s ago', ok: true },
+                { icon: '✓', label: 'Key hash checked on each call', time: '', ok: true },
+                { icon: '✓', label: 'Scope checked before the tool', time: '', ok: true },
+                { icon: '✓', label: 'Audit row is append-only', time: '', ok: true },
               ].map((item, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.65rem', color: item.ok ? '#FE6E44' : 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -217,9 +217,9 @@ export default function Auth3D({ isSignUp }: Auth3DProps) {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.6rem', color: '#FE6E44', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <span>⛨</span> Perimeter: Strict Egress
+                <span>⛨</span> Same key for REST and MCP
               </span>
-              <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.6rem', color: '#FE6E44' }}>99.998% Uptime</span>
+              <span style={{ fontFamily: 'var(--font-body)', fontSize: '0.6rem', color: '#D9D9D9' }}>Guard G1–G6</span>
             </div>
           </>
         )}
