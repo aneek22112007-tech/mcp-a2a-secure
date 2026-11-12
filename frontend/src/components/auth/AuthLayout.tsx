@@ -83,7 +83,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, isSignUp }) =>
             textTransform: 'uppercase',
             color: '#FE6E44',
           }}>
-            {isSignUp ? '• V2.4_READY' : '• ZERO-TRUST ACTIVE'}
+            • API KEY ACCESS
           </div>
         </div>
 

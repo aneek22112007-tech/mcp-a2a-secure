@@ -33,7 +33,7 @@ function CompetitorRow({
 const TABLE_DATA = [
   {
     category: 'Registries / marketplaces',
-    examples: 'Smithery (3,300+ servers), Glama (22,000+), mcp.so (17,000+)',
+    examples: 'Smithery, Glama, mcp.so',
     whatTheyDo: 'List and host servers for discovery',
     missing: 'No security review at all — pure listings'
   },

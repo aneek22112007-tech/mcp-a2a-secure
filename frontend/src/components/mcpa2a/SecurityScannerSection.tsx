@@ -39,11 +39,12 @@ function ScannerTag({
 }
 
 const TAGS = [
-  'Command Injection',
-  'Path Traversal',
-  'Tool Poisoning',
-  'Missing Authentication',
-  'Tampered Schemas'
+  'Prompt injection in descriptions (R1)',
+  'Exfiltration hints (R2)',
+  'Over-broad string inputs (R3)',
+  'Oversized descriptions and schemas (R4)',
+  'Suspicious parameter descriptions (R5)',
+  'Tool name anomalies (R6)',
 ]
 
 export default function SecurityScannerSection() {
@@ -81,7 +82,7 @@ export default function SecurityScannerSection() {
           color: 'var(--text-secondary)',
           lineHeight: 1.7,
         }}>
-          A standalone tool that checks any MCP server — ours or someone else's — for known security holes, independent from the core server by design.
+          Six static rules run on every tool this gateway registers, at startup and again before a call. They read the description, parameter text, schema size, and tool name.
         </p>
       </div>
 
@@ -114,7 +115,7 @@ export default function SecurityScannerSection() {
           lineHeight: 1,
           marginBottom: '1rem',
         }}>
-          Zero False Negatives
+          Six Static Rules
         </div>
         <p style={{
           fontFamily: 'var(--font-body)',
@@ -122,7 +123,7 @@ export default function SecurityScannerSection() {
           color: 'var(--text-secondary)',
           lineHeight: 1.6,
         }}>
-          Measured against our own documented fixture suite (one seeded vulnerability per OWASP MCP Top 10 category), not the full real-world threat space, which no scanner can honestly claim to cover completely.
+          Six static rules run on every tool at startup and before calls. The hostile lab tool lab_translate_text gets past those rules on purpose, to show their limits.
         </p>
       </div>
 
