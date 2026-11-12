@@ -5,6 +5,7 @@ The same rows always produce the same incidents. No model is involved.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections import defaultdict
 from dataclasses import dataclass
@@ -349,12 +350,30 @@ async def group_incidents(
     audit_rows = await list_security_events(
         session, start=start, limit=settings.analyst_max_rows
     )
+    findings = await _open_findings(session, start)
+    return await asyncio.to_thread(
+        _assemble_incidents,
+        audit_rows,
+        findings,
+        gap=gap,
+        blocked=blocked,
+    )
+
+
+def _assemble_incidents(
+    audit_rows: list[AuditEvent],
+    findings: list[ToolScanFinding],
+    *,
+    gap: timedelta,
+    blocked: set[str],
+) -> list[Incident]:
+    """Build, cluster, relate, and sort incidents. No database calls."""
     rows: list[_Row] = []
     for event in reversed(audit_rows):
         built = _from_audit(event)
         if built is not None:
             rows.append(built)
-    for finding in await _open_findings(session, start):
+    for finding in findings:
         built = _from_finding(finding, blocked)
         if built is not None:
             rows.append(built)
