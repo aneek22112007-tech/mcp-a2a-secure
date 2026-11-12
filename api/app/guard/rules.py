@@ -371,21 +371,28 @@ class _CurlMarkerFinder:
 
 
 class _MarkdownImageFinder:
-    """Find ![, then the first ]( on that line, then a URL and the closing paren."""
+    """Find ![, then the first ]( on that line, then a URL and the closing paren.
+
+    One forward pass. Each line end is found once per line, and each URL
+    run (up to a space, tab, ) or the line end) is scanned once, however
+    many "![" openers point into it.
+    """
 
     def finditer(self, text: str):
         start = 0
         length = len(text)
+        lines = _LineEnds(text)
+        stops = _UrlRunEnds(text)
         while start < length:
             open_at = text.find("![", start)
             if open_at < 0:
                 return
-            line_end = _line_end_at(text, open_at)
+            line_end = lines.at(open_at)
             close_at = text.find("](", open_at + 2, line_end)
             if close_at < 0:
                 start = line_end + 1
                 continue
-            end = _markdown_image_end(text, close_at + 2, line_end)
+            end = _markdown_image_end(text, close_at + 2, line_end, stops)
             if end < 0:
                 start = close_at + 2
                 continue
@@ -393,7 +400,33 @@ class _MarkdownImageFinder:
             start = end
 
 
-def _markdown_image_end(text: str, index: int, limit: int) -> int:
+class _UrlRunEnds:
+    """Remember where the last URL run stopped.
+
+    URL starts only move forward, so a start inside the last run stops at
+    the same place and is not scanned again.
+    """
+
+    __slots__ = ("_from", "_stop", "_text")
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+        self._from = -1
+        self._stop = -1
+
+    def at(self, index: int, limit: int) -> int:
+        if self._from <= index < self._stop and self._stop <= limit:
+            return self._stop
+        text = self._text
+        cursor = index
+        while cursor < limit and text[cursor] not in " \t)":
+            cursor += 1
+        self._from = index
+        self._stop = cursor
+        return cursor
+
+
+def _markdown_image_end(text: str, index: int, limit: int, stops: _UrlRunEnds) -> int:
     if text.startswith("https://", index):
         cursor = index + 8
     elif text.startswith("http://", index):
@@ -404,8 +437,7 @@ def _markdown_image_end(text: str, index: int, limit: int) -> int:
         return -1
     if cursor >= limit or text[cursor] in " \t)":
         return -1
-    while cursor < limit and text[cursor] not in " \t)":
-        cursor += 1
+    cursor = stops.at(cursor, limit)
     if cursor >= limit or text[cursor] != ")":
         return -1
     return cursor + 1
