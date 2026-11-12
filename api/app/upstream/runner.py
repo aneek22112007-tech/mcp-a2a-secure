@@ -30,7 +30,7 @@ from app.sandbox.errors import (
     SandboxUnavailableError,
     SandboxUpstreamError,
 )
-from app.sandbox.executor import ExecutorStats, current_deadline, current_run_id
+from app.sandbox.executor import current_deadline, current_run_id, shared_stats
 from app.sandbox.types import (
     ERROR_DOCKER_UNAVAILABLE,
     ERROR_IMAGE_MISSING,
@@ -68,7 +68,7 @@ class UpstreamExecutor:
 
     def __init__(self, spec: UpstreamSpec | None = None) -> None:
         self.spec = spec
-        self.stats = ExecutorStats()
+        self.stats = shared_stats()
 
     async def execute(
         self,

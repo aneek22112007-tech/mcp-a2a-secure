@@ -114,6 +114,18 @@ class ExecutorStats:
         }
 
 
+_process_stats: ExecutorStats | None = None
+
+
+def shared_stats() -> ExecutorStats:
+    """One concurrency budget for every executor in this process."""
+
+    global _process_stats
+    if _process_stats is None:
+        _process_stats = ExecutorStats()
+    return _process_stats
+
+
 def current_run_id() -> str:
     run_id = _run_id_var.get()
     if not run_id:
