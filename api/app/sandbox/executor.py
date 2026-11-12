@@ -364,7 +364,36 @@ async def run_tool(
                 sem.release()
 
     set_tool_output_guarded(True)
-    return _guard_value(result, tool_name=tool_name, context=context)
+    return await _guard_value_async(result, tool_name=tool_name, context=context)
+
+
+def _guard_identity(
+    context: ExecutionContext | Any,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Resolve key prefix, request id, client id, and api key id on the caller."""
+    if isinstance(context, dict):
+        key_prefix = context.get("key_prefix")
+        request_id = context.get("request_id") or current_request_id()
+        client_id = context.get("client_id")
+        api_key_id = context.get("api_key_id")
+    elif context is not None:
+        key_prefix = getattr(context, "key_prefix", None)
+        request_id = getattr(context, "request_id", None) or current_request_id()
+        client_id = getattr(context, "client_id", None)
+        api_key_id = getattr(context, "api_key_id", None)
+    else:
+        bound = current_execution_context()
+        if bound is not None:
+            key_prefix = bound.key_prefix
+            request_id = bound.request_id or current_request_id()
+            client_id = bound.client_id
+            api_key_id = bound.api_key_id
+        else:
+            key_prefix = None
+            request_id = current_request_id()
+            client_id = None
+            api_key_id = None
+    return key_prefix, request_id, client_id, api_key_id
 
 
 def _guard_value(
@@ -377,29 +406,7 @@ def _guard_value(
     if isinstance(value, str):
         from app.guard import check_tool_output
 
-        if isinstance(context, dict):
-            key_prefix = context.get("key_prefix")
-            request_id = context.get("request_id") or current_request_id()
-            client_id = context.get("client_id")
-            api_key_id = context.get("api_key_id")
-        elif context is not None:
-            key_prefix = getattr(context, "key_prefix", None)
-            request_id = getattr(context, "request_id", None) or current_request_id()
-            client_id = getattr(context, "client_id", None)
-            api_key_id = getattr(context, "api_key_id", None)
-        else:
-            bound = current_execution_context()
-            if bound is not None:
-                key_prefix = bound.key_prefix
-                request_id = bound.request_id or current_request_id()
-                client_id = bound.client_id
-                api_key_id = bound.api_key_id
-            else:
-                key_prefix = None
-                request_id = current_request_id()
-                client_id = None
-                api_key_id = None
-
+        key_prefix, request_id, client_id, api_key_id = _guard_identity(context)
         guard_res = check_tool_output(
             value,
             tool_name=tool_name,
@@ -420,6 +427,46 @@ def _guard_value(
             k: _guard_value(v, tool_name=tool_name, context=context)
             for k, v in value.items()
         }
+
+    return value
+
+
+async def _guard_value_async(
+    value: Any,
+    *,
+    tool_name: str,
+    context: ExecutionContext | Any = None,
+) -> Any:
+    """Same recursion as _guard_value. Identity is resolved before the worker."""
+    if isinstance(value, str):
+        from app.guard import check_tool_output_async
+
+        key_prefix, request_id, client_id, api_key_id = _guard_identity(context)
+        guard_res = await check_tool_output_async(
+            value,
+            tool_name=tool_name,
+            key_prefix=key_prefix,
+            request_id=request_id,
+            client_id=client_id,
+            api_key_id=api_key_id,
+        )
+        return guard_res.text
+
+    if isinstance(value, list):
+        guarded = []
+        for item in value:
+            guarded.append(
+                await _guard_value_async(item, tool_name=tool_name, context=context)
+            )
+        return guarded
+
+    if isinstance(value, dict):
+        guarded = {}
+        for key, item in value.items():
+            guarded[key] = await _guard_value_async(
+                item, tool_name=tool_name, context=context
+            )
+        return guarded
 
     return value
 
