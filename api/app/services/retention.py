@@ -2,10 +2,12 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import text
+
 from app.audit.events import AuditRecord
 from app.audit.sink import record_event
 from app.config import settings
-from app.database import async_session_maker
+from app.database import async_session_maker, engine
 from app.models.audit_events import AUDIT_DECISION_ALLOWED
 from app.repos.analyst_reports import cleanup_old_analyst_reports
 from app.repos.audit import delete_events_before
@@ -17,6 +19,22 @@ logger = logging.getLogger(__name__)
 
 
 async def run_retention_cleanup() -> None:
+    """Delete expired rows. On Postgres only one replica runs a cycle."""
+
+    if engine.dialect.name != "postgresql":
+        await _run_retention_cleanup()
+        return
+
+    async with async_session_maker() as lock_session, lock_session.begin():
+        acquired = await lock_session.scalar(
+            text("SELECT pg_try_advisory_xact_lock(727002)")
+        )
+        if not acquired:
+            return
+        await _run_retention_cleanup()
+
+
+async def _run_retention_cleanup() -> None:
     retention_days = settings.audit_retention_days
     cutoff = datetime.now(UTC) - timedelta(days=retention_days)
 

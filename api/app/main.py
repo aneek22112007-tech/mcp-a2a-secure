@@ -70,6 +70,53 @@ from app.services.scanner import run_scan_all
 install_request_id_logging()
 
 
+async def _run_startup_jobs() -> None:
+    """Run bootstrap approve, the stale-run sweep, and the startup scan once.
+
+    Postgres uses a session advisory lock so a second replica skips the work.
+    SQLite has one process and runs the jobs as before.
+    """
+
+    import logging
+
+    from sqlalchemy import text
+
+    from app.database import async_session_maker, engine
+
+    logger = logging.getLogger(__name__)
+
+    async def _jobs() -> None:
+        if settings.tool_pinning_bootstrap_approve:
+            from app.services.pins import bootstrap_approve_current_tools
+
+            await bootstrap_approve_current_tools()
+        try:
+            await sweep_stale_runs()
+        except Exception:
+            logger.exception("Failed to sweep stale sandbox runs at startup")
+        if settings.scanner_run_on_startup and settings.scanner_enabled:
+            try:
+                await run_scan_all()
+            except Exception:
+                logger.exception("Failed to run tool poisoning scanner at startup")
+
+    if engine.dialect.name != "postgresql":
+        await _jobs()
+        return
+
+    async with async_session_maker() as session:
+        result = await session.execute(text("SELECT pg_try_advisory_lock(727001)"))
+        if not bool(result.scalar()):
+            logger.info("startup jobs ran on another instance")
+            return
+        logger.info("running startup jobs")
+        try:
+            await _jobs()
+        finally:
+            await session.execute(text("SELECT pg_advisory_unlock(727001)"))
+            await session.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.started_at = time.monotonic()
@@ -112,29 +159,7 @@ async def lifespan(app: FastAPI):
             ", ".join(sorted(unmapped)),
         )
 
-    if settings.tool_pinning_bootstrap_approve:
-        from app.services.pins import bootstrap_approve_current_tools
-
-        await bootstrap_approve_current_tools()
-
-    try:
-        await sweep_stale_runs()
-    except Exception:
-        import logging
-
-        logging.getLogger(__name__).exception(
-            "Failed to sweep stale sandbox runs at startup"
-        )
-
-    if settings.scanner_run_on_startup and settings.scanner_enabled:
-        try:
-            await run_scan_all()
-        except Exception:
-            import logging
-
-            logging.getLogger(__name__).exception(
-                "Failed to run tool poisoning scanner at startup"
-            )
+    await _run_startup_jobs()
 
     scheduler_task = None
     if settings.enable_retention_scheduler:
