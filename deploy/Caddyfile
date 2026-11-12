@@ -29,6 +29,10 @@
             flush_interval -1
             transport http {
                 keepalive 60s
+                # Queue at the proxy instead of exceeding uvicorn's
+                # --limit-concurrency 256. With the /api pool (160) this
+                # is 224 connections per replica, leaving room for /ready.
+                max_conns_per_host 64
             }
         }
     }
@@ -46,6 +50,10 @@
             flush_interval -1
             transport http {
                 keepalive 60s
+                # Queue at the proxy instead of exceeding uvicorn's
+                # --limit-concurrency 256. With the /mcp pool (64) this
+                # is 224 connections per replica, leaving room for /ready.
+                max_conns_per_host 160
             }
         }
     }
