@@ -9,7 +9,7 @@ from app.audit.events import ACTION_GUARD_CHECK
 from app.audit.redaction import current_request_id
 from app.auth.dependencies import authorize_route
 from app.auth.principal import Principal
-from app.guard.engine import check_tool_output
+from app.guard.engine import check_tool_output_async
 from app.guard.models import GuardResult
 
 router = APIRouter(
@@ -37,7 +37,7 @@ async def check_guard(
     api_key_id = principal.api_key_id if principal else None
     request_id = current_request_id(request.scope)
 
-    result = check_tool_output(
+    result = await check_tool_output_async(
         payload.text,
         tool_name=payload.tool_name,
         key_prefix=key_prefix,

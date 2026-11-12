@@ -69,7 +69,7 @@ from app.sandbox.errors import (
     SandboxToolError,
     SandboxUnavailableError,
 )
-from app.sandbox.executor import _guard_value
+from app.sandbox.executor import _guard_value_async
 from app.sandbox.policy import TOOL_POLICIES
 from app.sandbox.types import TRANSPORT_REST
 from app.services.pins import evaluate_tool, pin_audit_action
@@ -362,7 +362,7 @@ async def call_tool(
             duration_ms = round((time.monotonic() - t0) * 1000, 2)
             result_raw = _normalise(result_raw)
             if not is_tool_output_guarded():
-                result_raw = _guard_value(
+                result_raw = await _guard_value_async(
                     result_raw,
                     tool_name=name,
                     context=execution,
