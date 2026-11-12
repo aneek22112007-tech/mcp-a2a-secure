@@ -126,7 +126,11 @@ _G3_PATTERNS = [
 _HEX_CHAIN_RE = re.compile(r"(?:\\x[0-9a-fA-F]{2}){4,}")
 _HEX_TOKEN_RE = re.compile(r"^[0-9a-fA-F]+$")
 _ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
-_B64_INSTRUCTION_RE = re.compile(r"(?i)\b(?:base64\s+decode|echo\s+.*\|\s*base64)\b")
+_B64_ECHO_WINDOW = 256
+# Bounded: echo and the pipe stay on one line, within _B64_ECHO_WINDOW characters.
+_B64_INSTRUCTION_RE = re.compile(
+    rf"(?i)\b(?:base64\s+decode|echo\s+[^\n\r]{{0,{_B64_ECHO_WINDOW}}}\|\s*base64)\b"
+)
 _B64_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{24,}={0,2}(?![A-Za-z0-9+/=])"
 )
