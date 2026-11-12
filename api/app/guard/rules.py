@@ -19,6 +19,49 @@ class RuleMatch(NamedTuple):
     matched_text: str
 
 
+class _SpanMatch:
+    """A forward match that exposes span() and group(0), like a regex match."""
+
+    __slots__ = ("_start", "_end", "_text")
+
+    def __init__(self, start: int, end: int, text: str) -> None:
+        self._start = start
+        self._end = end
+        self._text = text
+
+    def span(self) -> tuple[int, int]:
+        return (self._start, self._end)
+
+    def group(self, index: int = 0) -> str:
+        if index != 0:
+            raise IndexError(index)
+        return self._text
+
+
+_G2_COMMENT_WORD_RE = re.compile(
+    r"(?i)\b(?:system|ignore|instruction|prompt|directive)\b"
+)
+
+
+class _HtmlCommentFinder:
+    """Each HTML comment is closed by the next -->. The keyword is tested once."""
+
+    def finditer(self, text: str):
+        start = 0
+        while True:
+            open_at = text.find("<!--", start)
+            if open_at < 0:
+                return
+            close_at = text.find("-->", open_at + 4)
+            if close_at < 0:
+                return
+            end = close_at + 3
+            comment = text[open_at:end]
+            if _G2_COMMENT_WORD_RE.search(comment):
+                yield _SpanMatch(open_at, end, comment)
+            start = end
+
+
 # ---------------------------------------------------------------------------
 # G1: Instruction Override (high)
 # ---------------------------------------------------------------------------
@@ -48,10 +91,8 @@ _G2_PATTERNS = [
     re.compile(r"(?i)<system>"),
     re.compile(r"(?i)###\s*System\s*:"),
     re.compile(r"(?i)\bSYSTEM\s+PROMPT\s*:"),
-    re.compile(
-        r"(?i)<!--\s*.*?\b(?:system|ignore|instruction|prompt|directive)\b.*?-->",
-        re.DOTALL,
-    ),
+    # Bounded: the next --> closes the comment, so the scan cannot cross later text.
+    _HtmlCommentFinder(),
 ]
 
 # ---------------------------------------------------------------------------
