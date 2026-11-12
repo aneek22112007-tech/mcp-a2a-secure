@@ -75,6 +75,11 @@ async def lifespan(app: FastAPI):
     app.state.started_at = time.monotonic()
     ensure_notes_dir()
 
+    from app.shared_state import start as start_shared_state
+    from app.shared_state import stop as stop_shared_state
+
+    await start_shared_state()
+
     if isinstance(get_api_key_verifier(), DenyAllVerifier):
         set_api_key_verifier(HmacApiKeyVerifier())
 
@@ -142,6 +147,8 @@ async def lifespan(app: FastAPI):
             await scheduler_task
         except asyncio.CancelledError:
             pass
+
+    await stop_shared_state()
 
 
 def apply_http_middleware(application: FastAPI) -> None:

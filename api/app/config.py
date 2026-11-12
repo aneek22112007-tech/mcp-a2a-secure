@@ -1,5 +1,6 @@
 import ipaddress
 import re
+import socket
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -315,6 +316,43 @@ class Settings(BaseSettings):
         le=4,
         description="Explanations running at once in this process.",
     )
+    redis_url: SecretStr | None = Field(
+        default=None,
+        description="Valkey or Redis URL for state shared across API replicas.",
+    )
+    multi_instance: bool = Field(
+        default=False,
+        description="Refuse to start unless Postgres and REDIS_URL are both set.",
+    )
+    instance_id: str = Field(
+        default_factory=socket.gethostname,
+        description="Name shown by /ready. Defaults to the host name.",
+    )
+    db_pool_size: int = Field(
+        default=5,
+        gt=0,
+        description="SQLAlchemy pool size for Postgres.",
+    )
+    db_max_overflow: int = Field(
+        default=5,
+        gt=0,
+        description="Extra Postgres connections above the pool size.",
+    )
+    db_pool_timeout_s: float = Field(
+        default=10,
+        gt=0,
+        description="Seconds to wait for a Postgres connection from the pool.",
+    )
+    db_pool_recycle_s: int = Field(
+        default=1800,
+        gt=0,
+        description="Seconds before a pooled Postgres connection is recycled.",
+    )
+    ready_db_timeout_s: float = Field(
+        default=2.0,
+        gt=0,
+        description="Seconds /ready waits for SELECT 1.",
+    )
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -373,7 +411,11 @@ class Settings(BaseSettings):
         return v
 
     @field_validator(
-        "groq_api_key", "notes_agent_api_key", "worker_notes_api_key", mode="before"
+        "groq_api_key",
+        "notes_agent_api_key",
+        "worker_notes_api_key",
+        "redis_url",
+        mode="before",
     )
     @classmethod
     def blank_optional_secret(cls, value: Any) -> Any:
@@ -409,6 +451,13 @@ class Settings(BaseSettings):
 
         if self.is_production_like and not self.api_key_pepper:
             raise ValueError("API_KEY_PEPPER is required in production environment")
+
+        if self.multi_instance and (
+            self.database_url.startswith("sqlite") or self.redis_url is None
+        ):
+            raise ValueError(
+                "MULTI_INSTANCE requires a Postgres DATABASE_URL and REDIS_URL"
+            )
 
         if self.is_production_like and self.tool_pinning_bootstrap_approve:
             raise ValueError(
