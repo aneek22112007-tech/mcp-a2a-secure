@@ -140,15 +140,31 @@ _B64_TOKEN_RE = re.compile(
 # ---------------------------------------------------------------------------
 _ALT_TEXT_WINDOW = 256
 
+_URL_TOKEN_RE = re.compile(r"https?://[^\s)]+")
+_URL_PARAM_RE = re.compile(
+    r"[?&](?:key|token|secret|data|env|dump|creds|password)=[^\s)?&]*"
+)
+
+
+class _UrlParamFinder:
+    """Each URL token is consumed once. The parameter is then sought inside it."""
+
+    def finditer(self, text: str):
+        for token in _URL_TOKEN_RE.finditer(text):
+            url = token.group(0)
+            base = token.start()
+            for param in _URL_PARAM_RE.finditer(url):
+                end = base + param.end()
+                yield _SpanMatch(base, end, text[base:end])
+
+
 _G5_PATTERNS = [
     # Bounded: alt text stops at a bracket, a newline, or _ALT_TEXT_WINDOW characters.
     re.compile(
         rf"!\[[^\]\n\r]{{0,{_ALT_TEXT_WINDOW}}}\]\((?:https?:)?//[^\s)]+\)"
     ),
-    # Sensitive exfiltration query parameters
-    re.compile(
-        r"https?://[^\s)]+[?&](?:key|token|secret|data|env|dump|creds|password)=[^\s)]*"
-    ),
+    # Bounded: one pass over each URL token, then a parameter search inside that token.
+    _UrlParamFinder(),
     # Known exfiltration domains
     re.compile(
         r"(?i)https?://(?:[a-zA-Z0-9-]+\.)*(?:webhook\.site|requestbin|ngrok[a-zA-Z0-9-]*\.[a-z]+|"
