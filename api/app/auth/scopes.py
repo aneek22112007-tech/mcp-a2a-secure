@@ -68,6 +68,7 @@ ROUTE_SCOPES: dict[tuple[str, str], str | None] = {
     ("GET", "/api/status"): None,
     ("GET", "/api/mcp/info"): None,
     ("GET", "/health"): None,
+    ("GET", "/ready"): None,
     ("POST", "/api/keys"): ADMIN,
     ("GET", "/api/keys"): ADMIN,
     ("DELETE", "/api/keys/{key_id}"): ADMIN,

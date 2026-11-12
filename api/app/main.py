@@ -15,6 +15,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 from starlette.types import ASGIApp
 
 from app.audit.mcp_asgi import McpToolAuditMiddleware
@@ -26,6 +28,7 @@ from app.auth.verifier import (
     set_api_key_verifier,
 )
 from app.config import settings, warn_explicit_production_modes
+from app.database import async_session_maker
 from app.errors import register_error_handlers
 from app.llm.recording import (
     DbLLMCallRecorder,
@@ -66,6 +69,7 @@ from app.services.api_keys import HmacApiKeyVerifier
 from app.services.retention import retention_scheduler_task
 from app.services.sandbox_runs import DbRunRecorder, sweep_stale_runs
 from app.services.scanner import run_scan_all
+from app.shared_state import status as shared_state_status
 
 install_request_id_logging()
 
@@ -119,7 +123,10 @@ async def _run_startup_jobs() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.started_at = time.monotonic()
+    # Later ``import app....`` lines rebind the name app inside this function.
+    application = app
+    application.state.ready = False
+    application.state.started_at = time.monotonic()
     ensure_notes_dir()
 
     from app.shared_state import start as start_shared_state
@@ -167,7 +174,11 @@ async def lifespan(app: FastAPI):
         scheduler_task = asyncio.create_task(retention_scheduler_task())
 
     async with mcp.session_manager.run():
-        yield
+        application.state.ready = True
+        try:
+            yield
+        finally:
+            application.state.ready = False
 
     if scheduler_task:
         scheduler_task.cancel()
@@ -253,8 +264,39 @@ app.include_router(a2a_router)
 
 
 @app.get("/health")
-def health():
+async def health():
     return {"status": "ok", "app": settings.app_name}
+
+
+@app.get("/ready")
+async def ready():
+    """Report this process, the database, and shared state.
+
+    The body stays free of exception text. A Valkey outage leaves the
+    status at 200. A database failure is 503.
+    """
+    instance = settings.instance_id
+    if not getattr(app.state, "ready", False):
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "instance": instance},
+        )
+    database = "ok"
+    try:
+        async with asyncio.timeout(settings.ready_db_timeout_s):
+            async with async_session_maker() as session:
+                await session.execute(text("SELECT 1"))
+    except Exception:  # noqa: BLE001 - the response must not include the error
+        database = "unavailable"
+    body = {
+        "status": "ready" if database == "ok" else "not_ready",
+        "instance": instance,
+        "database": database,
+        "shared_state": shared_state_status(),
+    }
+    if database == "ok":
+        return body
+    return JSONResponse(status_code=503, content=body)
 
 
 # MCP streamable-HTTP transport — Inspector and A2A workers connect here

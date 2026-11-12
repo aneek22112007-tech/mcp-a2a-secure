@@ -3,10 +3,14 @@ set -e
 
 echo "==> MCP Guard API Container Entrypoint"
 
-# 1. Run database migrations first
-echo "==> Running Alembic migrations (alembic upgrade head)..."
-alembic upgrade head
-echo "==> Alembic migrations completed successfully."
+# 1. Run database migrations first, unless this replica defers to the migrate step
+if [ "${RUN_MIGRATIONS:-true}" = "false" ]; then
+    echo "==> Skipping Alembic migrations (RUN_MIGRATIONS=false)."
+else
+    echo "==> Running Alembic migrations (alembic upgrade head)..."
+    alembic upgrade head
+    echo "==> Alembic migrations completed successfully."
+fi
 
 # 2. Configure non-root permissions and Docker socket access where feasible
 APP_USER="nobody"
@@ -37,11 +41,11 @@ if [ "$(id -u)" = "0" ]; then
         if ! gosu "$APP_USER" docker version >/dev/null 2>&1; then
             if docker version >/dev/null 2>&1; then
                 echo "==> Notice: Docker socket requires root permissions on this host. Running as root."
-                exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config log_config.json
+                exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config log_config.json --no-proxy-headers --timeout-keep-alive 75 --timeout-graceful-shutdown 20 --limit-concurrency ${UVICORN_LIMIT_CONCURRENCY:-256}
             fi
         fi
     fi
-    exec gosu "$APP_USER" uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config log_config.json
+    exec gosu "$APP_USER" uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config log_config.json --no-proxy-headers --timeout-keep-alive 75 --timeout-graceful-shutdown 20 --limit-concurrency ${UVICORN_LIMIT_CONCURRENCY:-256}
 else
-    exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config log_config.json
+    exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --log-config log_config.json --no-proxy-headers --timeout-keep-alive 75 --timeout-graceful-shutdown 20 --limit-concurrency ${UVICORN_LIMIT_CONCURRENCY:-256}
 fi
