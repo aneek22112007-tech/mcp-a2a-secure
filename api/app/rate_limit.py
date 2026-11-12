@@ -105,8 +105,14 @@ async def analyst_rate_limit(request: Request) -> None:
     if principal is None or not principal.api_key_id:
         raise HTTPException(status_code=401, detail="Authentication required.")
 
-    allowed, retry_after, should_audit = analyst_limiter.acquire(
-        ANALYST_SURFACE, principal.api_key_id
+    from app.shared_state import acquire_shared
+
+    allowed, retry_after, should_audit = await acquire_shared(
+        ANALYST_SURFACE,
+        principal.api_key_id,
+        analyst_limiter,
+        settings.analyst_rate_limit_capacity,
+        settings.analyst_rate_limit_per_minute / 60.0,
     )
     if allowed:
         return
@@ -138,8 +144,14 @@ async def rate_limit_dependency(
     if not principal or not principal.api_key_id:
         return
 
-    allowed, retry_after, should_audit = limiter.acquire(
-        SHARED_SURFACE, principal.api_key_id
+    from app.shared_state import acquire_shared
+
+    allowed, retry_after, should_audit = await acquire_shared(
+        SHARED_SURFACE,
+        principal.api_key_id,
+        limiter,
+        settings.rate_limit_capacity,
+        settings.rate_limit_refill_rate_per_sec,
     )
     if not allowed:
         if should_audit:
@@ -182,8 +194,14 @@ class McpRateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        allowed, retry_after, should_audit = limiter.acquire(
-            SHARED_SURFACE, principal.api_key_id
+        from app.shared_state import acquire_shared
+
+        allowed, retry_after, should_audit = await acquire_shared(
+            SHARED_SURFACE,
+            principal.api_key_id,
+            limiter,
+            settings.rate_limit_capacity,
+            settings.rate_limit_refill_rate_per_sec,
         )
         if not allowed:
             if should_audit:
