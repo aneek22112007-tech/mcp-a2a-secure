@@ -22,7 +22,7 @@ class RuleMatch(NamedTuple):
 class _SpanMatch:
     """A forward match that exposes span() and group(0), like a regex match."""
 
-    __slots__ = ("_start", "_end", "_text")
+    __slots__ = ("_end", "_start", "_text")
 
     def __init__(self, start: int, end: int, text: str) -> None:
         self._start = start
@@ -158,11 +158,65 @@ class _UrlParamFinder:
                 yield _SpanMatch(base, end, text[base:end])
 
 
+def _line_spans(text: str):
+    """Yield (offset, line) without the line break."""
+    offset = 0
+    length = len(text)
+    while True:
+        newline = text.find("\n", offset)
+        if newline < 0:
+            yield offset, text[offset:]
+            return
+        yield offset, text[offset:newline]
+        offset = newline + 1
+        if offset >= length:
+            return
+
+
+_CURL_FLAG_RE = re.compile(r"(?i)\b(?:curl|wget|fetch)\s+-[XFd]")
+_CURL_CMD_RE = re.compile(r"(?i)\b(?:curl|wget|fetch)\s")
+_HTTP_URL_RE = re.compile(r"https?://\S+")
+_CURL_MARKER_RE = re.compile(r"\$|\bdata\b|\bkey\b", re.IGNORECASE)
+
+
+class _CurlFlagFinder:
+    """The first flag command on a line, then the first URL after it on that line."""
+
+    def finditer(self, text: str):
+        for offset, line in _line_spans(text):
+            flag = _CURL_FLAG_RE.search(line)
+            if flag is None:
+                continue
+            url = _HTTP_URL_RE.search(line, flag.end())
+            if url is None:
+                continue
+            start = offset + flag.start()
+            end = offset + url.end()
+            yield _SpanMatch(start, end, text[start:end])
+
+
+class _CurlMarkerFinder:
+    """The first command on a line. The marker is read from the URL to the line end."""
+
+    def finditer(self, text: str):
+        for offset, line in _line_spans(text):
+            command = _CURL_CMD_RE.search(line)
+            if command is None:
+                continue
+            url = _HTTP_URL_RE.search(line, command.end())
+            if url is None:
+                continue
+            marker = _CURL_MARKER_RE.search(line, url.start())
+            if marker is None:
+                continue
+            start = offset + command.start()
+            end = offset + marker.end()
+            yield _SpanMatch(start, end, text[start:end])
+
+
 _G5_PATTERNS = [
     # Bounded: alt text stops at a bracket, a newline, or _ALT_TEXT_WINDOW characters.
-    re.compile(
-        rf"!\[[^\]\n\r]{{0,{_ALT_TEXT_WINDOW}}}\]\((?:https?:)?//[^\s)]+\)"
-    ),
+    re.compile(rf"!\[[^\]\n\r]{{0,{_ALT_TEXT_WINDOW}}}\]\((?:https?:)?//[^\s)]+\)"),
     # Bounded: one pass over each URL token, then a parameter search inside that token.
     _UrlParamFinder(),
     # Known exfiltration domains
@@ -170,11 +224,10 @@ _G5_PATTERNS = [
         r"(?i)https?://(?:[a-zA-Z0-9-]+\.)*(?:webhook\.site|requestbin|ngrok[a-zA-Z0-9-]*\.[a-z]+|"
         r"burpcollaborator\.net|oastify\.com|pipedream\.net|evil\.com|attacker\.com|evil\.example)(?:[:/][^\s]*)?"
     ),
-    # curl / wget / fetch exfiltration commands
-    re.compile(r"(?i)\b(?:curl|wget|fetch)\s+-[XFd].*?https?://[^\s]+"),
-    re.compile(
-        r"(?i)\b(?:curl|wget|fetch)\s+[^\n\r]*?https?://[^\s]+.*?(?:\$|\bdata\b|\bkey\b)"
-    ),
+    # Bounded: one flag command per line, then the first URL on that same line.
+    _CurlFlagFinder(),
+    # Bounded: one command per line. The marker search starts at the URL and stops at the line end.
+    _CurlMarkerFinder(),
 ]
 
 # ---------------------------------------------------------------------------
