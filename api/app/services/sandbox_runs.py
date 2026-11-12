@@ -49,7 +49,22 @@ class DbRunRecorder(SandboxRunRecorder):
             logger.error("sandbox record_finish failed type=%s", type(e).__name__)
 
 
+def _stale_run_grace_s() -> float:
+    """How long a run may sit before it is stale.
+
+    The grace is the longest enabled tool timeout, plus a minute. A filesystem
+    or lab run can outlive the notes sandbox timeout.
+    """
+
+    limits = [settings.sandbox_timeout_s]
+    if settings.upstream_fs_enabled:
+        limits.append(settings.upstream_fs_timeout_s)
+    if settings.upstream_lab_enabled:
+        limits.append(settings.upstream_lab_timeout_s)
+    return max(limits) + 60
+
+
 async def sweep_stale_runs() -> None:
-    older_than = utc_now() - timedelta(seconds=settings.sandbox_timeout_s + 60)
+    older_than = utc_now() - timedelta(seconds=_stale_run_grace_s())
     async with database.async_session_maker() as session, session.begin():
         await mark_stale_runs(session, older_than)
