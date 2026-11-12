@@ -36,6 +36,54 @@ def install_sqlite_foreign_keys() -> None:
     Engine._mcp_guard_sqlite_fk = True  # type: ignore[attr-defined]
 
 
+# sqlite3.Connection and the async adapter both reject new attributes.
+# The flag is this set, keyed by the DBAPI connection object the trigger
+# function closes over. Checkin drops a leaked entry before the id can be reused.
+_sqlite_retention_ids: set[int] = set()
+
+
+def enable_sqlite_audit_retention(dbapi_connection, connection_record) -> None:
+    """Register mcpg_audit_retention() on each SQLite connection.
+
+    The function reads a per-connection flag. delete_events_before turns the
+    flag on around its deletes. A client that never registered the function,
+    including the sqlite3 CLI, fails the delete trigger closed.
+    """
+
+    del connection_record
+    module = type(dbapi_connection).__module__
+    if "sqlite" not in module or not hasattr(dbapi_connection, "create_function"):
+        return
+
+    def mcpg_audit_retention() -> int:
+        return 1 if id(dbapi_connection) in _sqlite_retention_ids else 0
+
+    dbapi_connection.create_function("mcpg_audit_retention", 0, mcpg_audit_retention)
+
+
+def _clear_sqlite_audit_retention(dbapi_connection, connection_record) -> None:
+    del connection_record
+    _sqlite_retention_ids.discard(id(dbapi_connection))
+
+
+def install_sqlite_audit_retention() -> None:
+    if getattr(Engine, "_mcpg_audit_retention_fn", False):
+        return
+    event.listen(Engine, "connect", enable_sqlite_audit_retention)
+    event.listen(Engine, "checkin", _clear_sqlite_audit_retention)
+    Engine._mcpg_audit_retention_fn = True  # type: ignore[attr-defined]
+
+
+def set_sqlite_audit_retention(dbapi_connection, enabled: bool) -> None:
+    """Turn the SQLite retention flag on or off for this connection."""
+
+    key = id(dbapi_connection)
+    if enabled:
+        _sqlite_retention_ids.add(key)
+        return
+    _sqlite_retention_ids.discard(key)
+
+
 def ensure_sqlite_parent_directory(url: str) -> None:
     """Create the parent directory for a SQLite file URL.
 
@@ -54,6 +102,7 @@ def ensure_sqlite_parent_directory(url: str) -> None:
 
 
 install_sqlite_foreign_keys()
+install_sqlite_audit_retention()
 ensure_sqlite_parent_directory(settings.database_url)
 
 _engine_kwargs: dict[str, object] = {"echo": False}

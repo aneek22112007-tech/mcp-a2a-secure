@@ -3,8 +3,9 @@
 from datetime import datetime
 
 from sqlalchemy import delete, func, or_, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
+from app.database import set_sqlite_audit_retention
 from app.models.audit_events import (
     AUDIT_DECISION_ALLOWED,
     AUDIT_DECISION_DENIED,
@@ -197,9 +198,12 @@ async def delete_events_before(
 ) -> int:
     """Delete audit rows with ``created_at`` earlier than ``cutoff``.
 
-    This is the only sanctioned delete path (retention). A future Postgres
-    trigger will reject UPDATE/DELETE on audit_events except this flagged
-    DELETE and the FK ON DELETE SET NULL of api_key_id.
+    This is the only sanctioned delete path (retention). Postgres rejects
+    UPDATE, DELETE and TRUNCATE on audit_events (revision cc48301ff61d)
+    except this flagged DELETE and the FK ON DELETE SET NULL of api_key_id.
+    SQLite rejects UPDATE and DELETE (revision 9db563fdadd8) the same way.
+    This function sets the per-connection retention flag around its deletes.
+    A raw SQLite client has no such function, so its deletes fail closed.
 
     On Postgres the statement runs with ``mcp_guard.audit_retention`` set
     locally so that trigger can recognize this path. The caller commits.
@@ -216,26 +220,41 @@ async def delete_events_before(
         raise ValueError("batch_size must be a positive integer")
     cutoff_at = as_utc(cutoff)
 
-    bind = session.bind
-    if bind is not None and bind.dialect.name == "postgresql":
+    connection = await session.connection()
+    dialect_name = connection.dialect.name
+    if dialect_name == "postgresql":
         await session.execute(text("SET LOCAL mcp_guard.audit_retention = 'on'"))
+    sqlite = dialect_name == "sqlite"
+    if sqlite:
+        await _set_sqlite_retention(connection, True)
+    try:
+        deleted = 0
+        while True:
+            id_query = (
+                select(AuditEvent.id)
+                .where(AuditEvent.created_at < cutoff_at)
+                .order_by(AuditEvent.id.asc())
+                .limit(batch_size)
+            )
+            id_result = await session.execute(id_query)
+            ids = list(id_result.scalars().all())
+            if not ids:
+                return deleted
+            await session.execute(delete(AuditEvent).where(AuditEvent.id.in_(ids)))
+            deleted += len(ids)
+            if len(ids) < batch_size:
+                return deleted
+    finally:
+        if sqlite:
+            await _set_sqlite_retention(connection, False)
 
-    deleted = 0
-    while True:
-        id_query = (
-            select(AuditEvent.id)
-            .where(AuditEvent.created_at < cutoff_at)
-            .order_by(AuditEvent.id.asc())
-            .limit(batch_size)
-        )
-        id_result = await session.execute(id_query)
-        ids = list(id_result.scalars().all())
-        if not ids:
-            return deleted
-        await session.execute(delete(AuditEvent).where(AuditEvent.id.in_(ids)))
-        deleted += len(ids)
-        if len(ids) < batch_size:
-            return deleted
+
+async def _set_sqlite_retention(connection: AsyncConnection, enabled: bool) -> None:
+    def apply(sync_connection) -> None:
+        dbapi = sync_connection.connection.dbapi_connection
+        set_sqlite_audit_retention(dbapi, enabled)
+
+    await connection.run_sync(apply)
 
 
 def _decision(decision: str) -> str:
