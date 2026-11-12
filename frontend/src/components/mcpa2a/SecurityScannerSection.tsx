@@ -133,7 +133,7 @@ export default function SecurityScannerSection() {
         borderRadius: '8px',
         padding: '1.5rem',
       }}>
-        <h4 style={{
+        <h3 style={{
           fontFamily: 'var(--font-display)',
           color: '#F5B84B',
           fontSize: '0.9rem',
@@ -142,7 +142,7 @@ export default function SecurityScannerSection() {
           marginBottom: '0.5rem',
         }}>
           Responsible Disclosure
-        </h4>
+        </h3>
         <p style={{
           fontFamily: 'var(--font-body)',
           fontSize: '0.85rem',

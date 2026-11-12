@@ -161,22 +161,22 @@ export function ConsoleApp() {
 
   if (backendUp === null) {
     return (
-      <div className="boot-screen" role="status">
+      <main className="boot-screen" role="status">
         Checking backend…
-      </div>
+      </main>
     );
   }
 
   if (!session) {
     return (
-      <>
+      <main>
         <ConnectScreen
           onConnected={(clientId, scopes) => {
             setSession({ clientId, scopes });
           }}
         />
         <Toaster richColors theme="dark" position="bottom-right" />
-      </>
+      </main>
     );
   }
 

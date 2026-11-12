@@ -157,7 +157,6 @@ export default function HeroSection() {
           <motion.a
             href="#architecture"
             className="pill-outline"
-            aria-label="View MCP·A2A Architecture"
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 1.6, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
