@@ -44,21 +44,27 @@ _G2_COMMENT_WORD_RE = re.compile(
 
 
 class _HtmlCommentFinder:
-    """Each HTML comment is closed by the next -->. The keyword is tested once."""
+    """A comment runs from <!-- to the --> that follows the first keyword.
+
+    The keyword may sit after an earlier -->. One search from each opener
+    keeps ``<!--`` repeated with no keyword on one forward pass.
+    """
 
     def finditer(self, text: str):
         start = 0
-        while True:
+        length = len(text)
+        while start < length:
             open_at = text.find("<!--", start)
             if open_at < 0:
                 return
-            close_at = text.find("-->", open_at + 4)
+            keyword = _G2_COMMENT_WORD_RE.search(text, open_at + 4)
+            if keyword is None:
+                return
+            close_at = text.find("-->", keyword.end())
             if close_at < 0:
                 return
             end = close_at + 3
-            comment = text[open_at:end]
-            if _G2_COMMENT_WORD_RE.search(comment):
-                yield _SpanMatch(open_at, end, comment)
+            yield _SpanMatch(open_at, end, text[open_at:end])
             start = end
 
 
@@ -91,7 +97,7 @@ _G2_PATTERNS = [
     re.compile(r"(?i)<system>"),
     re.compile(r"(?i)###\s*System\s*:"),
     re.compile(r"(?i)\bSYSTEM\s+PROMPT\s*:"),
-    # Bounded: the next --> closes the comment, so the scan cannot cross later text.
+    # The first keyword after <!-- closes at the next --> after that keyword.
     _HtmlCommentFinder(),
 ]
 
@@ -103,13 +109,38 @@ _SECRET_TERMS = (
     r"PRIVATE_KEY|ACCESS_KEY|BEARER_TOKEN|TOKEN|SECRET|PASSWORD|\.env|CREDENTIALS)"
 )
 _LEAK_VERBS = r"(?:leak|reveal|print|output|display|show|send|exfiltrate|dump|echo|read|extract|transmit|expose)"
-_LEAK_WINDOW = 256
+_LEAK_VERB_RE = re.compile(rf"(?i)\b{_LEAK_VERBS}\b")
+_LEAK_TERM_RE = re.compile(rf"(?i)\b{_SECRET_TERMS}\b")
+
+
+class _LeakFinder:
+    """On each line, every verb matches the next secret term. One pass, no window."""
+
+    def finditer(self, text: str):
+        for offset, line in _line_spans(text):
+            segment, _dropped = _strip_cr(line)
+            verbs = list(_LEAK_VERB_RE.finditer(segment))
+            if not verbs:
+                continue
+            terms = list(_LEAK_TERM_RE.finditer(segment))
+            if not terms:
+                continue
+            term_index = 0
+            for verb in verbs:
+                while (
+                    term_index < len(terms) and terms[term_index].start() < verb.end()
+                ):
+                    term_index += 1
+                if term_index >= len(terms):
+                    break
+                term = terms[term_index]
+                start = offset + verb.start()
+                end = offset + term.end()
+                yield _SpanMatch(start, end, text[start:end])
+
 
 _G3_PATTERNS = [
-    # Bounded: the secret term must sit within _LEAK_WINDOW characters of the verb.
-    re.compile(
-        rf"(?i)\b{_LEAK_VERBS}\b[^\n\r]{{0,{_LEAK_WINDOW}}}?(\b{_SECRET_TERMS}\b)"
-    ),
+    _LeakFinder(),
     re.compile(
         r"\b[A-Za-z0-9_]*(?:API_KEY|SECRET_KEY|JWT_SECRET)[A-Za-z0-9_]*\s*=\s*['\"][^'\"]{8,}['\"]"
     ),
@@ -126,11 +157,9 @@ _G3_PATTERNS = [
 _HEX_CHAIN_RE = re.compile(r"(?:\\x[0-9a-fA-F]{2}){4,}")
 _HEX_TOKEN_RE = re.compile(r"^[0-9a-fA-F]+$")
 _ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
-_B64_ECHO_WINDOW = 256
-# Bounded: echo and the pipe stay on one line, within _B64_ECHO_WINDOW characters.
-_B64_INSTRUCTION_RE = re.compile(
-    rf"(?i)\b(?:base64\s+decode|echo\s+[^\n\r]{{0,{_B64_ECHO_WINDOW}}}\|\s*base64)\b"
-)
+# The decode phrase is fixed length. Echo walks the rest of the line.
+_B64_DECODE_RE = re.compile(r"(?i)\bbase64\s+decode\b")
+_ECHO_WORD_RE = re.compile(r"(?i)\becho\b")
 _B64_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{24,}={0,2}(?![A-Za-z0-9+/=])"
 )
@@ -138,8 +167,6 @@ _B64_TOKEN_RE = re.compile(
 # ---------------------------------------------------------------------------
 # G5: Exfiltration Links (high)
 # ---------------------------------------------------------------------------
-_ALT_TEXT_WINDOW = 256
-
 _URL_TOKEN_RE = re.compile(r"https?://[^\s)]+")
 _URL_PARAM_RE = re.compile(
     r"[?&](?:key|token|secret|data|env|dump|creds|password)=[^\s)?&]*"
@@ -171,60 +198,230 @@ def _line_spans(text: str):
             return
 
 
-_CURL_FLAG_RE = re.compile(r"(?i)\b(?:curl|wget|fetch)\s+-[XFd]")
-_CURL_CMD_RE = re.compile(r"(?i)\b(?:curl|wget|fetch)\s")
+def _strip_cr(line: str) -> tuple[str, int]:
+    if line.endswith("\r"):
+        return line[:-1], 1
+    return line, 0
+
+
+def _pipe_base64_spans(line: str) -> list[tuple[int, int]]:
+    """| then optional spaces or tabs, then base64. One forward pass."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    length = len(line)
+    lowered = line.lower()
+    while start < length:
+        pipe = line.find("|", start)
+        if pipe < 0:
+            return spans
+        cursor = pipe + 1
+        while cursor < length and line[cursor] in " \t":
+            cursor += 1
+        if lowered.startswith("base64", cursor) and _after_word(line, cursor + 6):
+            spans.append((pipe, cursor + 6))
+            start = cursor + 6
+            continue
+        start = pipe + 1
+    return spans
+
+
+def _after_word(text: str, index: int) -> bool:
+    return index >= len(text) or not (text[index].isalnum() or text[index] == "_")
+
+
+class _B64EchoFinder:
+    """Each echo matches the next | base64 on that same line."""
+
+    def finditer(self, text: str):
+        for offset, line in _line_spans(text):
+            segment, _dropped = _strip_cr(line)
+            echos = list(_ECHO_WORD_RE.finditer(segment))
+            if not echos:
+                continue
+            pipes = _pipe_base64_spans(segment)
+            if not pipes:
+                continue
+            pipe_index = 0
+            for echo in echos:
+                echo_end = echo.end()
+                if echo_end >= len(segment) or segment[echo_end] not in " \t":
+                    continue
+                while pipe_index < len(pipes) and pipes[pipe_index][0] < echo_end:
+                    pipe_index += 1
+                if pipe_index >= len(pipes):
+                    break
+                start = offset + echo.start()
+                end = offset + pipes[pipe_index][1]
+                yield _SpanMatch(start, end, text[start:end])
+
+
+def _skip_space(text: str, index: int) -> int:
+    length = len(text)
+    while index < length and text[index] in " \t\r\n":
+        index += 1
+    return index
+
+
+def _line_end_at(text: str, index: int) -> int:
+    """Index of the next line break. A carriage return is only sought up to a newline."""
+    length = len(text)
+    newline = text.find("\n", index)
+    if newline < 0:
+        newline = length
+    carriage = text.find("\r", index, newline)
+    if carriage >= 0:
+        return carriage
+    return newline
+
+
+class _LineEnds:
+    """Remember the break for this line so each command does not scan it again."""
+
+    __slots__ = ("_end", "_text")
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+        self._end = -1
+
+    def at(self, index: int) -> int:
+        if index <= self._end:
+            return self._end
+        self._end = _line_end_at(self._text, index)
+        return self._end
+
+
+_CURL_WORD_RE = re.compile(r"(?i)\b(?:curl|wget|fetch)\b")
 _HTTP_URL_RE = re.compile(r"https?://\S+")
 _CURL_MARKER_RE = re.compile(r"\$|\bdata\b|\bkey\b", re.IGNORECASE)
+_CURL_FLAGS = frozenset("XFDxfd")
+
+
+def _next_is_curl_flag(text: str, index: int) -> bool:
+    if index + 1 >= len(text) or text[index] != "-":
+        return False
+    return text[index + 1] in _CURL_FLAGS
 
 
 class _CurlFlagFinder:
-    """The first flag command on a line, then the first URL after it on that line."""
+    """Skip whitespace, including newlines, then require -[XFd] and a URL on that line."""
 
     def finditer(self, text: str):
-        for offset, line in _line_spans(text):
-            flag = _CURL_FLAG_RE.search(line)
-            if flag is None:
-                continue
-            url = _HTTP_URL_RE.search(line, flag.end())
-            if url is None:
-                continue
-            start = offset + flag.start()
-            end = offset + url.end()
-            yield _SpanMatch(start, end, text[start:end])
+        position = 0
+        length = len(text)
+        lines = _LineEnds(text)
+        # A URL search that fails covers the rest of that line.
+        clear_end = -1
+        clear_from = 0
+        while position < length:
+            command = _CURL_WORD_RE.search(text, position)
+            if command is None:
+                return
+            landed = _skip_space(text, command.end())
+            if landed > command.end() and _next_is_curl_flag(text, landed):
+                line_end = lines.at(landed)
+                search_from = landed + 2
+                if not (line_end == clear_end and search_from >= clear_from):
+                    url = _HTTP_URL_RE.search(text, search_from, line_end)
+                    if url is not None:
+                        start = command.start()
+                        end = url.end()
+                        yield _SpanMatch(start, end, text[start:end])
+                        position = end
+                        clear_end = -1
+                        continue
+                    clear_end = line_end
+                    clear_from = search_from
+            position = command.end()
 
 
 class _CurlMarkerFinder:
-    """The first command on a line. The marker is read from the URL to the line end."""
+    """After skipped whitespace, a URL on that line and a marker through the line end."""
 
     def finditer(self, text: str):
-        for offset, line in _line_spans(text):
-            command = _CURL_CMD_RE.search(line)
+        position = 0
+        length = len(text)
+        lines = _LineEnds(text)
+        # A marker search that fails covers the rest of that line.
+        clear_end = -1
+        clear_from = 0
+        while position < length:
+            command = _CURL_WORD_RE.search(text, position)
             if command is None:
+                return
+            landed = _skip_space(text, command.end())
+            if landed > command.end():
+                line_end = lines.at(landed)
+                if not (line_end == clear_end and landed >= clear_from):
+                    url = _HTTP_URL_RE.search(text, landed, line_end)
+                    if url is not None:
+                        marker = _CURL_MARKER_RE.search(text, url.start(), line_end)
+                        if marker is not None:
+                            start = command.start()
+                            end = marker.end()
+                            yield _SpanMatch(start, end, text[start:end])
+                            position = end
+                            clear_end = -1
+                            continue
+                        clear_end = line_end
+                        clear_from = url.start()
+                    else:
+                        clear_end = line_end
+                        clear_from = landed
+            position = command.end()
+
+
+class _MarkdownImageFinder:
+    """Find ![, then the first ]( on that line, then a URL and the closing paren."""
+
+    def finditer(self, text: str):
+        start = 0
+        length = len(text)
+        while start < length:
+            open_at = text.find("![", start)
+            if open_at < 0:
+                return
+            line_end = _line_end_at(text, open_at)
+            close_at = text.find("](", open_at + 2, line_end)
+            if close_at < 0:
+                start = line_end + 1
                 continue
-            url = _HTTP_URL_RE.search(line, command.end())
-            if url is None:
+            end = _markdown_image_end(text, close_at + 2, line_end)
+            if end < 0:
+                start = close_at + 2
                 continue
-            marker = _CURL_MARKER_RE.search(line, url.start())
-            if marker is None:
-                continue
-            start = offset + command.start()
-            end = offset + marker.end()
-            yield _SpanMatch(start, end, text[start:end])
+            yield _SpanMatch(open_at, end, text[open_at:end])
+            start = end
+
+
+def _markdown_image_end(text: str, index: int, limit: int) -> int:
+    if text.startswith("https://", index):
+        cursor = index + 8
+    elif text.startswith("http://", index):
+        cursor = index + 7
+    elif text.startswith("//", index):
+        cursor = index + 2
+    else:
+        return -1
+    if cursor >= limit or text[cursor] in " \t)":
+        return -1
+    while cursor < limit and text[cursor] not in " \t)":
+        cursor += 1
+    if cursor >= limit or text[cursor] != ")":
+        return -1
+    return cursor + 1
 
 
 _G5_PATTERNS = [
-    # Bounded: alt text stops at a bracket, a newline, or _ALT_TEXT_WINDOW characters.
-    re.compile(rf"!\[[^\]\n\r]{{0,{_ALT_TEXT_WINDOW}}}\]\((?:https?:)?//[^\s)]+\)"),
-    # Bounded: one pass over each URL token, then a parameter search inside that token.
+    # ![ then the first ]( on that line, then the URL.
+    _MarkdownImageFinder(),
+    # One pass over each URL token, then a parameter search inside that token.
     _UrlParamFinder(),
     # Known exfiltration domains
     re.compile(
         r"(?i)https?://(?:[a-zA-Z0-9-]+\.)*(?:webhook\.site|requestbin|ngrok[a-zA-Z0-9-]*\.[a-z]+|"
         r"burpcollaborator\.net|oastify\.com|pipedream\.net|evil\.com|attacker\.com|evil\.example)(?:[:/][^\s]*)?"
     ),
-    # Bounded: one flag command per line, then the first URL on that same line.
     _CurlFlagFinder(),
-    # Bounded: one command per line. The marker search starts at the URL and stops at the line end.
     _CurlMarkerFinder(),
 ]
 
@@ -369,7 +566,19 @@ def scan_text(text: str) -> list[RuleMatch]:
             )
         )
 
-    for m in _B64_INSTRUCTION_RE.finditer(text):
+    for m in _B64_DECODE_RE.finditer(text):
+        matches.append(
+            RuleMatch(
+                rule_id="G4",
+                name="Obfuscated Payload",
+                severity="medium",
+                description="Base64 decoding directive",
+                match_span=m.span(),
+                matched_text=m.group(0),
+            )
+        )
+
+    for m in _B64EchoFinder().finditer(text):
         matches.append(
             RuleMatch(
                 rule_id="G4",
