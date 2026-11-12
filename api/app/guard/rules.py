@@ -147,15 +147,13 @@ _URL_PARAM_RE = re.compile(
 
 
 class _UrlParamFinder:
-    """Each URL token is consumed once. The parameter is then sought inside it."""
+    """Each URL token is consumed once. At most one match is yielded per URL token."""
 
     def finditer(self, text: str):
         for token in _URL_TOKEN_RE.finditer(text):
             url = token.group(0)
-            base = token.start()
-            for param in _URL_PARAM_RE.finditer(url):
-                end = base + param.end()
-                yield _SpanMatch(base, end, text[base:end])
+            if _URL_PARAM_RE.search(url) is not None:
+                yield _SpanMatch(token.start(), token.end(), url)
 
 
 def _line_spans(text: str):
