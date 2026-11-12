@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from app.guard.engine import check_tool_output
+from app.guard.engine import check_tool_output, check_tool_output_async
 from app.guard.models import GuardFinding, GuardResult
 
 __all__ = [
     "GuardFinding",
     "GuardResult",
     "check_tool_output",
+    "check_tool_output_async",
 ]

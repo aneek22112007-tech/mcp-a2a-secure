@@ -44,21 +44,44 @@ def current_execution_context() -> ExecutionContext | None:
     return _execution_context.get()
 
 
-_tool_output_guarded: ContextVar[bool] = ContextVar(
+class ToolOutputGuard:
+    """Shared done flag. asyncio.wait_for copies the context, not this object."""
+
+    __slots__ = ("done",)
+
+    def __init__(self) -> None:
+        self.done = False
+
+
+_tool_output_guarded: ContextVar[ToolOutputGuard | None] = ContextVar(
     "mcp_guard_tool_output_guarded",
-    default=False,
+    default=None,
 )
 
 
 def is_tool_output_guarded() -> bool:
-    return _tool_output_guarded.get()
+    flag = _tool_output_guarded.get()
+    return flag is not None and flag.done
 
 
-def set_tool_output_guarded(guarded: bool) -> Token[bool]:
-    return _tool_output_guarded.set(guarded)
+def set_tool_output_guarded(guarded: bool) -> Token[ToolOutputGuard | None]:
+    """False installs a fresh holder. True marks that holder done in place.
+
+    Replacing the value with True would stay inside the child task created by
+    asyncio.wait_for, and the gateway would guard the output again.
+    """
+    if guarded:
+        current = _tool_output_guarded.get()
+        if current is None:
+            created = ToolOutputGuard()
+            created.done = True
+            return _tool_output_guarded.set(created)
+        current.done = True
+        return _tool_output_guarded.set(current)
+    return _tool_output_guarded.set(ToolOutputGuard())
 
 
-def reset_tool_output_guarded(token: Token[bool]) -> None:
+def reset_tool_output_guarded(token: Token[ToolOutputGuard | None]) -> None:
     _tool_output_guarded.reset(token)
 
 

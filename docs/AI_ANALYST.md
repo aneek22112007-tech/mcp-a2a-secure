@@ -57,6 +57,8 @@ Rows are dropped before grouping when the action is `guard.check` or starts with
 
 A gap strictly longer than `ANALYST_INCIDENT_GAP_MINUTES` starts a new incident inside the same bucket. Events are `E1` .. `En` in time order. Two incidents are related when they share a key prefix or a tool name and their time ranges overlap or fall within one gap. `related_ids` are sorted. `counts_by_action` keeps first-seen order.
 
+The two database reads stay on the event loop. Row building, clustering, relating, and the final sort run in a worker thread. Related ids come from an index of key prefixes and an index of tool names. Inside each index the incidents are ordered by `first_seen`, and a walk stops at the first later incident that starts after `last_seen` plus the gap. The definition of related is unchanged. `GET /api/analyst/incidents/{id}` returns 404 `Incident not found.` for an id that is not `inc_` plus 16 hex characters, before it reads the database or builds incidents.
+
 Anonymous rows are split by client IP only inside the private bucket. The public group key is `anonymous`. The incident id is `inc_` plus 16 hex characters of SHA-256 over `kind|group_key|first event id`, so the id does not contain an IP. If retention deletes that first row, the next build uses a new first event and the id changes. A stored report is then for the old id.
 
 Detail keeps the original `E` numbers and returns the newest 200 events when there are more. The list never returns events or evidence.

@@ -5,6 +5,7 @@ The same rows always produce the same incidents. No model is involved.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections import defaultdict
 from dataclasses import dataclass
@@ -264,15 +265,43 @@ def _share(left: Incident, right: Incident) -> bool:
 
 
 def _relate(incidents: list[Incident], gap: timedelta) -> list[Incident]:
-    related: dict[str, list[str]] = {incident.id: [] for incident in incidents}
-    for index, left in enumerate(incidents):
-        for right in incidents[index + 1 :]:
-            if _share(left, right) and _near(left, right, gap):
-                related[left.id].append(right.id)
-                related[right.id].append(left.id)
+    """Link incidents that share a key prefix or a tool name and sit within one gap.
+
+    Each index is ordered by first_seen. An incident is compared only with later
+    rows in that index, and the walk stops at the first row that starts after
+    last_seen plus the gap.
+    """
+    by_key: dict[str, list[Incident]] = defaultdict(list)
+    by_tool: dict[str, list[Incident]] = defaultdict(list)
+    for incident in incidents:
+        for prefix in incident.key_prefixes:
+            if prefix:
+                by_key[prefix].append(incident)
+        for tool_name in incident.tool_names:
+            if tool_name:
+                by_tool[tool_name].append(incident)
+
+    pairs: dict[str, set[str]] = {incident.id: set() for incident in incidents}
+
+    def link(group: list[Incident]) -> None:
+        ordered = sorted(group, key=lambda item: (item.first_seen, item.id))
+        for index, left in enumerate(ordered):
+            limit = left.last_seen + gap
+            for right in ordered[index + 1 :]:
+                if right.first_seen > limit:
+                    break
+                if _share(left, right) and _near(left, right, gap):
+                    pairs[left.id].add(right.id)
+                    pairs[right.id].add(left.id)
+
+    for group in by_key.values():
+        link(group)
+    for group in by_tool.values():
+        link(group)
+
     finished: list[Incident] = []
     for incident in incidents:
-        ids = sorted(related[incident.id])
+        ids = sorted(pairs[incident.id])
         finished.append(
             Incident(
                 id=incident.id,
@@ -321,12 +350,30 @@ async def group_incidents(
     audit_rows = await list_security_events(
         session, start=start, limit=settings.analyst_max_rows
     )
+    findings = await _open_findings(session, start)
+    return await asyncio.to_thread(
+        _assemble_incidents,
+        audit_rows,
+        findings,
+        gap=gap,
+        blocked=blocked,
+    )
+
+
+def _assemble_incidents(
+    audit_rows: list[AuditEvent],
+    findings: list[ToolScanFinding],
+    *,
+    gap: timedelta,
+    blocked: set[str],
+) -> list[Incident]:
+    """Build, cluster, relate, and sort incidents. No database calls."""
     rows: list[_Row] = []
     for event in reversed(audit_rows):
         built = _from_audit(event)
         if built is not None:
             rows.append(built)
-    for finding in await _open_findings(session, start):
+    for finding in findings:
         built = _from_finding(finding, blocked)
         if built is not None:
             rows.append(built)
