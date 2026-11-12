@@ -22,6 +22,15 @@ from app.guard.rules import sanitize_medium_text, scan_text, to_guard_findings
 
 logger = logging.getLogger(__name__)
 
+# Holds audit tasks until they finish so a short request cannot drop the row.
+_pending_audit_tasks: set[asyncio.Task[Any]] = set()
+
+
+def _hold_audit_task(task: asyncio.Task[Any]) -> asyncio.Task[Any]:
+    _pending_audit_tasks.add(task)
+    task.add_done_callback(_pending_audit_tasks.discard)
+    return task
+
 
 def evaluate_output(text: str) -> GuardResult:
     """Run G1–G6 and the enforce cleaning loop. This does not write an audit row.
@@ -219,7 +228,7 @@ def _write_guard_audit(
 
     try:
         loop = asyncio.get_running_loop()
-        return loop.create_task(record_event(record, required=False))
+        return _hold_audit_task(loop.create_task(record_event(record, required=False)))
     except RuntimeError:
         # No running event loop in current thread: run synchronously in new loop
         try:
