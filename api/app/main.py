@@ -73,19 +73,40 @@ from app.shared_state import status as shared_state_status
 
 install_request_id_logging()
 
+# Held for the life of this process. Closing it releases advisory lock 727001.
+_startup_lock_conn = None
+
+
+async def _release_startup_lock() -> None:
+    """Drop the startup-job lock when this process stops."""
+
+    global _startup_lock_conn
+    conn = _startup_lock_conn
+    _startup_lock_conn = None
+    if conn is None:
+        return
+    try:
+        await conn.execute(text("SELECT pg_advisory_unlock(727001)"))
+        await conn.commit()
+    finally:
+        await conn.close()
+
 
 async def _run_startup_jobs() -> None:
     """Run bootstrap approve, the stale-run sweep, and the startup scan once.
 
-    Postgres uses a session advisory lock so a second replica skips the work.
-    SQLite has one process and runs the jobs as before.
+    Postgres takes session advisory lock 727001 and holds that connection
+    until this process stops. A second replica then skips the work. Releasing
+    the lock as soon as the jobs finish lets the other replica run them too,
+    because these jobs are faster than replica startup. SQLite has one
+    process and runs the jobs as before.
     """
+
+    global _startup_lock_conn
 
     import logging
 
-    from sqlalchemy import text
-
-    from app.database import async_session_maker, engine
+    from app.database import engine
 
     logger = logging.getLogger(__name__)
 
@@ -108,17 +129,22 @@ async def _run_startup_jobs() -> None:
         await _jobs()
         return
 
-    async with async_session_maker() as session:
-        result = await session.execute(text("SELECT pg_try_advisory_lock(727001)"))
-        if not bool(result.scalar()):
-            logger.info("startup jobs ran on another instance")
-            return
-        logger.info("running startup jobs")
-        try:
-            await _jobs()
-        finally:
-            await session.execute(text("SELECT pg_advisory_unlock(727001)"))
-            await session.commit()
+    conn = await engine.connect()
+    try:
+        result = await conn.execute(text("SELECT pg_try_advisory_lock(727001)"))
+        got_lock = bool(result.scalar())
+        await conn.commit()
+    except Exception:
+        await conn.close()
+        raise
+    if not got_lock:
+        await conn.close()
+        logger.info("startup jobs ran on another instance")
+        return
+    # Keep this connection out of the pool so the session lock stays held.
+    _startup_lock_conn = conn
+    logger.info("running startup jobs")
+    await _jobs()
 
 
 @asynccontextmanager
@@ -167,28 +193,31 @@ async def lifespan(app: FastAPI):
             ", ".join(sorted(unmapped)),
         )
 
-    await _run_startup_jobs()
+    try:
+        await _run_startup_jobs()
 
-    scheduler_task = None
-    if settings.enable_retention_scheduler:
-        scheduler_task = asyncio.create_task(retention_scheduler_task())
+        scheduler_task = None
+        if settings.enable_retention_scheduler:
+            scheduler_task = asyncio.create_task(retention_scheduler_task())
 
-    async with mcp.session_manager.run():
-        application.state.ready = True
-        try:
-            yield
-        finally:
-            application.state.ready = False
+        async with mcp.session_manager.run():
+            application.state.ready = True
+            try:
+                yield
+            finally:
+                application.state.ready = False
 
-    if scheduler_task:
-        scheduler_task.cancel()
-        try:
-            await scheduler_task
-        except asyncio.CancelledError:
-            pass
+        if scheduler_task:
+            scheduler_task.cancel()
+            try:
+                await scheduler_task
+            except asyncio.CancelledError:
+                pass
 
-    await stop_relay()
-    await stop_shared_state()
+        await stop_relay()
+        await stop_shared_state()
+    finally:
+        await _release_startup_lock()
 
 
 def apply_http_middleware(application: FastAPI) -> None:
