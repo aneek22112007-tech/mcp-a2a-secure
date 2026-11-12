@@ -103,9 +103,13 @@ _SECRET_TERMS = (
     r"PRIVATE_KEY|ACCESS_KEY|BEARER_TOKEN|TOKEN|SECRET|PASSWORD|\.env|CREDENTIALS)"
 )
 _LEAK_VERBS = r"(?:leak|reveal|print|output|display|show|send|exfiltrate|dump|echo|read|extract|transmit|expose)"
+_LEAK_WINDOW = 256
 
 _G3_PATTERNS = [
-    re.compile(rf"(?i)\b{_LEAK_VERBS}\b[^\n\r]*?(\b{_SECRET_TERMS}\b)"),
+    # Bounded: the secret term must sit within _LEAK_WINDOW characters of the verb.
+    re.compile(
+        rf"(?i)\b{_LEAK_VERBS}\b[^\n\r]{{0,{_LEAK_WINDOW}}}?(\b{_SECRET_TERMS}\b)"
+    ),
     re.compile(
         r"\b[A-Za-z0-9_]*(?:API_KEY|SECRET_KEY|JWT_SECRET)[A-Za-z0-9_]*\s*=\s*['\"][^'\"]{8,}['\"]"
     ),
