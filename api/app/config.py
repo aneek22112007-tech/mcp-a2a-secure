@@ -63,7 +63,10 @@ class Settings(BaseSettings):
     Note storage creates its own directory when it is first used.
     """
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Startup errors must never echo env values such as API_KEY_PEPPER.
+    model_config = SettingsConfigDict(
+        env_file=".env", extra="ignore", hide_input_in_errors=True
+    )
 
     app_name: str = "MCP Guard"
     environment: str = Field(
