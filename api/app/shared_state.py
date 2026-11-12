@@ -5,6 +5,7 @@ When REDIS_URL is unset, start() does nothing and every helper reports off.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import time
@@ -55,6 +56,10 @@ _status: Status = "off"
 _last_warn_at = 0.0
 _rate_script: AsyncScript | None = None
 _rate_script_client: Redis | None = None
+_lock = asyncio.Lock()
+_relay_task: asyncio.Task[None] | None = None
+_relay_connected = False
+_RELAY_BACKOFF_S = (1, 2, 5)
 
 
 def status() -> Status:
@@ -89,23 +94,38 @@ def note_ok() -> None:
         _status = "ok"
 
 
+def _open_redis(*, subscribe: bool) -> Redis:
+    """Open a client. The subscriber blocks in listen(), so it has no command timeout."""
+
+    if settings.redis_url is None:
+        raise RuntimeError("shared state off")
+    return Redis.from_url(
+        settings.redis_url.get_secret_value(),
+        socket_timeout=None if subscribe else 0.25,
+        socket_connect_timeout=0.5,
+        health_check_interval=15,
+        decode_responses=False,
+    )
+
+
 async def start() -> None:
     """Open the client. A missing URL leaves the helpers off."""
 
-    global _client, _status
+    async with _lock:
+        await _start_locked()
+
+
+async def _start_locked() -> None:
+    global _client, _status, _rate_script, _rate_script_client
     if settings.redis_url is None:
         _client = None
         _status = "off"
         return
+    if _status == "ok" and _client is not None:
+        return
     opened: Redis | None = None
     try:
-        opened = Redis.from_url(
-            settings.redis_url.get_secret_value(),
-            socket_timeout=0.25,
-            socket_connect_timeout=0.5,
-            health_check_interval=15,
-            decode_responses=False,
-        )
+        opened = _open_redis(subscribe=False)
         await opened.ping()
     except Exception as exc:  # noqa: BLE001 - Valkey down must not stop the API
         if opened is not None:
@@ -113,12 +133,28 @@ async def start() -> None:
                 await opened.aclose()
             except Exception:  # noqa: BLE001, S110 - close is best-effort
                 pass
+        stale = _client
         _client = None
+        _rate_script = None
+        _rate_script_client = None
         _status = "unavailable"
         note_failure(exc)
+        if stale is not None:
+            try:
+                await stale.aclose()
+            except Exception:  # noqa: BLE001, S110 - close is best-effort
+                pass
         return
+    stale = _client
     _client = opened
+    _rate_script = None
+    _rate_script_client = None
     _status = "ok"
+    if stale is not None:
+        try:
+            await stale.aclose()
+        except Exception:  # noqa: BLE001, S110 - close is best-effort
+            pass
 
 
 def _script_for(opened: Redis) -> AsyncScript:
@@ -161,6 +197,11 @@ async def acquire_shared(
 async def stop() -> None:
     """Close the client. Later helpers report off only when no URL is configured."""
 
+    async with _lock:
+        await _stop_locked()
+
+
+async def _stop_locked() -> None:
     global _client, _status, _rate_script, _rate_script_client
     opened = _client
     _client = None
@@ -173,3 +214,127 @@ async def stop() -> None:
         await opened.aclose()
     except Exception as exc:  # noqa: BLE001 - close is best-effort
         note_failure(exc)
+
+
+def relay_connected() -> bool:
+    """True while this process is subscribed to the shared audit and pin channels."""
+
+    return _relay_connected
+
+
+async def publish_message(channel: str, payload: str | bytes) -> None:
+    """Publish one message. Raises when Valkey is not usable. Caps the wait at 250 ms."""
+
+    if settings.redis_url is None:
+        raise RuntimeError("shared state off")
+    opened = client()
+    if opened is None:
+        await start()
+        opened = client()
+    if opened is None:
+        raise RuntimeError("shared state unavailable")
+    try:
+        await asyncio.wait_for(opened.publish(channel, payload), timeout=0.25)
+    except Exception as exc:
+        note_failure(exc)
+        raise
+    note_ok()
+
+
+async def publish_pins() -> None:
+    """Tell other replicas to drop their pin cache. A missing URL is a no-op."""
+
+    if status() == "off":
+        return
+    await publish_message("mcpg:pins", b"1")
+
+
+async def start_relay() -> None:
+    """Subscribe to shared audit events and pin clears. A missing URL does nothing."""
+
+    global _relay_task
+    if settings.redis_url is None or _relay_task is not None:
+        return
+    _relay_task = asyncio.create_task(_relay_loop(), name="shared-state-relay")
+
+
+async def stop_relay() -> None:
+    """Cancel the relay. Shutdown then closes the command client."""
+
+    global _relay_task, _relay_connected
+    task = _relay_task
+    _relay_task = None
+    _relay_connected = False
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def _relay_loop() -> None:
+    global _relay_connected
+    attempt = 0
+    while True:
+        subscriber: Redis | None = None
+        pubsub = None
+        connected_ok = False
+        try:
+            subscriber = _open_redis(subscribe=True)
+            await asyncio.wait_for(subscriber.ping(), timeout=0.5)
+            pubsub = subscriber.pubsub()
+            await pubsub.subscribe("mcpg:audit", "mcpg:pins")
+            _relay_connected = True
+            connected_ok = True
+            note_ok()
+            async for message in pubsub.listen():
+                _deliver_relay_message(message)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - reconnect until shutdown cancels the task
+            note_failure(exc)
+        finally:
+            _relay_connected = False
+            if pubsub is not None:
+                try:
+                    await pubsub.aclose()
+                except Exception:  # noqa: BLE001, S110 - close is best-effort
+                    pass
+            if subscriber is not None:
+                try:
+                    await subscriber.aclose()
+                except Exception:  # noqa: BLE001, S110 - close is best-effort
+                    pass
+        if connected_ok:
+            attempt = 0
+        delay = _RELAY_BACKOFF_S[min(attempt, len(_RELAY_BACKOFF_S) - 1)]
+        attempt += 1
+        await asyncio.sleep(delay)
+
+
+def _deliver_relay_message(message: dict[str, object]) -> None:
+    if message.get("type") != "message":
+        return
+    channel = message.get("channel")
+    if isinstance(channel, bytes):
+        channel = channel.decode()
+    data = message.get("data")
+    if channel == "mcpg:audit":
+        if isinstance(data, bytes):
+            data = data.decode()
+        if not isinstance(data, str):
+            return
+        from app.audit.events import AuditEventOut
+        from app.audit.stream import audit_broadcaster
+
+        try:
+            audit_broadcaster.publish(AuditEventOut.model_validate_json(data))
+        except Exception as exc:  # noqa: BLE001 - one bad payload must not drop the relay
+            logger.warning("audit relay payload rejected: %s", type(exc).__name__)
+        return
+    if channel == "mcpg:pins":
+        from app.services.pins import clear_pin_cache
+
+        clear_pin_cache()

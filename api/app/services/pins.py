@@ -78,6 +78,21 @@ def clear_pin_cache() -> None:
     _cache_generation += 1
 
 
+async def _share_pin_change() -> None:
+    """Drop this process's cache and tell other replicas to drop theirs.
+
+    clear_pin_cache stays local so the relay can call it without publishing again.
+    """
+
+    clear_pin_cache()
+    try:
+        from app.shared_state import publish_pins
+
+        await publish_pins()
+    except Exception as exc:  # noqa: BLE001 - the pin row is already committed
+        logger.warning("pin change was not shared: %s", type(exc).__name__)
+
+
 def pin_audit_action(reason: str) -> str:
     """Map a denial reason to the audit action that records it."""
 
@@ -212,7 +227,7 @@ async def sync_pending_from_catalog() -> list[str]:
             )
             updated.append(definition.name)
         await session.commit()
-    clear_pin_cache()
+    await _share_pin_change()
     return updated
 
 
@@ -238,7 +253,7 @@ async def approve_named_tool(
         )
         await session.commit()
         session.expunge(row)
-    clear_pin_cache()
+    await _share_pin_change()
     return row
 
 
@@ -251,7 +266,7 @@ async def revoke_named_tool(tool_name: str, *, note: str | None) -> ToolPin | No
             return None
         await session.commit()
         session.expunge(row)
-    clear_pin_cache()
+    await _share_pin_change()
     return row
 
 
@@ -275,7 +290,7 @@ async def approve_current_catalog(
             )
             names.append(definition.name)
         await session.commit()
-    clear_pin_cache()
+    await _share_pin_change()
     return names
 
 
