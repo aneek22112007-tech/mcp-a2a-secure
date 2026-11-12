@@ -9,6 +9,7 @@ retried. At most five tool calls are made.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -227,7 +228,11 @@ def _compile(gateway: NotesGateway, backend: LLMBackend):
 
         output_text = result.text
         if result.ok and output_text:
-            from app.guard import check_tool_output, check_tool_output_async
+            from app.guard import (
+                check_tool_output,
+                check_tool_output_async,
+                record_tool_output_audit,
+            )
 
             guard_kwargs = {
                 "tool_name": name,
@@ -245,7 +250,15 @@ def _compile(gateway: NotesGateway, backend: LLMBackend):
                     **guard_kwargs,
                 )
             else:
-                guard_res = check_tool_output(output_text, **guard_kwargs)
+                # Any other gateway did not guard this output. Scan it in a
+                # worker thread, then write the row on this loop.
+                guard_res = await asyncio.to_thread(
+                    check_tool_output,
+                    output_text,
+                    audit=False,
+                    **guard_kwargs,
+                )
+                guard_res = record_tool_output_audit(guard_res, **guard_kwargs)
             output_text = guard_res.text
             if guard_res.blocked or output_text.startswith(
                 "[BLOCKED: Tool output blocked by injection guard"

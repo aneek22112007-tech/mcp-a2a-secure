@@ -218,6 +218,33 @@ def _schedule_audit(
     return result
 
 
+def record_tool_output_audit(
+    result: GuardResult,
+    *,
+    tool_name: str,
+    key_prefix: str | None = None,
+    request_id: str | None = None,
+    audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
+    client_id: str | None = None,
+    api_key_id: str | None = None,
+) -> GuardResult:
+    """Schedule the audit row for a result scanned with ``audit=False``.
+
+    Lets a caller run the scan in a worker thread and still write the row
+    on the running loop, exactly as check_tool_output would.
+    """
+    return _schedule_audit(
+        result,
+        tool_name=tool_name,
+        key_prefix=key_prefix,
+        request_id=request_id,
+        audit_action=audit_action,
+        client_id=client_id,
+        api_key_id=api_key_id,
+        audit=True,
+    )
+
+
 async def check_tool_output_async(
     text: str,
     *,
