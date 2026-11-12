@@ -23,20 +23,11 @@ from app.guard.rules import sanitize_medium_text, scan_text, to_guard_findings
 logger = logging.getLogger(__name__)
 
 
-def check_tool_output(
-    text: str,
-    *,
-    tool_name: str,
-    key_prefix: str | None = None,
-    request_id: str | None = None,
-    audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
-    client_id: str | None = None,
-    api_key_id: str | None = None,
-) -> GuardResult:
-    """Evaluate tool output text against prompt injection rules G1–G6.
+def evaluate_output(text: str) -> GuardResult:
+    """Run G1–G6 and the enforce cleaning loop. This does not write an audit row.
 
-    Contract:
-        check_tool_output(text, *, tool_name, key_prefix, request_id) -> GuardResult
+    ``scan_text`` and ``sanitize_medium_text`` are looked up on this module so
+    tests can replace them.
     """
     mode = settings.injection_guard_mode
     if mode == "off":
@@ -86,7 +77,10 @@ def check_tool_output(
             blocked = True
             cleaned = False
             action = "blocked"
-            result_text = f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
+            result_text = (
+                "[BLOCKED: Tool output blocked by injection guard "
+                f"(rule {highest_rule_id})]"
+            )
         else:
             current_text = text
             current_matches = matches
@@ -94,7 +88,10 @@ def check_tool_output(
             blocked = True
             cleaned = False
             action = "blocked"
-            result_text = f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
+            result_text = (
+                "[BLOCKED: Tool output blocked by injection guard "
+                f"(rule {highest_rule_id})]"
+            )
 
             for _attempt in range(3):
                 new_text = sanitize_medium_text(current_text, current_matches)
@@ -109,7 +106,10 @@ def check_tool_output(
                 if re_high_rule is not None:
                     highest_severity = "high"
                     highest_rule_id = re_high_rule
-                    result_text = f"[BLOCKED: Tool output blocked by injection guard (rule {highest_rule_id})]"
+                    result_text = (
+                        "[BLOCKED: Tool output blocked by injection guard "
+                        f"(rule {highest_rule_id})]"
+                    )
                     # Include the high finding that caused the block
                     findings = re_findings + [
                         f
@@ -135,7 +135,7 @@ def check_tool_output(
                 current_text = new_text
                 current_matches = re_matches
 
-    result = GuardResult(
+    return GuardResult(
         allowed=allowed,
         blocked=blocked,
         cleaned=cleaned,
@@ -146,23 +146,40 @@ def check_tool_output(
         findings=findings,
     )
 
-    # Schedule audit event
-    audit_task = _write_guard_audit(
+
+def check_tool_output(
+    text: str,
+    *,
+    tool_name: str,
+    key_prefix: str | None = None,
+    request_id: str | None = None,
+    audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
+    client_id: str | None = None,
+    api_key_id: str | None = None,
+) -> GuardResult:
+    """Evaluate tool output text against prompt injection rules G1–G6.
+
+    Contract:
+        check_tool_output(text, *, tool_name, key_prefix, request_id) -> GuardResult
+    """
+    result = evaluate_output(text)
+    if not result.findings:
+        return result
+
+    result._audit_task = _write_guard_audit(
         tool_name=tool_name,
         key_prefix=key_prefix,
         request_id=request_id,
-        mode=mode,
-        action=action,
-        severity=highest_severity,
-        findings=findings,
-        blocked=blocked,
-        cleaned=cleaned,
+        mode=result.mode,
+        action=result.action,
+        severity=result.severity,
+        findings=result.findings,
+        blocked=result.blocked,
+        cleaned=result.cleaned,
         audit_action=audit_action,
         client_id=client_id,
         api_key_id=api_key_id,
     )
-    result._audit_task = audit_task
-
     return result
 
 
