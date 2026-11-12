@@ -1,6 +1,6 @@
 import Nav from '../components/mcpa2a/Nav'
 import HeroSection from '../components/mcpa2a/HeroSection'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 
 const BuiltToLastSection = lazy(() => import('../components/mcpa2a/BuiltToLastSection'))
@@ -43,6 +43,8 @@ function PageBackdrop() {
 
   useEffect(() => {
     if (reducedMotion || !hasWebGL()) return
+    const wide = window.matchMedia('(min-width: 1024px)')
+    if (!wide.matches) return
     const w = window as Window & {
       requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
       cancelIdleCallback?: (id: number) => void
@@ -69,6 +71,46 @@ function PageBackdrop() {
   )
 }
 
+const SECTION_PLACEHOLDER = '32rem'
+
+/**
+ * Mount a below-the-fold section once it is within about 600px of the viewport.
+ * The placeholder keeps the page from jumping while the chunk loads.
+ */
+function NearViewport({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [show, setShow] = useState(false)
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    if (typeof IntersectionObserver === 'undefined') {
+      setShow(true)
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShow(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '600px 0px' },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  if (!show) {
+    return <div ref={ref} style={{ minHeight: SECTION_PLACEHOLDER }} />
+  }
+  return (
+    <Suspense fallback={<div style={{ minHeight: SECTION_PLACEHOLDER }} />}>
+      {children}
+    </Suspense>
+  )
+}
+
 /**
  * McpA2aPage: root page for the landing sections.
  * The background scene is mounted once here, behind <main>.
@@ -84,21 +126,19 @@ export default function McpA2aPage() {
         style={{ position: 'relative', zIndex: 1 }}
       >
         <HeroSection />
-        <Suspense fallback={<div style={{minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center'}}><div className="system-ready-spinner" /></div>}>
-          <BuiltToLastSection />
-          <TileShatterSection />
-          <CoreFeaturesSection />
-          <WhyNowSection />
-          <CompetitorLandscapeSection />
-          <WhereWeFitSection />
-          <ArchitectureLayersSection />
-          <SandboxedExecutionSection />
-          <TamperDetectionSection />
-          <SecurityScannerSection />
-          <A2ADelegationSection />
-          <ThreatModelSection />
-          <FooterSection />
-        </Suspense>
+        <NearViewport><BuiltToLastSection /></NearViewport>
+        <NearViewport><TileShatterSection /></NearViewport>
+        <NearViewport><CoreFeaturesSection /></NearViewport>
+        <NearViewport><WhyNowSection /></NearViewport>
+        <NearViewport><CompetitorLandscapeSection /></NearViewport>
+        <NearViewport><WhereWeFitSection /></NearViewport>
+        <NearViewport><ArchitectureLayersSection /></NearViewport>
+        <NearViewport><SandboxedExecutionSection /></NearViewport>
+        <NearViewport><TamperDetectionSection /></NearViewport>
+        <NearViewport><SecurityScannerSection /></NearViewport>
+        <NearViewport><A2ADelegationSection /></NearViewport>
+        <NearViewport><ThreatModelSection /></NearViewport>
+        <NearViewport><FooterSection /></NearViewport>
       </main>
     </>
   )

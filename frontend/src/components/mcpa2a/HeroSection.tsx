@@ -74,10 +74,7 @@ export default function HeroSection() {
           alignItems: 'center',
         }}
       >
-        <motion.h1
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
+        <h1
           style={{
             fontFamily: 'var(--font-display)',
             fontSize: 'clamp(3.8rem, 15vw, 15rem)',
@@ -89,10 +86,11 @@ export default function HeroSection() {
             textAlign: 'center',
             whiteSpace: 'nowrap',
             width: '100%',
+            margin: 0,
           }}
         >
           MCP·A2A
-        </motion.h1>
+        </h1>
 
         {/* Sub-labels beneath headline */}
         <div style={{
