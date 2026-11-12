@@ -138,9 +138,13 @@ _B64_TOKEN_RE = re.compile(
 # ---------------------------------------------------------------------------
 # G5: Exfiltration Links (high)
 # ---------------------------------------------------------------------------
+_ALT_TEXT_WINDOW = 256
+
 _G5_PATTERNS = [
-    # Markdown image beacons
-    re.compile(r"!\[.*?\]\((?:https?:)?//[^\s)]+\)"),
+    # Bounded: alt text stops at a bracket, a newline, or _ALT_TEXT_WINDOW characters.
+    re.compile(
+        rf"!\[[^\]\n\r]{{0,{_ALT_TEXT_WINDOW}}}\]\((?:https?:)?//[^\s)]+\)"
+    ),
     # Sensitive exfiltration query parameters
     re.compile(
         r"https?://[^\s)]+[?&](?:key|token|secret|data|env|dump|creds|password)=[^\s)]*"
