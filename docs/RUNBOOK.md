@@ -33,11 +33,11 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | `APP_NAME` | `MCP Guard` | Local & Compose | Application display name |
 | `ENVIRONMENT` | `dev` (`production` in Compose) | Local & Compose | Controls docs visibility. Set to `production` to disable `/docs`, `/redoc`, `/openapi.json` and enable production validations |
 | `POSTGRES_PASSWORD` | unset (no default) | Compose (Required) | Password for PostgreSQL service. Required by Compose syntax `${POSTGRES_PASSWORD:?...}` |
-| `API_KEY_PEPPER` | unset (no default) | Compose & Production | Pepper for hashing API keys. Required in production and Compose (`${API_KEY_PEPPER:?...}`) |
+| `API_KEY_PEPPER` | unset (no default) | Compose & Production | Pepper for hashing API keys. Required in production and Compose (`${API_KEY_PEPPER:?...}`). A production-like process rejects a placeholder and raises `API_KEY_PEPPER is a placeholder; set a long random value` without printing the value |
 | `CORS_ORIGINS` | `["http://localhost:5173"]` | Local & Compose | JSON array of allowed CORS origins |
 | `MCP_SELF_URL` | `http://127.0.0.1:8000/mcp/` | Local & Compose | URL probed by the `/api/status` endpoint |
 | `MCP_SELF_API_KEY` | unset (`None`) | Local & Compose | API key with `agent:run` used by `/api/status` to probe `/mcp/`. Amber status if unset |
-| `DATABASE_URL` | `sqlite+aiosqlite:///data/mcp_guard.db` | Local & Compose | Async SQLAlchemy URL. SQLite in local dev; `postgresql+asyncpg://...` in Compose |
+| `DATABASE_URL` | `sqlite+aiosqlite:///data/mcp_guard.db` | Local | Async SQLAlchemy URL. SQLite in local dev. Compose sets its own `postgresql+asyncpg://...@postgres:5432/...` URL and does not read `DATABASE_URL` from the shell |
 | `NOTES_DIR` | `api/data/notes` (`/app/data/notes` in container) | Local & Compose | Directory for note `.md` files inside the API environment |
 | `MAX_BODY_BYTES` | `1048576` (1 MiB) | Local & Compose | HTTP request body size limit |
 | `TOOL_TIMEOUT_S` | `5.0` | Local & Compose | MCP tool invocation timeout (seconds). Must exceed `SANDBOX_TIMEOUT_S` |
@@ -459,7 +459,7 @@ uv run alembic check       # verify the DB matches the latest head
 
 ## Rate Limiting
 
-The application uses an in-memory token bucket rate limiter to protect both REST routes and the MCP stream. Each API key consumes a single shared token bucket across both REST and MCP requests, preventing clients from doubling their allowance across interfaces. By default, the capacity is `30` tokens and the refill rate is `5.0` tokens per second.
+REST and `/mcp` share one token bucket per API key. The capacity is 30 tokens and the refill is 5.0 tokens per second. With `REDIS_URL` set, every replica draws from that bucket in Valkey. Without it, or while Valkey is down, each process uses its own bucket. See [LOAD_BALANCING.md](LOAD_BALANCING.md).
 
 If 429 Too Many Requests responses are frequent:
 
@@ -520,37 +520,145 @@ COMMIT;
 
 Because `SET LOCAL` is used, the bypass is strictly scoped to that single transaction and reverts automatically upon commit or rollback. Operators must never manually disable triggers or delete audit records outside this supported retention pathway.
 
-### SQLite audit protection limitation (M7)
-In local development environments using SQLite:
-- Audit immutability is enforced solely by the application-level SQLAlchemy ORM listener in `app/models/audit_events.py` (`before_update` and `before_delete`).
-- SQLite does not install database triggers and does not provide the same database-engine-level enforcement guarantees as PostgreSQL. Direct SQLite database queries outside the ORM can modify records.
-- PostgreSQL 16 is the supported database for deployments requiring guaranteed database-level audit immutability. SQLite remains supported for local developer workflows and unit tests.
+### SQLite audit protection
+
+Revision `9db563fdadd8` installs two SQLite triggers on `audit_events`:
+
+- `audit_events_append_only_update` aborts an UPDATE with `audit_events is append-only`, unless the only change is `api_key_id` from a value to NULL.
+- `audit_events_append_only_delete` aborts a DELETE with the same message, unless `mcpg_audit_retention()` returns 1. The application registers that function only for the retention connection.
+
+A raw `sqlite3` client has no such function, so `DELETE FROM audit_events` fails closed with `no such function: mcpg_audit_retention`. The ORM listeners remain. A database owner can still drop the triggers. Production should use Postgres as a non-owner role. SQLite stays the local and test database.
 
 ---
 
 ## Running behind a reverse proxy
 
-When uvicorn is behind a reverse proxy (nginx, Caddy, ALB, etc.) that sets
-`X-Forwarded-For`, configure `TRUSTED_PROXIES` so the real client IP is used
-for rate limiting and throttling:
+The compose entrypoint already starts uvicorn with `--no-proxy-headers`, `--timeout-keep-alive 75`, `--timeout-graceful-shutdown 20`, and `--limit-concurrency` (default 256). Do not add a second `--no-proxy-headers`. Compose sets:
 
-```bash
-# In api/.env — single proxy at 10.0.0.1
-TRUSTED_PROXIES=["10.0.0.1"]
-
-# Or a CIDR block
-TRUSTED_PROXIES=["10.0.0.0/8"]
+```text
+TRUSTED_PROXIES=["172.30.57.10/32"]
 ```
 
-Pass `--no-proxy-headers` to uvicorn so it does not apply its own
-`X-Forwarded-For` handling, letting MCP Guard control it:
+That address is the Caddy container on `mcpg_net` (`172.30.57.0/24`). `ClientIPMiddleware` walks a single `X-Forwarded-For` header from right to left and stops at the first address that is not in `TRUSTED_PROXIES`.
+
+For a process you start yourself, pass the same flag and set `TRUSTED_PROXIES` to the proxy that is actually in front of it:
 
 ```bash
-uv run uvicorn app.main:app --no-proxy-headers ...
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-proxy-headers
 ```
 
-Without `TRUSTED_PROXIES`, all `X-Forwarded-For` headers are ignored and the
-raw peer address from the TCP connection is used as the client IP.
+Without `TRUSTED_PROXIES`, every `X-Forwarded-For` value is ignored and the TCP peer address is the client IP.
+
+## Compose services
+
+`docker compose up -d` starts:
+
+| Service | Role |
+| --- | --- |
+| `postgres` | Postgres 16. No host port |
+| `valkey` | Shared rate limit and pub/sub. No host port |
+| `notes-init` | One-shot ownership fix on the notes and shared volumes. Exits 0 |
+| `migrate` | `alembic upgrade head`, then exits. Does not restart |
+| `api1`, `api2` | API replicas. `RUN_MIGRATIONS=false`, `MULTI_INSTANCE=true` |
+| `proxy` | Caddy. Publishes `127.0.0.1:8000` to port 8080 |
+
+`docker compose down` stops the stack and keeps the named volumes.
+
+## `/ready` and `/health`
+
+`GET /health` returns 200 `{"status":"ok","app":"MCP Guard"}` when the process is running. It does not query Postgres.
+
+`GET /ready` returns 503 `{"status":"not_ready","instance":...}` before startup finishes and during shutdown. That body has no `database` field. After the process is ready it runs `SELECT 1` with a timeout of `READY_DB_TIMEOUT_S` (default 2 seconds).
+
+- Database ok: HTTP 200, `status` `ready`, `database` `ok`. `shared_state` is `ok`, `unavailable`, or `off`.
+- Database failed: HTTP 503, `status` `not_ready`, `database` `unavailable`. The body does not include the exception text.
+- Valkey down does not by itself change the status code.
+
+The replica healthcheck and the Caddy active check both call `/ready`.
+
+## Restart one replica
+
+```bash
+docker compose restart api1
+```
+
+Caddy marks it unhealthy after two failed `/ready` checks and stops sending it new requests. In-flight requests on that replica end when the process stops. MCP sessions stored there are gone: the next call with the old `Mcp-Session-Id` is 404, and a new `initialize` is served by the replica that is still up.
+
+Startup jobs hold advisory lock `727001` until the replica that won it exits. Restarting the other replica is safe. Restarting the lock holder releases the lock. The survivor does not run those jobs until it starts again. Retention uses transaction lock `727002`. The replica that loses it skips that cycle without a log line.
+
+## Valkey or Postgres down
+
+Valkey down:
+
+```bash
+docker compose stop valkey
+curl -s http://127.0.0.1:8000/ready
+docker compose start valkey
+```
+
+`/ready` stays 200 with `"shared_state":"unavailable"` while Postgres is up. Keyed requests are still limited, by the in-memory bucket on whichever replica handled them. Each replica logs `shared state operation failed: <ExceptionType>` at most once a minute. After Valkey is healthy again, the next successful shared operation sets `shared_state` back to `ok`.
+
+Postgres down:
+
+```bash
+docker compose stop postgres
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/ready
+docker compose exec api1 curl -s http://127.0.0.1:8000/health
+docker compose start postgres
+```
+
+`/ready` through the proxy is 503 while Postgres is down. `/health` inside a replica stays 200. After Postgres accepts connections, `/ready` returns 200 again. The B7 check allows 15 seconds after `docker compose start postgres`.
+
+## Burst checks
+
+These commands record the behavior of the running stack. Read the key from a mode-600 file. Do not echo it, and do not put it in the shell history as a literal. Replace the path with the file you created.
+
+```bash
+KEY=$(cat ~/.mcpg_a12_admin)
+```
+
+Install `oha` first. Do not raise `RATE_LIMIT_CAPACITY`, lower a timeout, or switch a guard mode to make a check pass.
+
+```bash
+# B1. Unauthenticated /health for 30 seconds, 200 connections.
+oha -z 30s -c 200 --no-tui http://127.0.0.1:8000/health
+
+# B2. One key against the shared bucket for 10 seconds.
+oha -z 10s -c 20 --no-tui -H "Authorization: Bearer $KEY" \
+  "http://127.0.0.1:8000/api/audit?limit=1"
+
+# B3. Run B2 twice at the same time, once per key. Each key has its own bucket.
+
+# B4. Twenty-nine guard checks while /health is also running.
+oha -n 29 -c 8 --no-tui -m POST -H "Authorization: Bearer $KEY" \
+  -T application/json -D /tmp/guard_99k.json \
+  http://127.0.0.1:8000/api/guard/check
+
+# B5. Repeat B2 and the guard check. Compare docker stats after the first and third rounds.
+
+# B6. Restart one replica during a /health run.
+oha -z 40s -c 50 --no-tui http://127.0.0.1:8000/health
+docker compose restart api1
+
+# B7 and B8. See "Valkey or Postgres down" above, then repeat B2.
+
+# B9. Watch the audit stream on api1 while api2 writes a note.
+# Pass the key as $0 so it is not expanded in the host command history.
+docker compose exec api1 sh -c \
+  'curl -sN -m 8 -H "Authorization: Bearer $0" 127.0.0.1:8000/api/audit/stream' "$KEY"
+
+# B10. MCP initialize through the proxy, protocolVersion 2025-06-18,
+# then tools/list with the returned Mcp-Session-Id.
+
+# B11. Write one note that contains an injection line, read it once,
+# and expect one tool.output.injection row for that read.
+
+# B12. Read a note under the shared limit. Expect 200, 429, or the
+# documented sandbox busy or timeout error. No 500. Ten seconds later,
+# no mcp-guard-tool-runner container should still be running.
+```
+
+The bars used for this branch are in [LOAD_BALANCING.md](LOAD_BALANCING.md) and in the check notes for the change. A miss is reported. The limit is not weakened to hide it.
 
 ---
 
@@ -564,7 +672,7 @@ authentication attempt from that IP returns 429 with a `Retry-After` header.
   never increments or resets the counter.
 - The first time an IP is throttled in a window, a best-effort `auth.deny` row
   with `reason=auth_throttled` and `error_code=RATE_LIMITED` is written.
-- The counter lives in process memory. Restarting the application resets it.
+- The counter lives in that process. A second replica has its own counter. Restarting a replica clears only that replica's counter.
 - Settings: `AUTH_FAILURE_LIMIT`, `AUTH_FAILURE_WINDOW_S`,
   `AUTH_FAILURE_MAX_TRACKED_IPS` (LRU cap, default 10 000).
 
@@ -583,15 +691,11 @@ Audit events are retained for 90 days by default.
 
 ## API-key Rotation
 
-> The current implementation does not expose API keys to external callers.
-> The database schema includes an `api_keys` table (see `app/models/api_keys.py`)
-> but no key-issuance or rotation endpoint is implemented yet.
+Admin routes already issue and revoke keys: `POST /api/keys`, `GET /api/keys?client_id=...`, and `DELETE /api/keys/{key_id}`, all scope `admin`. There is no separate rotation wizard. To rotate a key:
 
-When API key rotation is implemented, the procedure will involve:
-1. Generating a new key hash and writing it to the `api_keys` table.
-2. Distributing the new key to callers through a secure out-of-band channel.
-3. Setting a revocation timestamp on the old key.
-4. After the grace period, deleting or disabling the old key record.
+1. Create a new key with `POST /api/keys` and give it to the caller out of band. The raw secret is shown once.
+2. Revoke the old key with `DELETE /api/keys/{key_id}`.
+3. Confirm the old prefix no longer works. A call with it returns 401.
 
 ---
 

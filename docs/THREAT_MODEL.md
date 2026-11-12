@@ -167,17 +167,17 @@ The route map is in [`api/app/auth/scopes.py`](../api/app/auth/scopes.py). The p
 
 ---
 
-### Risk 2: No Rate Limiting
+### Risk 2: Rate limits under burst and across replicas
 
 | Field | Detail |
 |-------|--------|
-| **Scenario** | An attacker can flood the API with thousands of requests per second, exhausting filesystem I/O, SQLite connections, and the asyncio event loop. |
-| **Likelihood** | Medium |
-| **Impact** | Medium-High — service unavailability for legitimate users |
-| **Existing mitigation** | Body size limit (1 MiB), tool timeout (5 s) limit per-request resource usage |
-| **Residual risk** | Medium — volume attacks are still viable |
-| **Next action** | Add SlowAPI or a reverse-proxy rate limiter (nginx, Caddy) in front of port 8000 |
-| **Source files** | `api/app/middleware.py`, `api/app/config.py` |
+| **Scenario** | One API key sends more traffic than the token bucket allows, or two replicas each apply their own bucket and the key gets twice the intended rate. |
+| **Likelihood** | Medium when `REDIS_URL` is unset or Valkey is down. Low when the shared bucket is up. |
+| **Impact** | Medium — a key that is over the limit is rejected; a Valkey outage falls back to a per-process bucket |
+| **Existing mitigation** | REST and `/mcp` share one bucket per key (surface `key`). Defaults are 30 tokens and a refill of 5 per second. With `REDIS_URL`, every replica takes tokens from the Valkey key `mcpg:rl:key:<api_key_id>`. `POST /api/analyst/explain` uses a separate surface, `analyst`. A denial is HTTP 429 with `Retry-After`, and the process-local bucket is not also charged. Measured on this machine with two processes and one key for 10 seconds: 160 requests allowed without Valkey (about 80 on each process), and 80 allowed with Valkey. `/health` and `/ready` do not carry an API key, so they are not counted on a key bucket. The body limit stays 1 MiB and the gateway tool timeout stays 5 seconds. |
+| **Residual risk** | While Valkey is down, each replica uses its own in-memory bucket, so two replicas can allow about twice the shared limit. The failed-login throttle stays per replica: 20 failures per IP per 60 seconds in that process. MCP sessions stay in the process that handled `initialize`. Caddy sticks `/mcp` on the `Authorization` header so one key keeps its session; a different key, or a restarted replica, is a different process. A session id sent to the wrong replica is 404 `Session not found`. |
+| **Next action** | Keep `REDIS_URL` set in any multi-replica deployment. Do not raise the capacity to hide a Valkey outage. |
+| **Source files** | `api/app/rate_limit.py`, `api/app/shared_state.py`, `api/app/auth/throttle.py`, `deploy/Caddyfile` |
 
 ---
 
@@ -188,9 +188,9 @@ The route map is in [`api/app/auth/scopes.py`](../api/app/auth/scopes.py). The p
 | **Scenario** | A tool call or auth decision needs to be attributed after the fact. Mutating REST calls (`PUT /api/notes/{name}`) are audit-first: a required `tool.call` row with status `forwarded` is written before the tool runs, then a best-effort `tool.result` row. A 503 `Audit log unavailable.` means the write did not happen. Read tools are audited after execution, before the result is returned. MCP `tools/call` is audited before forwarding, so the MCP tool does not run without a row. `auth.allow` and `auth.deny` are fail-open so a real 401/403 is not turned into a 500. `client_ip` is personal data and is kept for the same retention period as the rest of the row. |
 | **Likelihood** | Medium (a database outage drops best-effort auth rows; a required audit write fails closed with 503) |
 | **Impact** | Medium — a missed auth row weakens investigation; a failed required audit blocks the call instead of hiding it |
-| **Existing mitigation** | `audit_events` is written from the gateway, REST auth, and `/mcp`. Rows store the principal ids, key prefix, route template or constant reason, tool name, args sha256, and client IP. ORM `before_update` / `before_delete` reject mutation. On Postgres, revision `cc48301ff61d` rejects UPDATE, DELETE and TRUNCATE except the retention delete and the `api_key_id` ON DELETE SET NULL update. `GET /api/audit` and `GET /api/audit/stream` expose the rows to `audit:read`. |
-| **Residual risk** | Medium — auth rows can be missing if the write fails; a database owner or superuser can disable triggers; SQLite has only the ORM guard; the SSE stream is single-process |
-| **Next action** | Run Postgres as a non-owner role so a database owner or superuser cannot disable triggers. SQLite has only the ORM guard. The SSE stream is single-process. |
+| **Existing mitigation** | `audit_events` is written from the gateway, REST auth, and `/mcp`. Rows store the principal ids, key prefix, route template or constant reason, tool name, args sha256, and client IP. ORM `before_update` / `before_delete` reject mutation. On Postgres, revision `cc48301ff61d` rejects UPDATE, DELETE and TRUNCATE except the retention delete and the `api_key_id` ON DELETE SET NULL update. On SQLite, revision `9db563fdadd8` rejects UPDATE and DELETE with `audit_events is append-only`, except a retention delete while `mcpg_audit_retention()` returns 1 and an update that only sets `api_key_id` to NULL. `GET /api/audit` and `GET /api/audit/stream` expose the rows to `audit:read`. When the audit relay is connected, events are also published on `mcpg:audit` so a subscriber on another replica receives them. |
+| **Residual risk** | Medium — auth rows can be missing if the write fails; a database owner or superuser can disable triggers. A raw SQLite client that is not the application has no `mcpg_audit_retention()` function, so its DELETE fails closed. If Valkey is down, a subscriber sees only events written on its own process. |
+| **Next action** | Run Postgres as a non-owner role so a database owner or superuser cannot disable triggers. Keep the audit relay connected when more than one replica serves `GET /api/audit/stream`. |
 | **Source files** | `api/app/audit/sink.py`, `api/app/gateway.py`, `api/app/models/audit_events.py`, `api/app/repos/audit.py` |
 
 ---

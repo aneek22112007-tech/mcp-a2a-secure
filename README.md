@@ -18,10 +18,10 @@ Most MCP servers trust whoever can reach them. We wanted a place to enforce who 
 ## How a request flows
 
 <p align="center">
-  <img src="docs/assets/pipeline.svg" alt="Animated diagram of a request moving from an agent through Auth, Scopes, Scanner, Audit and the tool. A valid scoped key reaches the tool (200), a request with no key stops at Auth (401), and a key without the scope stops at Scopes (403). The scanner is planned. Audit records tool calls and auth decisions." width="100%">
+  <img src="docs/assets/pipeline.svg" alt="Animated diagram of a request moving from an agent through Auth, Scopes, Scanner, Audit and the tool. A valid scoped key reaches the tool (200), a request with no key stops at Auth (401), and a key without the scope stops at Scopes (403). The scanner checks registered tools. Audit records tool calls and auth decisions." width="100%">
 </p>
 
-The diagram loops through three cases. A key with the right scope reaches the tool. A request with no key is stopped at the auth step with a 401. A valid key without the needed scope is stopped at the scope check with a 403. The scanner step is dashed because it is not built yet. Audit logging is implemented.
+The diagram loops through three cases. A key with the right scope reaches the tool. A request with no key is stopped at the auth step with a 401. A valid key without the needed scope is stopped at the scope check with a 403. The scanner runs on registered tools. Audit logging is implemented.
 
 ## Architecture
 
@@ -64,14 +64,14 @@ flowchart LR
     MCP --> T1
     SC --> SCAN
     SC --> AUD
-    SC -.-> RL
-    AUTH -.->|"key lookup (#84)"| DB
+    SC --> RL
+    AUTH --> DB
     AUD --> DB
 
     classDef built fill:#0f2a2e,stroke:#2dd4bf,color:#e2e8f0
     classDef planned fill:#1e1b3a,stroke:#a78bfa,color:#c4b5fd,stroke-dasharray:5 5
-    class MW,AUTH,SC,GW,MCP,T1,UI,INS,DB,AUD,SCAN built
-    class RL,AG,A2A planned
+    class MW,AUTH,SC,GW,MCP,T1,UI,INS,DB,AUD,SCAN,RL built
+    class AG,A2A planned
 ```
 
 Dashed nodes and edges are planned. REST calls to `/api/notes` go through the gateway. MCP clients talk to the MCP server directly once they pass auth and the `agent:run` scope check. Audit rows are written for auth decisions and tool calls.
@@ -117,7 +117,7 @@ On `main` today:
 - **Status endpoint.** `/api/status` does a real MCP handshake against the server and reports latency, protocol version and tools.
 - **Database layer.** SQLAlchemy 2 (async) with Alembic migrations and repositories. Tables exist for clients, API keys, audit events, sandbox runs, tool pins and analyst reports. SQLite is used in development.
 - **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Mutating REST calls (`PUT /api/notes/{name}`) and MCP `tools/call` are audit-first: a required row is written before the tool runs. Read tools are audited after execution, before the result is returned. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
-- **Rate limiting, metrics and retention.** Each API key has its own token bucket, with separate buckets for REST and `/mcp`. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler. Sandbox run records are pruned on the same retention cycle.
+- **Rate limiting, metrics and retention.** Each API key has one token bucket, shared by REST and `/mcp`. With `REDIS_URL` set, every replica takes tokens from that same bucket in Valkey. Without it, the bucket stays in the process. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler. Sandbox run records are pruned on the same retention cycle. See [docs/LOAD_BALANCING.md](docs/LOAD_BALANCING.md).
 - **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
 - **Filesystem upstream.** With `UPSTREAM_FS_ENABLED=true`, the official filesystem MCP server is registered as `fs_` tools. Each call runs in its own container, mounted at `/projects`. `files:read` and `files:write` are required in addition to `agent:run`. The upstream is off by default. If it cannot start, the API still starts and the notes tools are the only tools. See [docs/UPSTREAM_FILESYSTEM.md](docs/UPSTREAM_FILESYSTEM.md).
 - **Hostile lab upstream.** With `UPSTREAM_LAB_ENABLED=true`, a separate, deliberately hostile MCP container is registered as `lab_*` tools to evaluate gateway containment, tool-poisoning scanners, schema drift detection, output injection guards, and resource limits. It is disabled by default and strictly refused in production. Lab tools require the dedicated `lab:call` scope. See [docs/UPSTREAM_LAB.md](docs/UPSTREAM_LAB.md).
@@ -169,9 +169,9 @@ The LLM is never the final security authority. Authentication, scope checks, fin
 - **Secrets stay out of logs.** Auth logs record a deny reason (`missing`, `malformed` or `rejected`) or the key prefix, never the key or its hash. Only key hashes are stored. `MCP_SELF_API_KEY` is held as a `SecretStr`.
 - **Strict header parsing.** Exactly one `Authorization` header, ASCII only, in the form `Bearer <token>` with no extra spaces. The token must start with `mcpg_` and be at most 128 characters. An `X-Request-ID` that doesn't match `[A-Za-z0-9._:-]` (up to 64 characters) is replaced with a UUID.
 - **Other headers and limits.** `Content-Length` is validated and the body is capped while streaming (413 when exceeded). Responses carry `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store` on every response. `Strict-Transport-Security` is sent when `HSTS_MAX_AGE_S` is greater than zero.
-- **Postgres append-only audit log.** On Postgres, a database-level trigger prevents UPDATE, DELETE and TRUNCATE on `audit_events`. Retention is the only permitted delete (gated by `SET LOCAL mcp_guard.audit_retention = 'on'`). The `api_key_id` ON DELETE SET NULL update is allowed. SQLite uses an ORM-level guard only; a database owner can disable triggers, so production should run as a non-owner role.
+- **Append-only audit log.** On Postgres, trigger revision `cc48301ff61d` prevents UPDATE, DELETE and TRUNCATE on `audit_events`. Retention is the only permitted delete (gated by `SET LOCAL mcp_guard.audit_retention = 'on'`). The `api_key_id` ON DELETE SET NULL update is allowed. On SQLite, revision `9db563fdadd8` installs `audit_events_append_only_update` and `audit_events_append_only_delete`. Both abort with `audit_events is append-only`, except a retention delete while `mcpg_audit_retention()` returns 1 and an update that only sets `api_key_id` to NULL. A database owner can disable triggers, so production should run as a non-owner role.
 - **Reverse proxy IP handling.** When `TRUSTED_PROXIES` is set, the real client IP is extracted from a single `X-Forwarded-For` header by walking right-to-left past trusted addresses. Without `TRUSTED_PROXIES`, `X-Forwarded-For` is ignored entirely.
-- **Failed-auth throttle.** Repeated 401 outcomes from the same client IP are counted in a fixed window. After `AUTH_FAILURE_LIMIT` failures, every further request to that IP returns 429 with `Retry-After` until the window resets. Only 401 outcomes count; 403 and success never increment or reset the counter.
+- **Failed-auth throttle.** Repeated 401 outcomes from the same client IP are counted in a fixed window, in that process only. After `AUTH_FAILURE_LIMIT` failures, every further request from that IP to that process returns 429 with `Retry-After` until the window resets. Only 401 outcomes count; 403 and success never increment or reset the counter. A second replica keeps its own counter.
 
 The full threat model is in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
@@ -192,7 +192,7 @@ cp .env.compose.example .env
 > - `POSTGRES_PASSWORD`: Strong password for the PostgreSQL service.
 > - `API_KEY_PEPPER`: Cryptographically secure random pepper (at least 32 bytes) for hashing API keys.
 >
-> Compose strictly requires both variables (`${POSTGRES_PASSWORD:?...}` and `${API_KEY_PEPPER:?...}`) and will refuse to render or start if they are missing or unset. The placeholder values in `.env.compose.example` (`change-me` and `change-me-to-a-long-random-value`) **must** be replaced with generated secrets before starting services. Never commit `.env` or any file containing secret credentials to version control.
+> Compose strictly requires `POSTGRES_PASSWORD`, `API_KEY_PEPPER`, and `REDIS_PASSWORD` (`${VAR:?...}`) and will refuse to render or start if they are missing. The placeholder values in `.env.compose.example` (`change-me` and `change-me-to-a-long-random-value`) must be replaced before starting. A production-like process raises `ValueError: API_KEY_PEPPER is a placeholder; set a long random value` and does not include the value. Never commit `.env` or any file containing secret credentials.
 
 ### 2. Build images and start services
 
@@ -213,16 +213,31 @@ docker compose ps
 ```
 
 Expected service states:
-- `mcp-a2a-secure-postgres-1`: `Up (healthy)` (PostgreSQL 16)
-- `mcp-a2a-secure-api-1`: `Up (healthy)` (FastAPI backend on port 8000)
-- `mcp-a2a-secure-notes-init-1`: `Exited (0)` (one-shot permissions initialization completed successfully)
+- `postgres`: `Up (healthy)`
+- `valkey`: `Up (healthy)`
+- `migrate`: `Exited (0)`
+- `notes-init`: `Exited (0)`
+- `api1` and `api2`: `Up (healthy)`
+- `proxy`: `Up (healthy)`, publishing `127.0.0.1:8000`
 
 **Key architecture and security notes:**
-- **Production mode**: Compose sets `ENVIRONMENT=production` explicitly. Production post-init validations are active (enforcing `none` network for sandboxes, non-root run-as, and injection guard enforcement), and interactive API documentation (`/docs`, `/redoc`, `/openapi.json`) is disabled.
-- **Database isolation**: PostgreSQL does not publish a host port by default; the API connects via the internal Compose bridge network. To debug the database locally, uncomment the `ports` mapping in `docker-compose.yml`.
-- **Database migrations**: Alembic migrations run automatically on container startup via `api/docker/entrypoint.sh` before Uvicorn starts.
-- **Docker socket exposure**: The API container mounts `/var/run/docker.sock` to launch ephemeral sandbox runners and upstream filesystem containers. Mounting the Docker socket gives the container control over the host Docker daemon and carries host-level security implications.
-- **Structured logging**: Uvicorn runs with `--log-config log_config.json`, including request IDs (`rid=...`) on all log records.
+- **Production mode**: Compose sets `ENVIRONMENT=production`. Production checks are active, including the sandbox network, the run-as user, and a refusal of a placeholder pepper. `/docs`, `/redoc`, and `/openapi.json` are disabled. When `TOOL_PINNING_MODE` and `INJECTION_GUARD_MODE` are not set, production uses `enforce`.
+- **Database**: Compose sets `DATABASE_URL` to its own Postgres URL. A `DATABASE_URL` in the shell does not replace it. Postgres does not publish a host port. Uncomment the ports mapping in `docker-compose.yml` only for local debugging.
+- **Migrations**: The `migrate` service runs `alembic upgrade head` once and exits. API replicas set `RUN_MIGRATIONS=false`, so their entrypoint does not run Alembic.
+- **Load balancer**: Caddy on the `proxy` service is the only published port. See [Running with the load balancer](#running-with-the-load-balancer) and [docs/LOAD_BALANCING.md](docs/LOAD_BALANCING.md).
+- **Docker socket exposure**: The API containers mount `/var/run/docker.sock` to launch ephemeral sandbox runners and upstream filesystem containers. That mount gives the container control over the host Docker daemon.
+- **Structured logging**: The entrypoint starts Uvicorn with `--log-config log_config.json`, `--no-proxy-headers`, and `--limit-concurrency` (default 256). Log lines include `rid=...`.
+
+### Running with the load balancer
+
+`docker compose up -d` starts Postgres, Valkey, a one-shot migrate, two API replicas, and Caddy. Talk to the stack at `http://127.0.0.1:8000`.
+
+- `GET /health` answers `{"status":"ok","app":"MCP Guard"}` when the process is up. It does not check Postgres.
+- `GET /ready` returns 503 with only `status` `not_ready` and `instance` before the process is ready. After that it runs `SELECT 1`. HTTP 200 means the database is ok, even when `shared_state` is `unavailable`. A database failure is 503 and adds `database` `unavailable`. The body never includes an exception message.
+- Restart one replica with `docker compose restart api1` or `docker compose restart api2`. The proxy stops sending it traffic after the `/ready` health check fails. MCP sessions that lived on the restarted replica return 404 until the client calls `initialize` again.
+- Create the admin key with `docker compose exec api1 python scripts/create_admin_key.py`. The same image is `api2`. Approve tools with `docker compose exec api1 python scripts/approve_current_tools.py`.
+
+Do not put the hostile lab (`UPSTREAM_LAB_ENABLED`) into this compose file. It is refused when `ENVIRONMENT` is production.
 
 ### 3. Verify health
 
@@ -239,14 +254,14 @@ Docker Compose defaults to `TOOL_PINNING_MODE=enforce`. When enforcement is acti
 
 1. **Generate an initial administrator key**:
    ```bash
-   docker compose exec api python scripts/create_admin_key.py
+   docker compose exec api1 python scripts/create_admin_key.py
    ```
    Store the printed API key securely. It is displayed only once.
 
 2. **Approve built-in notes tools**:
    The built-in notes tools (`list_notes`, `read_note`, `write_note`) can be approved in bulk:
    ```bash
-   docker compose exec api python scripts/approve_current_tools.py
+   docker compose exec api1 python scripts/approve_current_tools.py
    ```
 
 3. **Synchronize and approve filesystem tools**:
@@ -285,7 +300,7 @@ Docker Compose defaults to `TOOL_PINNING_MODE=enforce`. When enforcement is acti
 To verify the end-to-end filesystem upstream container pipeline:
 1. Write a test file into `/app/data/shared` inside the API container:
    ```bash
-   docker compose exec api sh -c 'echo "hello from mcpg_shared" > /app/data/shared/hello.txt'
+   docker compose exec api1 sh -c 'echo "hello from mcpg_shared" > /app/data/shared/hello.txt'
    ```
 2. Read the file through the MCP gateway using `fs_read_text_file` (with an approved pin and an API key with `files:read` scope).
 3. Verify the recorded sandbox run reports `mode=docker` via `GET /api/sandbox/runs`.
@@ -429,8 +444,18 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `UPSTREAM_FS_TIMEOUT_S` | `30` | Seconds for one filesystem container. Separate from `SANDBOX_TIMEOUT_S` |
 | `AUDIT_STREAM_MAX_SUBSCRIBERS` | `20` | Concurrent subscribers on `GET /api/audit/stream` |
 | `AUDIT_STREAM_QUEUE_SIZE` | `100` | Per-subscriber SSE queue. A full queue drops events for that subscriber |
-| `RATE_LIMIT_CAPACITY` | `100` | Token bucket capacity for rate limiting |
-| `RATE_LIMIT_REFILL_RATE_PER_SEC` | `10.0` | Token bucket refill rate per second for rate limiting |
+| `RATE_LIMIT_CAPACITY` | `30` | Token bucket capacity for one API key. REST and `/mcp` share it |
+| `RATE_LIMIT_REFILL_RATE_PER_SEC` | `5.0` | Tokens added to that bucket each second |
+| `REDIS_URL` | unset | Valkey or Redis URL for the shared bucket, audit relay, and pin-cache clears. Required when `MULTI_INSTANCE` is true |
+| `MULTI_INSTANCE` | `false` | When true, startup refuses SQLite and a missing `REDIS_URL` |
+| `INSTANCE_ID` | host name | Name returned by `/ready`. Compose sets `api1` and `api2` |
+| `DB_POOL_SIZE` | `5` | SQLAlchemy pool size for Postgres |
+| `DB_MAX_OVERFLOW` | `5` | Extra Postgres connections above the pool size |
+| `DB_POOL_TIMEOUT_S` | `10` | Seconds to wait for a pooled Postgres connection |
+| `DB_POOL_RECYCLE_S` | `1800` | Seconds before a pooled Postgres connection is recycled |
+| `READY_DB_TIMEOUT_S` | `2.0` | Seconds `/ready` waits for `SELECT 1` |
+| `RUN_MIGRATIONS` | `true` in the entrypoint | Set to `false` on the API replicas. Compose runs Alembic in the `migrate` service |
+| `UVICORN_LIMIT_CONCURRENCY` | `256` | Entry point `--limit-concurrency`. Not a Settings field |
 | `AUDIT_RETENTION_DAYS` | `90` | Number of days to retain audit log events |
 | `ENABLE_RETENTION_SCHEDULER` | `False` | Enable automatic cleanup of old audit records via a background task |
 | `SANDBOX_RUN_RETENTION_DAYS` | `90` | Number of days to retain sandbox runs |
