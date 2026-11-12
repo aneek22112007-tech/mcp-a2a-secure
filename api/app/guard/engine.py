@@ -171,10 +171,30 @@ def check_tool_output(
     Contract:
         check_tool_output(text, *, tool_name, key_prefix, request_id) -> GuardResult
     """
-    result = evaluate_output(text)
+    return _schedule_audit(
+        evaluate_output(text),
+        tool_name=tool_name,
+        key_prefix=key_prefix,
+        request_id=request_id,
+        audit_action=audit_action,
+        client_id=client_id,
+        api_key_id=api_key_id,
+    )
+
+
+def _schedule_audit(
+    result: GuardResult,
+    *,
+    tool_name: str,
+    key_prefix: str | None,
+    request_id: str | None,
+    audit_action: str,
+    client_id: str | None,
+    api_key_id: str | None,
+) -> GuardResult:
+    """Write the audit row on the running loop when the result has findings."""
     if not result.findings:
         return result
-
     result._audit_task = _write_guard_audit(
         tool_name=tool_name,
         key_prefix=key_prefix,
@@ -190,6 +210,36 @@ def check_tool_output(
         api_key_id=api_key_id,
     )
     return result
+
+
+async def check_tool_output_async(
+    text: str,
+    *,
+    tool_name: str,
+    key_prefix: str | None = None,
+    request_id: str | None = None,
+    audit_action: str = ACTION_TOOL_OUTPUT_INJECTION,
+    client_id: str | None = None,
+    api_key_id: str | None = None,
+) -> GuardResult:
+    """Same contract as check_tool_output. The scan runs in a worker thread.
+
+    Mode ``off`` returns on the loop. The audit row is scheduled on the
+    running loop, never inside the worker and never through asyncio.run.
+    """
+    if settings.injection_guard_mode == "off":
+        result = evaluate_output(text)
+    else:
+        result = await asyncio.to_thread(evaluate_output, text)
+    return _schedule_audit(
+        result,
+        tool_name=tool_name,
+        key_prefix=key_prefix,
+        request_id=request_id,
+        audit_action=audit_action,
+        client_id=client_id,
+        api_key_id=api_key_id,
+    )
 
 
 def _write_guard_audit(
