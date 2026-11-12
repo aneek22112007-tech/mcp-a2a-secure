@@ -304,6 +304,8 @@ async def list_incidents(
 
 @router.get("/incidents/{incident_id}", response_model=IncidentDetailOut)
 async def get_incident(incident_id: str) -> IncidentDetailOut:
+    if _INCIDENT_ID.fullmatch(incident_id) is None:
+        raise HTTPException(status_code=404, detail="Incident not found.")
     incidents, _moment, reports = await _load()
     incident = _find(incidents, incident_id)
     truncated = len(incident.events) > _DETAIL_EVENT_CAP
