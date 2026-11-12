@@ -14,6 +14,28 @@ _DEFAULT_NOTES_DIR = _API_ROOT / "data" / "notes"
 
 _DEFAULT_DB_PATH = _API_ROOT / "data" / "mcp_guard.db"
 _DEFAULT_DB_URL = f"sqlite+aiosqlite:///{_DEFAULT_DB_PATH}"
+_PLACEHOLDER_PEPPERS = frozenset(
+    {
+        "replace-with-a-local-development-secret",
+        "change-me-to-a-long-random-value",
+        "changeme",
+        "change-me",
+        "secret",
+        "pepper",
+        "password",
+        "to-be-changed",
+    }
+)
+
+
+def _pepper_is_placeholder(value: SecretStr) -> bool:
+    """True when a production pepper is empty or a known stand-in."""
+    text = value.get_secret_value().strip().lower()
+    return (
+        text == ""
+        or text in _PLACEHOLDER_PEPPERS
+        or text.startswith(("change-me", "replace-with"))
+    )
 
 
 def normalize_database_url(url: str) -> str:
@@ -451,6 +473,13 @@ class Settings(BaseSettings):
 
         if self.is_production_like and not self.api_key_pepper:
             raise ValueError("API_KEY_PEPPER is required in production environment")
+
+        if (
+            self.is_production_like
+            and self.api_key_pepper is not None
+            and _pepper_is_placeholder(self.api_key_pepper)
+        ):
+            raise ValueError("API_KEY_PEPPER is a placeholder; set a long random value")
 
         if self.is_production_like:
             # An unset mode follows the safe production default. An explicit
