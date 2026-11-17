@@ -124,6 +124,15 @@ async def _run_startup_jobs() -> None:
                 await run_scan_all()
             except Exception:
                 logger.exception("Failed to run tool poisoning scanner at startup")
+        if (
+            settings.scanner_ai_on_startup
+            and settings.scanner_ai_enabled
+            and settings.llm_enabled
+        ):
+            try:
+                await run_scan_all(ai=True)
+            except Exception:
+                logger.exception("Failed to run AI tool scanner at startup")
 
     if engine.dialect.name != "postgresql":
         await _jobs()
