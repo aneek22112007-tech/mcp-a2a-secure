@@ -175,7 +175,8 @@ async def scan_tool_endpoint(tool_name: str, ai: bool = Query(False)):
                 action="tool.scan.manual",
                 status="ok",
                 decision="allowed",
-                reason=f"Admin initiated scan for {tool_name}" + (" (with AI)" if ai else ""),
+                reason=f"Admin initiated scan for {tool_name}"
+                + (" (with AI)" if ai else ""),
             ),
             required=False,
         )
