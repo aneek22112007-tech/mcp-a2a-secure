@@ -10,3 +10,8 @@ class ScannerFinding:
     severity: Severity
     message: str
     evidence: str | None
+
+
+def is_ai_finding(rule_id: str) -> bool:
+    """Return True if the finding originates from an AI scanner pass."""
+    return rule_id.startswith("AI")
