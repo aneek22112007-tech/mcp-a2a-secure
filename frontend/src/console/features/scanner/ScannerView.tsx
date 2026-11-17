@@ -130,27 +130,34 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <label
-            style={{
-              display: 'flex',
-              gap: 6,
-              alignItems: 'center',
-              fontSize: 12,
-              color: 'var(--c-text-muted)',
-              cursor: 'pointer',
-              userSelect: 'none',
-            }}
-            title="Run local LLM to read descriptions and schemas (~20-30s per tool)"
-          >
-            <input
-              type="checkbox"
-              checked={aiEnabled}
-              onChange={e => setAiEnabled(e.target.checked)}
-              style={{ accentColor: 'var(--c-amber)' }}
-            />
-            <Sparkles size={12} style={{ color: aiEnabled ? 'var(--c-amber)' : 'inherit' }} />
-            Include AI check
-          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+            <label
+              style={{
+                display: 'flex',
+                gap: 6,
+                alignItems: 'center',
+                fontSize: 12,
+                color: 'var(--c-text-muted)',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+              title="Run local LLM to read descriptions and schemas (~20-30s per tool)"
+            >
+              <input
+                type="checkbox"
+                checked={aiEnabled}
+                onChange={e => setAiEnabled(e.target.checked)}
+                style={{ accentColor: 'var(--c-amber)' }}
+              />
+              <Sparkles size={12} style={{ color: aiEnabled ? 'var(--c-amber)' : 'inherit' }} />
+              Include AI check
+            </label>
+            {aiEnabled && (
+              <span style={{ fontSize: 10, color: 'var(--c-text-dim)', marginTop: 2 }}>
+                AI check uses the local model, about 20 to 30 seconds per tool. Start with one tool.
+              </span>
+            )}
+          </div>
           <button
             className="btn btn-ghost btn-sm"
             onClick={handleExport}
