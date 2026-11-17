@@ -408,7 +408,7 @@ The scanner evaluates tool definitions against phrase rules (R1 to R6, e.g. prom
 - `SCANNER_AI_MAX_SEVERITY=medium`: Upper bound for AI findings (`low`, `medium`, or `high`; never `critical`).
 - `SCANNER_AI_ON_STARTUP=false`: When enabled alongside `SCANNER_AI_ENABLED=true` and `LLM_ENABLED=true`, runs the AI scanner across all catalog tools during process startup.
 
-`scripts/demo_scanner.sh` demonstrates generating safe and poisoned tools, evaluating them, blocking poisoned tools, and fetching findings. See `docs/AI_SCANNER.md` for full AI scanner design and results.
+See `docs/AI_SCANNER.md` for full AI scanner design and results.
 
 ---
 
