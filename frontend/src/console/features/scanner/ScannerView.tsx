@@ -1,15 +1,17 @@
 import { Fragment, useState } from 'react';
 import {
-  Search, Play, CheckCircle, AlertTriangle, Download, Info,
+  Search, Play, CheckCircle, AlertTriangle, Download, Info, Sparkles,
 } from 'lucide-react';
-import { useFindings, useScanAll, useScanTool, useResolveFinding, usePins } from '../../api/hooks';
+import {
+  useFindings, useScanAll, useScanTool, useResolveFinding, usePins, useAudit,
+} from '../../api/hooks';
 import {
   LoadingPanel, ErrorPanel, EmptyState, ConsoleErrorBoundary,
 } from '../../components/ui';
 import {
-  fmtDatetime, severityClass, severityBadgeClass,
+  fmtDatetime, fmtTimestamp, CONSOLE_TZ_LABEL, severityClass, severityBadgeClass,
 } from '../../utils/helpers';
-import type { ScanFinding } from '../../api/client';
+import type { ScanFinding, ScanStats } from '../../api/client';
 import { toast } from 'sonner';
 
 interface ScannerViewProps { offline: boolean }
@@ -22,15 +24,30 @@ const RULE_LABELS: Record<string, string> = {
   R4_SIZE_CAP_SCHEMA:       'Size Cap (Schema)',
   R5_SUSPICIOUS_PARAM_DESC: 'Suspicious Param',
   R6_TOOL_NAME_ANOMALY:     'Name Anomaly',
+  AI1_SEMANTIC_POISONING:   'Semantic Poisoning',
 };
+
+function parseScanCompletedReason(reason?: string | null) {
+  if (!reason) return null;
+  const matchScanned = reason.match(/scanned=(\d+)/);
+  const matchFindings = reason.match(/findings=(\d+)/);
+  const matchAiChecked = reason.match(/ai_checked=(\d+)/);
+  const matchAiUnavailable = reason.match(/ai_unavailable=(\d+)/);
+  if (!matchScanned) return null;
+  return {
+    scanned: parseInt(matchScanned[1], 10),
+    findings: matchFindings ? parseInt(matchFindings[1], 10) : 0,
+    aiChecked: matchAiChecked ? parseInt(matchAiChecked[1], 10) : undefined,
+    aiUnavailable: matchAiUnavailable ? parseInt(matchAiUnavailable[1], 10) : undefined,
+  };
+}
 
 function ScannerViewInner({ offline }: ScannerViewProps) {
   const [selectedTool, setSelectedTool] = useState('');
   const [openOnly, setOpenOnly] = useState(true);
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [lastScan, setLastScan] = useState<{
-    scan_id: string; tools_scanned: number; findings_open: number; by_severity: Record<string, number>;
-  } | null>(null);
+  const [lastScan, setLastScan] = useState<ScanStats | null>(null);
 
   const { data: pinsData } = usePins();
   const toolNames = (pinsData?.items ?? []).map(p => p.tool_name);
@@ -39,6 +56,8 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
     open_only: openOnly,
     tool_name: selectedTool || undefined,
   });
+  const { data: auditData } = useAudit({ action: 'tool.scan.completed', limit: 1 });
+
   const scanAll    = useScanAll();
   const scanTool   = useScanTool();
   const resolveFinding = useResolveFinding();
@@ -48,9 +67,13 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
   const handleScanAll = async () => {
     if (offline) return;
     try {
-      const res = await scanAll.mutateAsync();
+      const res = await scanAll.mutateAsync(aiEnabled);
       setLastScan(res);
-      toast.success(`Scan complete — ${res.findings_open} open finding(s) across ${res.tools_scanned} tool(s)`);
+      let msg = `Scan complete — ${res.findings_open} open finding(s) across ${res.tools_scanned} tool(s)`;
+      if (res.ai_checked != null && res.ai_checked > 0) {
+        msg += ` (${res.ai_checked} checked with AI)`;
+      }
+      toast.success(msg);
     } catch (err: unknown) {
       toast.error((err as Error).message ?? 'Scan failed');
     }
@@ -59,9 +82,13 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
   const handleScanTool = async () => {
     if (offline || !selectedTool) return;
     try {
-      const res = await scanTool.mutateAsync(selectedTool);
+      const res = await scanTool.mutateAsync({ tool_name: selectedTool, ai: aiEnabled });
       setLastScan(res);
-      toast.success(`Scanned ${selectedTool} — ${res.findings_open} open finding(s)`);
+      let msg = `Scanned ${selectedTool} — ${res.findings_open} open finding(s)`;
+      if (res.ai_checked != null && res.ai_checked > 0) {
+        msg += ` (checked with AI)`;
+      }
+      toast.success(msg);
     } catch (err: unknown) {
       toast.error((err as Error).message ?? 'Scan failed');
     }
@@ -99,10 +126,31 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
             Scanner
           </h1>
           <p className="page-sub">
-            Static rule-based checks on tool schemas.
+            Static rule-based checks and AI semantic analysis on tool schemas.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <label
+            style={{
+              display: 'flex',
+              gap: 6,
+              alignItems: 'center',
+              fontSize: 12,
+              color: 'var(--c-text-muted)',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+            title="Run local LLM to read descriptions and schemas (~20-30s per tool)"
+          >
+            <input
+              type="checkbox"
+              checked={aiEnabled}
+              onChange={e => setAiEnabled(e.target.checked)}
+              style={{ accentColor: 'var(--c-amber)' }}
+            />
+            <Sparkles size={12} style={{ color: aiEnabled ? 'var(--c-amber)' : 'inherit' }} />
+            Include AI check
+          </label>
           <button
             className="btn btn-ghost btn-sm"
             onClick={handleExport}
@@ -139,7 +187,7 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
       >
         <Info size={13} style={{ color: 'var(--c-info)', flexShrink: 0 }} />
         <span style={{ fontSize: 11, color: 'var(--c-text-muted)', lineHeight: 1.5 }}>
-          <strong style={{ color: 'var(--c-text)' }}>Rule-based checks, not full coverage.</strong>
+          <strong style={{ color: 'var(--c-text)' }}>Rule-based checks & optional AI semantic pass.</strong>
           {' '}Scans are synchronous — results appear immediately. Severities in{' '}
           <span className="mono">SCANNER_BLOCK_SEVERITIES</span>
           {' '}block tools via the pin gate (reason: <span className="mono" style={{ color: 'var(--c-deny)' }}>pin_scan_blocked</span>).
@@ -147,7 +195,7 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
       </div>
 
       {/* Last scan summary */}
-      {lastScan && (
+      {lastScan ? (
         <div
           className="panel"
           style={{ padding: '12px 16px', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}
@@ -161,6 +209,16 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
             {' · '}<strong style={{ color: lastScan.findings_open > 0 ? 'var(--c-deny)' : 'var(--c-allow)' }}>
               {lastScan.findings_open} open finding(s)
             </strong>
+            {lastScan.ai_checked != null && lastScan.ai_checked > 0 && (
+              <span className="badge badge-info" style={{ marginLeft: 8 }}>
+                AI checked: {lastScan.ai_checked}
+              </span>
+            )}
+            {lastScan.ai_unavailable != null && lastScan.ai_unavailable > 0 && (
+              <span className="badge badge-muted" style={{ marginLeft: 8 }}>
+                AI unavailable: {lastScan.ai_unavailable}
+              </span>
+            )}
           </span>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {Object.entries(lastScan.by_severity).map(([sev, count]) => (
@@ -170,7 +228,27 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
             ))}
           </div>
         </div>
-      )}
+      ) : auditData?.items?.[0] ? (() => {
+        const ev = auditData.items[0];
+        const p = parseScanCompletedReason(ev.reason);
+        if (!p) return null;
+        return (
+          <div
+            className="panel"
+            style={{ padding: '10px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}
+          >
+            <CheckCircle size={13} style={{ color: 'var(--c-allow)', flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>
+              Last scan at {fmtTimestamp(ev.created_at)} {CONSOLE_TZ_LABEL}: {p.scanned} tool(s) checked,{' '}
+              <strong style={{ color: p.findings > 0 ? 'var(--c-deny)' : 'var(--c-allow)' }}>
+                {p.findings} open finding(s)
+              </strong>
+              {p.aiChecked != null && p.aiChecked > 0 && ` · ${p.aiChecked} AI checked`}
+              {p.aiUnavailable != null && p.aiUnavailable > 0 && ` · ${p.aiUnavailable} AI unavailable`}
+            </span>
+          </div>
+        );
+      })() : null}
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -236,6 +314,11 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
                       <span className="mono" style={{ fontSize: 11, color: 'var(--c-text-muted)' }}>
                         {f.rule_id}
                       </span>
+                      {f.rule_id.startsWith('AI') && (
+                        <span className="badge badge-info" style={{ marginLeft: 6, fontSize: 10, verticalAlign: 'middle' }}>
+                          AI
+                        </span>
+                      )}
                       <span style={{ fontSize: 11, color: 'var(--c-text-dim)', marginLeft: 6 }}>
                         {RULE_LABELS[f.rule_id] ?? ''}
                       </span>
@@ -321,12 +404,13 @@ function ScannerViewInner({ offline }: ScannerViewProps) {
         <div className="section-label" style={{ marginBottom: 10 }}>Rule Reference</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 6 }}>
           {[
-            { id: 'R1', label: 'PROMPT_INJECTION',      sev: 'high' },
-            { id: 'R2', label: 'EXFILTRATION',          sev: 'critical' },
-            { id: 'R3', label: 'OVERBROAD_STRING',      sev: 'medium' },
-            { id: 'R4', label: 'SIZE_CAP_DESC/SCHEMA',  sev: 'medium' },
-            { id: 'R5', label: 'SUSPICIOUS_PARAM_DESC', sev: 'high' },
-            { id: 'R6', label: 'TOOL_NAME_ANOMALY',     sev: 'low' },
+            { id: 'R1',  label: 'PROMPT_INJECTION',      sev: 'high' },
+            { id: 'R2',  label: 'EXFILTRATION',          sev: 'critical' },
+            { id: 'R3',  label: 'OVERBROAD_STRING',      sev: 'medium' },
+            { id: 'R4',  label: 'SIZE_CAP_DESC/SCHEMA',  sev: 'medium' },
+            { id: 'R5',  label: 'SUSPICIOUS_PARAM_DESC', sev: 'high' },
+            { id: 'R6',  label: 'TOOL_NAME_ANOMALY',     sev: 'low' },
+            { id: 'AI1', label: 'SEMANTIC_POISONING',    sev: 'medium' },
           ].map(r => (
             <div key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11 }}>
               <span className="mono" style={{ color: 'var(--c-text-muted)', flexShrink: 0 }}>{r.id}</span>

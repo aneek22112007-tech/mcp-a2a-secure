@@ -365,6 +365,8 @@ export interface ScanStats {
   tools_scanned: number;
   findings_open: number;
   by_severity: Record<string, number>;
+  ai_checked?: number;
+  ai_unavailable?: number;
 }
 
 export interface FindingsPage {
@@ -609,12 +611,15 @@ export const consoleApi = {
     return apiFetch<FindingsPage>(`/api/scanner/findings?${q}`);
   },
 
-  async scanAll(): Promise<ScanStats> {
-    return apiFetch<ScanStats>('/api/scanner/run', { method: 'POST' });
+  async scanAll(ai = false): Promise<ScanStats> {
+    const url = ai ? '/api/scanner/run?ai=true' : '/api/scanner/run';
+    return apiFetch<ScanStats>(url, { method: 'POST' });
   },
 
-  async scanTool(tool_name: string): Promise<ScanStats> {
-    return apiFetch<ScanStats>(`/api/scanner/run/${encodeURIComponent(tool_name)}`, { method: 'POST' });
+  async scanTool(tool_name: string, ai = false): Promise<ScanStats> {
+    const base = `/api/scanner/run/${encodeURIComponent(tool_name)}`;
+    const url = ai ? `${base}?ai=true` : base;
+    return apiFetch<ScanStats>(url, { method: 'POST' });
   },
 
   async resolveFinding(finding_id: string): Promise<ScanFinding> {
