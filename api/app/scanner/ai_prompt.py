@@ -58,7 +58,7 @@ def build_scanner_prompt(
     safe_desc = (description or "")[:max_desc_chars]
     try:
         schema_str = json.dumps(schema or {}, indent=2, sort_keys=True)
-    except Exception:
+    except (TypeError, ValueError):
         schema_str = "{}"
     safe_schema = schema_str[:max_schema_chars]
 

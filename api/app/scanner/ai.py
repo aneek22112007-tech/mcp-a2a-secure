@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -52,8 +51,8 @@ def _evidence_in_tool(evidence: str, defn: ToolDefinition) -> bool:
         schema_str = json.dumps(defn.input_schema or {}, ensure_ascii=False)
         if ev in schema_str:
             return True
-    except Exception:
-        pass
+    except (TypeError, ValueError):
+        return False
     return False
 
 
@@ -100,7 +99,7 @@ async def ai_scan_tool(defn: ToolDefinition) -> list[ScannerFinding] | None:
 
     try:
         data = json.loads(text)
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         logger.warning(
             "AI scanner returned invalid JSON for tool %s: %s",
             defn.name,
@@ -131,15 +130,14 @@ async def ai_scan_tool(defn: ToolDefinition) -> list[ScannerFinding] | None:
     evidence: str | None = str(raw_evidence).strip() if raw_evidence else None
 
     # Evidence verification: must be a substring of sent tool text
-    if evidence:
-        if not _evidence_in_tool(evidence, defn):
-            logger.info(
-                "AI scanner evidence not found in tool %s; dropping evidence and downgrading",
-                defn.name,
-            )
-            evidence = None
-            if verdict == "malicious":
-                verdict = "suspicious"
+    if evidence and not _evidence_in_tool(evidence, defn):
+        logger.info(
+            "AI scanner evidence not found in tool %s; dropping evidence and downgrading",
+            defn.name,
+        )
+        evidence = None
+        if verdict == "malicious":
+            verdict = "suspicious"
 
     severity: Severity = "high" if verdict == "malicious" else "medium"
     severity = _cap_severity(severity)

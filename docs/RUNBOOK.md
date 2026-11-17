@@ -391,17 +391,24 @@ Changing a tool's description or schema after approval makes the next call drift
 
 ---
 
-## Rule-based Tool Scanner
+## Tool Scanner (Rule-based & AI-assisted)
 
-The scanner evaluates tool definitions against phrase rules (e.g. prompt injection, data exfiltration, size anomalies) when the API process starts.
+The scanner evaluates tool definitions against phrase rules (R1 to R6, e.g. prompt injection, data exfiltration, size anomalies) and an optional AI semantic pass (`AI1_SEMANTIC_POISONING`) when requested or configured.
 
-- If `SCANNER_ENABLED` is `True`, a full scan of the tool catalog happens before accepting traffic.
+- If `SCANNER_ENABLED` is `True`, a rule-based scan of the tool catalog happens before accepting traffic.
 - Findings are persisted in `tool_scan_findings` and exposed via `GET /api/scanner/findings`.
 - The `DbScanGate` integrates with the tool pinning flow. When `TOOL_PINNING_MODE` is `enforce`, the gate rejects tool invocations if the tool has an open finding whose severity is included in `SCANNER_BLOCK_SEVERITIES`.
-- You can manually scan tools using `POST /api/scanner/run` or `POST /api/scanner/run/{tool_name}` (requires `admin` scope).
+- You can manually scan tools using `POST /api/scanner/run` or `POST /api/scanner/run/{tool_name}` (requires `admin` scope). Pass `?ai=true` to include the AI semantic evaluation pass.
+- If `?ai=true` is requested when `SCANNER_AI_ENABLED` or `LLM_ENABLED` is false, the endpoint returns `409 Conflict`.
 - A blocked tool can be unblocked by resolving the finding via `POST /api/scanner/findings/{finding_id}/resolve`.
 
-`scripts/demo_scanner.sh` demonstrates generating safe and poisoned tools, evaluating them, blocking poisoned tools, and fetching findings.
+### AI-Assisted Scanner Settings
+
+- `SCANNER_AI_ENABLED=false`: Controls whether the LLM-driven semantic scan pass is active.
+- `SCANNER_AI_MAX_SEVERITY=medium`: Upper bound for AI findings (`low`, `medium`, or `high`; never `critical`).
+- `SCANNER_AI_ON_STARTUP=false`: When enabled alongside `SCANNER_AI_ENABLED=true` and `LLM_ENABLED=true`, runs the AI scanner across all catalog tools during process startup.
+
+`scripts/demo_scanner.sh` demonstrates generating safe and poisoned tools, evaluating them, blocking poisoned tools, and fetching findings. See `docs/AI_SCANNER.md` for full AI scanner design and results.
 
 ---
 
