@@ -63,11 +63,20 @@ async def _sync_findings_for_tool(
     else:
         scoped_open = [f for f in all_open_findings if f.rule_id.startswith("AI")]
 
-    def sig(f):
-        return (f.fingerprint, f.rule_id, f.message)
+    if source == "ai":
 
-    open_dict = {sig(f): f for f in scoped_open}
-    draft_dict = {(fingerprint, d.rule_id, d.message): d for d in drafts}
+        def sig(f):
+            return (f.fingerprint, f.rule_id)
+
+        open_dict = {sig(f): f for f in scoped_open}
+        draft_dict = {(fingerprint, d.rule_id): d for d in drafts}
+    else:
+
+        def sig(f):
+            return (f.fingerprint, f.rule_id, f.message)
+
+        open_dict = {sig(f): f for f in scoped_open}
+        draft_dict = {(fingerprint, d.rule_id, d.message): d for d in drafts}
 
     new_db_findings = []
     now = datetime.now(UTC)
@@ -175,6 +184,26 @@ async def run_scan_one(tool_name: str, ai: bool = False) -> ScanStats | None:
         stats.findings_open = len(active)
         for f in active:
             stats.by_severity[f.severity] += 1
+
+    audit_reason = f"scanned=1 findings={stats.findings_open}"
+    if stats.ai_checked > 0 or stats.ai_unavailable > 0:
+        audit_reason += (
+            f" ai_checked={stats.ai_checked} ai_unavailable={stats.ai_unavailable}"
+        )
+
+    try:
+        await record_event(
+            AuditRecord(
+                action=ACTION_TOOL_SCAN_COMPLETED,
+                status="ok",
+                decision="allowed",
+                tool_name=safe_tool_name(tool_name),
+                reason=audit_reason,
+            ),
+            required=False,
+        )
+    except Exception:
+        logger.exception("Failed to record audit event for single tool scan completion")
 
     stats.by_severity = dict(stats.by_severity)
     return stats
