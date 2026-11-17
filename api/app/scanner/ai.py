@@ -40,20 +40,14 @@ def _cap_severity(severity: Severity) -> Severity:
     return severity
 
 
-def _evidence_in_tool(evidence: str, defn: ToolDefinition) -> bool:
-    """Check if the quoted evidence actually appears in the tool's text."""
+def _evidence_in_sent_text(
+    evidence: str, name: str, safe_desc: str, safe_schema: str
+) -> bool:
+    """Check if the quoted evidence appears in the exact text sent in the prompt."""
     ev = evidence.strip()
     if not ev:
         return False
-    if ev in defn.name or ev in defn.description:
-        return True
-    try:
-        schema_str = json.dumps(defn.input_schema or {}, ensure_ascii=False)
-        if ev in schema_str:
-            return True
-    except (TypeError, ValueError):
-        return False
-    return False
+    return ev in name or ev in safe_desc or ev in safe_schema
 
 
 async def ai_scan_tool(defn: ToolDefinition) -> list[ScannerFinding] | None:
@@ -71,8 +65,15 @@ async def ai_scan_tool(defn: ToolDefinition) -> list[ScannerFinding] | None:
     if cache_key in _cache:
         return list(_cache[cache_key])
 
+    safe_desc = (defn.description or "")[:4000]
+    try:
+        schema_str = json.dumps(defn.input_schema or {}, indent=2, sort_keys=True)
+    except (TypeError, ValueError):
+        schema_str = "{}"
+    safe_schema = schema_str[:4000]
+
     system_prompt, user_prompt = build_scanner_prompt(
-        defn.name, defn.description, defn.input_schema
+        defn.name, safe_desc, defn.input_schema
     )
     messages = [
         SystemMessage(content=system_prompt),
@@ -112,7 +113,9 @@ async def ai_scan_tool(defn: ToolDefinition) -> list[ScannerFinding] | None:
 
     verdict = str(data.get("verdict", "")).strip().lower()
     if verdict not in {"safe", "suspicious", "malicious"}:
-        logger.warning("AI scanner unknown verdict '%s' for tool %s", verdict, defn.name)
+        logger.warning(
+            "AI scanner unknown verdict '%s' for tool %s", verdict, defn.name
+        )
         return None
 
     if verdict == "safe":
@@ -121,18 +124,26 @@ async def ai_scan_tool(defn: ToolDefinition) -> list[ScannerFinding] | None:
         return findings
 
     reason = str(data.get("reason", "")).strip()
-    if not reason:
-        reason = f"AI flagged tool as {verdict}"
-    if len(reason) > 300:
-        reason = reason[:297] + "..."
+    if not reason or len(reason) > 300:
+        logger.warning(
+            "AI scanner reply rejected: reason is missing or exceeds 300 chars (len=%d) for tool %s",
+            len(reason),
+            defn.name,
+        )
+        return None
+
+    category = str(data.get("category", "")).strip() or "other"
+    message = f"{category}: {reason}"[:300]
 
     raw_evidence = data.get("evidence")
     evidence: str | None = str(raw_evidence).strip() if raw_evidence else None
 
     # Evidence verification: must be a substring of sent tool text
-    if evidence and not _evidence_in_tool(evidence, defn):
+    if evidence and not _evidence_in_sent_text(
+        evidence, defn.name, safe_desc, safe_schema
+    ):
         logger.info(
-            "AI scanner evidence not found in tool %s; dropping evidence and downgrading",
+            "AI scanner evidence not found in sent text for tool %s; dropping evidence and downgrading",
             defn.name,
         )
         evidence = None
@@ -145,7 +156,7 @@ async def ai_scan_tool(defn: ToolDefinition) -> list[ScannerFinding] | None:
     finding = ScannerFinding(
         rule_id=RULE_ID_AI,
         severity=severity,
-        message=reason,
+        message=message,
         evidence=evidence[:200] if evidence else None,
     )
     findings = [finding]
