@@ -228,6 +228,18 @@ class Settings(BaseSettings):
         default=True,
         description="Run scanner on all tools during startup.",
     )
+    scanner_ai_enabled: bool = Field(
+        default=False,
+        description="Enable the AI-assisted tool description and schema scanner.",
+    )
+    scanner_ai_max_severity: Literal["low", "medium", "high"] = Field(
+        default="medium",
+        description="Highest severity an AI scanner finding can report (never critical).",
+    )
+    scanner_ai_on_startup: bool = Field(
+        default=False,
+        description="Run AI scanner on all tools during startup when SCANNER_AI_ENABLED is true.",
+    )
     demo_poison_tool: bool = Field(
         default=False,
         validation_alias=AliasChoices("MCPG_DEMO_POISON_TOOL"),
