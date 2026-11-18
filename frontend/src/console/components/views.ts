@@ -3,6 +3,7 @@ export type ViewId =
   | 'keys'
   | 'audit'
   | 'analyst'
+  | 'agents'
   | 'llm'
   | 'metrics'
   | 'pins'
@@ -12,4 +13,4 @@ export type ViewId =
   | 'attack'
   | 'planned';
 
-export const VIEW_IDS: ViewId[] = ['overview', 'keys', 'audit', 'analyst', 'llm', 'metrics', 'pins', 'scanner', 'sandbox', 'guard', 'attack', 'planned'];
+export const VIEW_IDS: ViewId[] = ['overview', 'keys', 'audit', 'analyst', 'agents', 'llm', 'metrics', 'pins', 'scanner', 'sandbox', 'guard', 'attack', 'planned'];

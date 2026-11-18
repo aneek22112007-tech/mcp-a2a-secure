@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useDialogA11y } from './a11y';
 import {
-  Shield, ShieldAlert, Cpu, LayoutDashboard, Key, FileText, Brain, BarChart2,
+  Shield, ShieldAlert, Cpu, LayoutDashboard, Key, FileText, Brain, Bot, BarChart2,
   Pin, Search, Box, Zap, HelpCircle, ChevronLeft, ChevronRight,
   RefreshCw, PanelLeft, Keyboard, LogOut, Command as CommandIcon,
   WifiOff,
@@ -37,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'Monitor', key: 'o', desc: 'Health, KPIs and the request pipeline' },
   { id: 'audit', label: 'Live Audit', icon: FileText, scope: 'audit:read', group: 'Monitor', key: 'a', desc: 'Every gateway decision, streamed live' },
   { id: 'analyst', label: 'AI Analyst', icon: Brain, scope: 'audit:read', group: 'Monitor', key: 'i', desc: 'Incidents grouped from the audit log, explained by the local model' },
+  { id: 'agents', label: 'Agents', icon: Bot, scope: 'agent:run', group: 'Monitor', key: 'n', desc: 'Run the notes agent and signed A2A delegation' },
   { id: 'llm', label: 'LLM Calls', icon: Cpu, scope: 'admin', group: 'Monitor', key: 'l', desc: 'Model invocations, latency, status and provider health' },
   { id: 'metrics', label: 'Metrics', icon: BarChart2, scope: 'metrics:read', group: 'Monitor', key: 'm', desc: 'Latency, busiest keys and guard counters' },
   { id: 'pins', label: 'Tool Pinning', icon: Pin, scope: 'tools:read', group: 'Protect', key: 'p', desc: 'Approved tool fingerprints and drift' },

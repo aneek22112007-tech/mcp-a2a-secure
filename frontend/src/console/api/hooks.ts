@@ -30,6 +30,9 @@ export const QK = {
   analystStatus: ['analyst', 'status']                 as const,
   llmCalls:      (params: object) => ['llmCalls', params] as const,
   llmHealth:     ['llmHealth']                          as const,
+  a2aCapabilities: ['a2a', 'capabilities']              as const,
+  a2aAgentCard:  ['a2a', 'agentCard']                   as const,
+  a2aTask:       (id: string) => ['a2a', 'task', id]    as const,
 };
 
 // ── Upstreams ─────────────────────────────────────────────────────────
@@ -471,5 +474,55 @@ export function useLlmHealth(enabled = true) {
     refetchInterval: 30_000,
     retry: 0,
     enabled,
+  });
+}
+
+// ── Agents ────────────────────────────────────────────────────────────
+export function useA2ACapabilities(enabled = true) {
+  return useQuery({
+    queryKey: QK.a2aCapabilities,
+    queryFn: () => consoleApi.a2aCapabilities(),
+    staleTime: 5 * 60 * 1000,
+    enabled,
+  });
+}
+
+export function useA2AAgentCard(enabled = true) {
+  return useQuery({
+    queryKey: QK.a2aAgentCard,
+    queryFn: () => consoleApi.a2aAgentCard(),
+    staleTime: 5 * 60 * 1000,
+    enabled,
+  });
+}
+
+export function useA2ATask(id: string, enabled = true) {
+  const trimmed = id.trim();
+  return useQuery({
+    queryKey: QK.a2aTask(trimmed),
+    queryFn: () => consoleApi.getA2ATask(trimmed),
+    enabled: enabled && trimmed.length > 0,
+  });
+}
+
+export function useRunNotesAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (task: string) => consoleApi.runNotesAgent(task),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llmCalls'] });
+      qc.invalidateQueries({ queryKey: ['audit'] });
+    },
+  });
+}
+
+export function useRunA2ATask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (task: string) => consoleApi.runA2ATask(task),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llmCalls'] });
+      qc.invalidateQueries({ queryKey: ['audit'] });
+    },
   });
 }
