@@ -305,6 +305,14 @@ class Settings(BaseSettings):
             "Required for POST /api/a2a/tasks/run."
         ),
     )
+    a2a_signing_key: SecretStr | None = Field(
+        default=None,
+        description=(
+            "Secret key for HMAC-SHA256 signing of A2A delegation tokens. "
+            "When unset, a process-local random key is generated at startup "
+            "with a warning."
+        ),
+    )
     analyst_window_hours: int = Field(
         default=24,
         ge=1,
@@ -451,6 +459,7 @@ class Settings(BaseSettings):
         "groq_api_key",
         "notes_agent_api_key",
         "worker_notes_api_key",
+        "a2a_signing_key",
         "redis_url",
         mode="before",
     )
@@ -495,6 +504,15 @@ class Settings(BaseSettings):
             and _pepper_is_placeholder(self.api_key_pepper)
         ):
             raise ValueError("API_KEY_PEPPER is a placeholder; set a long random value")
+
+        if (
+            self.is_production_like
+            and self.a2a_signing_key is not None
+            and _pepper_is_placeholder(self.a2a_signing_key)
+        ):
+            raise ValueError(
+                "A2A_SIGNING_KEY is a placeholder; set a long random value"
+            )
 
         if self.is_production_like:
             # An unset mode follows the safe production default. An explicit

@@ -13,12 +13,13 @@ The manager does **not** call any tool directly. It delegates and waits.
 
 Audit events
 ------------
-- ``a2a.delegate``     — delegation grant recorded before the worker starts
-- ``a2a.worker.start`` — worker execution started (linked by task_id)
-- ``a2a.complete``     — terminal successful state
-- ``a2a.failed``       — terminal failed state
-- ``a2a.cancelled``    — cancelled state
-- ``a2a.denied``       — delegation policy rejection
+- ``a2a.delegate``            — delegation grant recorded before the worker starts
+- ``a2a.delegation.rejected`` — worker rejected a missing, invalid, expired, or mismatched signed delegation
+- ``a2a.worker.start``        — worker execution started (linked by task_id)
+- ``a2a.complete``            — terminal successful state
+- ``a2a.failed``              — terminal failed state
+- ``a2a.cancelled``           — cancelled state
+- ``a2a.denied``              — delegation policy rejection
 
 All events share ``request_id = task_id`` so they can be correlated in the audit log.
 """
@@ -39,6 +40,7 @@ from app.agents.a2a.delegation import (
     EmptyDelegationScopeError,
     attenuate,
 )
+from app.agents.a2a.signing import sign_delegation
 from app.agents.a2a.worker import (
     WorkerNotConfiguredError,
     WorkerOutcome,
@@ -110,6 +112,7 @@ class ManagerGraphState(TypedDict):
     task_id: str
     task_input: str
     delegation: DelegationContext
+    manager_principal: Principal
     request_id: str
     key_prefix: str | None
     plan: str | None
@@ -135,10 +138,18 @@ def _compile_manager_graph(backend: LLMBackend):
         return {"plan": response.text.strip()}
 
     async def delegate(state: ManagerGraphState) -> dict[str, Any]:
+        instruction = _worker_instruction(state["task_input"], state.get("plan"))
+        delegation_token = sign_delegation(
+            task_id=state["task_id"],
+            task_input=instruction,
+            delegation=state["delegation"],
+        )
         worker_outcome = await run_worker(
             state["task_id"],
-            _worker_instruction(state["task_input"], state.get("plan")),
+            instruction,
             state["delegation"],
+            delegation_token=delegation_token,
+            manager_principal=state["manager_principal"],
             request_id=state["task_id"],
         )
         return {"worker_outcome": worker_outcome}
@@ -273,7 +284,8 @@ async def run_manager(
         reason=(
             f"task_id={task_id} "
             f"worker_prefix={worker_key_prefix} "
-            f"scopes={','.join(sorted(delegation.delegated_scopes))}"
+            f"scopes={','.join(sorted(delegation.delegated_scopes))} "
+            "signed=true"
         ),
     )
 
@@ -304,6 +316,7 @@ async def run_manager(
             "task_id": task_id,
             "task_input": task_input,
             "delegation": delegation,
+            "manager_principal": manager_principal,
             "request_id": task_id,
             "key_prefix": manager_principal.key_prefix,
             "plan": None,

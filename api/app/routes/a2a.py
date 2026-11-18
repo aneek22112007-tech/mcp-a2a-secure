@@ -30,6 +30,7 @@ from app.agents.a2a.manager import (
     run_manager,
 )
 from app.agents.a2a.protocol import A2A_SDK_VERSION, a2a_task_dict, agent_card_dict
+from app.agents.a2a.signing import SIGNING_ALGORITHM
 from app.agents.a2a.worker import WorkerNotConfiguredError
 from app.agents.notes_agent import MAX_TASK_CHARS, TaskError
 from app.audit.redaction import current_request_id
@@ -88,6 +89,8 @@ class A2ATaskCapabilities(BaseModel):
     max_hops: int = 1
     allowed_tools: list[str] = ["list_notes", "read_note", "write_note"]
     max_task_chars: int = MAX_TASK_CHARS
+    delegation_signing: bool = True
+    delegation_signing_algorithm: str = SIGNING_ALGORITHM
     agent_card: dict[str, Any] = Field(default_factory=agent_card_dict)
 
 

@@ -2,9 +2,8 @@
 
 > **Scope**: This runbook covers the MCP Guard FastAPI backend (`api/`), the
 > React/Vite frontend (`frontend/`), and the Express authentication proxy
-> (`backend/`). Tool execution runs in a Docker sandbox. A2A signing key
-> rotation is documented as an architectural placeholder pending full
-> implementation.
+> (`backend/`). Tool execution runs in a Docker sandbox, and A2A manager-to-worker
+> delegations are signed with HMAC-SHA256 (`A2A_SIGNING_KEY`).
 
 ---
 
@@ -80,6 +79,7 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | `LLM_TIMEOUT_SECONDS` | `60` | Local & Compose | Timeout in seconds for one LLM request |
 | `NOTES_AGENT_API_KEY` | unset (`None`) | Local & Compose | Optional API key for notes agent self-calls to `/mcp/` |
 | `WORKER_NOTES_API_KEY` | unset (`None`) | Local & Compose | Optional API key for A2A worker notes calls |
+| `A2A_SIGNING_KEY` | unset (`None`) | Local & Compose | Optional HMAC-SHA256 secret for signing A2A delegation tokens (`SecretStr`); generates an ephemeral per-process key with a startup warning when unset |
 | `ANALYST_WINDOW_HOURS` | `24` | Local & Compose | How far back incidents are built, in hours (1 to 168) |
 | `ANALYST_INCIDENT_GAP_MINUTES` | `15` | Local & Compose | Rows further apart than this start a new incident (1 to 240) |
 | `ANALYST_MAX_ROWS` | `5000` | Local & Compose | Most audit rows read per grouping pass (100 to 20000) |
@@ -712,16 +712,24 @@ Admin routes already issue and revoke keys: `POST /api/keys`, `GET /api/keys?cli
 
 ## A2A Signing-key Rotation
 
-> A2A (Agent-to-Agent) request verification is not yet implemented in this
-> codebase. The `backend/` Express service handles Google OAuth; no A2A
-> signing keys are present.
+A2A manager-to-worker delegations are signed with **HMAC-SHA256** (`api/app/agents/a2a/signing.py`) using `A2A_SIGNING_KEY` (`SecretStr`). When `A2A_SIGNING_KEY` is unset, each API process generates a 32-byte random key in memory at startup and emits a warning; production and multi-instance deployments should set an explicit shared `A2A_SIGNING_KEY` so all replicas verify the same signatures.
 
-When A2A signing-key rotation is implemented:
-1. Generate a new key pair using the project's chosen algorithm.
-2. Register the new public key with all A2A consumers.
-3. Rotate the private key in the secrets manager / environment.
-4. Verify inbound A2A requests are accepted with the new key.
-5. Revoke the old key after all consumers have migrated.
+To rotate `A2A_SIGNING_KEY`:
+
+1. Generate a new 32-byte random hex secret:
+   ```bash
+   openssl rand -hex 32
+   ```
+2. Update `A2A_SIGNING_KEY` in your secrets manager or deployment `.env` (never commit `.env` or print the key in logs).
+3. Restart all API replicas so every instance loads the same new key:
+   ```bash
+   docker compose up -d --force-recreate api1 api2
+   ```
+   *(Because delegations are signed and verified with a single symmetric key within the 120-second task window, rotate during low traffic or allow in-flight A2A tasks to drain first.)*
+4. Verify signing discovery and live delegation:
+   - Check `GET /api/a2a/capabilities` reports `"delegation_signing": true` and `"delegation_signing_algorithm": "HMAC-SHA256"`.
+   - Run a test task via `POST /api/a2a/tasks/run` and confirm it completes without `a2a.delegation.rejected` audit events.
+5. Discard the old key from the secrets store once all replicas have restarted.
 
 ---
 

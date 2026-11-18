@@ -164,6 +164,7 @@ async def lifespan(app: FastAPI):
     application.state.started_at = time.monotonic()
     ensure_notes_dir()
 
+    from app.agents.a2a.signing import init_a2a_signing_key
     from app.shared_state import start as start_shared_state
     from app.shared_state import start_relay, stop_relay
     from app.shared_state import stop as stop_shared_state
@@ -171,6 +172,7 @@ async def lifespan(app: FastAPI):
     await start_shared_state()
     await start_relay()
     warn_explicit_production_modes()
+    init_a2a_signing_key()
 
     if isinstance(get_api_key_verifier(), DenyAllVerifier):
         set_api_key_verifier(HmacApiKeyVerifier())

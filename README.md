@@ -122,6 +122,7 @@ On `main` today:
 - **Tool pinning.** Each tool's name, description, and JSON schema are hashed. `TOOL_PINNING_MODE=enforce` returns 403 `Tool is not approved.` until an admin approves that hash, and `tools/list` plus `GET /api/mcp/info` omit tools that are not approved. `warn` writes an audit row and still runs the tool. `off` (the default) skips the check. A schema or description change is drift and has to be approved again. The hash does not cover the function body. An optional source digest is stored for operators and is not an allow or deny input.
 - **Rule-based Scanner.** A static tool-poisoning scanner evaluates tools against phrase rules for prompt injection, data exfiltration, overbroad parameters, and size anomalies. Unsafe patterns generate `ToolScanFinding` records. The `DbScanGate` hooks into the pinning flow to block tools with `high` or `critical` severity findings before they can run, but only if `TOOL_PINNING_MODE=enforce`.
 - **Notes agent.** `POST /api/agents/notes/run` runs a LangGraph agent. Its tools call `/mcp/` with `NOTES_AGENT_API_KEY`, so auth, scopes, rate limits, pinning, the scanner, the sandbox and the audit log still apply. ChatOllama is the primary model. ChatGroq is used only when Ollama cannot be reached or times out.
+- **Signed A2A delegation.** `POST /api/a2a/tasks/run` runs a manager-to-worker delegation pipeline with server-enforced scope attenuation and HMAC-SHA256 signed delegation tokens (`A2A_SIGNING_KEY`, with a secure ephemeral per-process fallback and startup warning). The worker verifies the signed token fail-closed before execution and emits `a2a.delegation.rejected` on any invalid, expired, or tampered grant. See [docs/A2A_EXECUTION.md](docs/A2A_EXECUTION.md).
 - **AI incident analyst.** Real audit denials and open scanner findings are grouped into incidents in code. `POST /api/analyst/explain` asks the local model to explain one incident. Every timeline line has to cite a real event, and a reply that fails the checks is not shown. The analyst never blocks, revokes, or approves. See [docs/AI_ANALYST.md](docs/AI_ANALYST.md).
 - **Frontend.** React 19, Vite and Tailwind. The live console at `/console` and `/dashboard` reads the real API.
 
@@ -456,6 +457,8 @@ The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.p
 | `GROQ_MODEL` | `llama-3.3-70b-versatile` | Fallback chat model |
 | `LLM_TIMEOUT_SECONDS` | `60` | Timeout for one LLM request |
 | `NOTES_AGENT_API_KEY` | unset | `mcpg_` key with `agent:run`. The notes agent sends it only to `/mcp/` |
+| `WORKER_NOTES_API_KEY` | unset | Separate `mcpg_` key for the A2A notes worker (`agent:run` plus attenuated notes scopes) |
+| `A2A_SIGNING_KEY` | unset | Secret key for HMAC-SHA256 signing of A2A delegation tokens. Generates an ephemeral per-process key with a startup warning when unset |
 
 The frontend reads `VITE_MCP_GUARD_API_URL` (default `http://localhost:8000`). Don't commit `.env` files or real keys; `.env` is in `.gitignore`.
 

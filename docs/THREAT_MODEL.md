@@ -59,7 +59,7 @@
 │  Google OAuth 2.0 flow                                               │
 └─────────────────────────────────────────────────────────────────────┘
 
-[PROPOSED] A2A request signing — not yet implemented
+A2A delegation signing (HMAC-SHA256) — manager signs attenuated grants; worker verifies fail-closed before execution
 ```
 
 ### Trust boundaries
@@ -95,7 +95,7 @@ The route map is in [`api/app/auth/scopes.py`](../api/app/auth/scopes.py). The p
 | Unauthenticated note write | `PUT /api/notes/{name}` | API-key auth and the `notes:write` scope | `api/app/auth/`, `api/app/auth/scopes.py` | Covered. A caller without a valid key gets 401. A key without `notes:write` gets 403. |
 | Unauthorized MCP tool call | `/mcp` `tools/call` | `McpToolScopeMiddleware` enforces per-tool scopes via `TOOL_SCOPES` (`notes:read` for `list_notes`/`read_note`, `notes:write` for `write_note`). Unmapped tools fail closed. | `api/app/mcp_tool_scope.py`, `api/app/auth/scopes.py:TOOL_SCOPES` | Covered. A key without the required tool scope gets 403 `FORBIDDEN` with `WWW-Authenticate`. Unmapped tools are denied with 403. |
 | Request ID spoofing | Middleware | IDs validated against `[A-Za-z0-9._:-]{0,64}` regex; overlong IDs replaced with UUID4 | `middleware.py:_REQUEST_ID_RE`, `test_hardening.py::test_overlong_and_invalid_request_ids_are_replaced` | Low — IDs are informational, not trusted for auth. |
-| A2A agent impersonation | (planned) | **[PROPOSED]** — not implemented | No signing code present | Gap pending implementation. |
+| A2A agent impersonation / delegation tampering | A2A manager -> worker delegation | Manager signs every attenuated delegation grant with HMAC-SHA256 (`A2A_SIGNING_KEY`, ephemeral random fallback with startup warning), binding `task_id`, manager/worker key prefixes, attenuated scopes, SHA-256 task hash, nonce, and expiry. Worker verifies in constant time fail-closed before reading worker credentials or opening `/mcp/`, auditing `a2a.delegation.rejected` on failure. | `api/app/agents/a2a/signing.py`, `api/app/agents/a2a/manager.py`, `api/app/agents/a2a/worker.py` | Symmetric HMAC shared across API replicas for the in-process manager-to-worker hand-off; asymmetric per-agent keys remain a future requirement if external remote A2A peers are added. |
 
 ### Tampering
 
@@ -358,6 +358,6 @@ The analyst explains incidents. It does not block, revoke, or approve. Severity 
 | Failed-auth throttle | Implemented | `api/app/auth/throttle.py` |
 | Trusted-proxy client IP | Implemented | `api/app/middleware.py` (`ClientIPMiddleware`, `TRUSTED_PROXIES`) |
 | Audit log persistence | Implemented | `tool.call` success and `mcp.tools_call` are fail-closed. `auth.allow` and `auth.deny` are fail-open. ORM rejects update/delete. The Postgres append-only trigger is installed (revision `cc48301ff61d`). |
-| A2A request signing | Not implemented | — |
+| A2A delegation signing | Implemented | `api/app/agents/a2a/signing.py` (HMAC-SHA256 signed grants bound to `task_id`, key prefixes, attenuated scopes, task SHA-256 hash, nonce, and expiry; fail-closed verification in `worker.py` emitting `a2a.delegation.rejected`; configured via `A2A_SIGNING_KEY` with ephemeral startup fallback + warning) |
 | Docker sandbox | Implemented | `docker run --rm --pull never --network none --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit --memory --memory-swap --cpus --user`, tmpfs `/tmp`, no docker socket, no extra mounts, no env file. A daemon or image failure is HTTP 503 and is not retried in-process. |
 | AI incident analyst | Implemented | Grouping and severity are code. Explain needs `analyst:run` and `audit:read`. Replies that fail the checks are not stored. See [AI_ANALYST.md](AI_ANALYST.md). |
