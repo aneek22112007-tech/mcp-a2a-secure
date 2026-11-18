@@ -15,6 +15,7 @@ const LIVE: Item[] = [
     description:
       'Checks tool output for prompt-injection payloads before it reaches the agent. In enforce mode a match is blocked and written to the audit log as tool.output.injection.',
     links: [
+      { label: 'Guard Events', href: '#/guard' },
       { label: 'Guard counters in Metrics', href: '#/metrics' },
       { label: 'Blocked events in Live Audit', href: '#/audit' },
     ],
@@ -25,6 +26,7 @@ const LIVE: Item[] = [
     description:
       'An LLM-driven agent that calls the notes tools through the gateway. Every call passes auth, scope, rate limit, pin and guard checks and is audited like any other client.',
     links: [
+      { label: 'LLM Calls', href: '#/llm' },
       { label: 'LLM availability and latency in Metrics', href: '#/metrics' },
       { label: 'Agent tool calls in Live Audit', href: '#/audit' },
     ],

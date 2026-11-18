@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useDialogA11y } from './a11y';
 import {
-  Shield, LayoutDashboard, Key, FileText, Brain, BarChart2,
+  Shield, ShieldAlert, Cpu, LayoutDashboard, Key, FileText, Brain, BarChart2,
   Pin, Search, Box, Zap, HelpCircle, ChevronLeft, ChevronRight,
   RefreshCw, PanelLeft, Keyboard, LogOut, Command as CommandIcon,
   WifiOff,
@@ -37,10 +37,12 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'Monitor', key: 'o', desc: 'Health, KPIs and the request pipeline' },
   { id: 'audit', label: 'Live Audit', icon: FileText, scope: 'audit:read', group: 'Monitor', key: 'a', desc: 'Every gateway decision, streamed live' },
   { id: 'analyst', label: 'AI Analyst', icon: Brain, scope: 'audit:read', group: 'Monitor', key: 'i', desc: 'Incidents grouped from the audit log, explained by the local model' },
+  { id: 'llm', label: 'LLM Calls', icon: Cpu, scope: 'admin', group: 'Monitor', key: 'l', desc: 'Model invocations, latency, status and provider health' },
   { id: 'metrics', label: 'Metrics', icon: BarChart2, scope: 'metrics:read', group: 'Monitor', key: 'm', desc: 'Latency, busiest keys and guard counters' },
   { id: 'pins', label: 'Tool Pinning', icon: Pin, scope: 'tools:read', group: 'Protect', key: 'p', desc: 'Approved tool fingerprints and drift' },
   { id: 'scanner', label: 'Scanner', icon: Search, scope: 'scanner:read', group: 'Protect', key: 's', desc: 'Static findings across registered tools' },
   { id: 'sandbox', label: 'Sandbox', icon: Box, scope: 'sandbox:read', group: 'Protect', key: 'x', desc: 'Isolated tool runs and their limits' },
+  { id: 'guard', label: 'Guard Events', icon: ShieldAlert, scope: 'audit:read', group: 'Protect', key: 'e', desc: 'Prompt-injection events caught in tool output' },
   { id: 'attack', label: 'Attack Simulator', icon: Zap, group: 'Protect', key: 't', desc: 'Fire real attacks at the gateway' },
   { id: 'keys', label: 'API Keys', icon: Key, scope: 'admin', group: 'Manage', key: 'k', desc: 'Create, rotate and revoke keys' },
   { id: 'planned', label: 'Roadmap', icon: HelpCircle, group: 'Manage', key: 'r', desc: 'Live features and what is planned' },

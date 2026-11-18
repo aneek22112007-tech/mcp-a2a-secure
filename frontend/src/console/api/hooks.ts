@@ -28,6 +28,8 @@ export const QK = {
   incidents:     (params: object) => ['analyst', 'incidents', params] as const,
   incident:      (id: string) => ['analyst', 'incident', id] as const,
   analystStatus: ['analyst', 'status']                 as const,
+  llmCalls:      (params: object) => ['llmCalls', params] as const,
+  llmHealth:     ['llmHealth']                          as const,
 };
 
 // ── Upstreams ─────────────────────────────────────────────────────────
@@ -446,5 +448,28 @@ export function useExplainIncident() {
       qc.invalidateQueries({ queryKey: ['analyst', 'incidents'] });
       qc.invalidateQueries({ queryKey: QK.incident(data.incident_id) });
     },
+  });
+}
+
+// ── LLM Calls & Health ────────────────────────────────────────────────
+export function useLlmCalls(
+  params: Parameters<typeof consoleApi.listLlmCalls>[0] = {},
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: QK.llmCalls(params),
+    queryFn: () => consoleApi.listLlmCalls(params),
+    refetchInterval: 15_000,
+    enabled,
+  });
+}
+
+export function useLlmHealth(enabled = true) {
+  return useQuery({
+    queryKey: QK.llmHealth,
+    queryFn: () => consoleApi.llmHealth(),
+    refetchInterval: 30_000,
+    retry: 0,
+    enabled,
   });
 }

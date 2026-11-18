@@ -29,9 +29,9 @@ The diagram loops through three cases. A key with the right scope reaches the to
 flowchart LR
     subgraph CALLERS["Callers"]
         direction TB
-        AG["LLM agent<br/>(planned)"]
+        AG["LLM agent"]
         UI["React dashboard"]
-        A2A["A2A agents<br/>(planned)"]
+        A2A["A2A agents"]
         INS["MCP Inspector / other clients"]
     end
 
@@ -69,12 +69,10 @@ flowchart LR
     AUD --> DB
 
     classDef built fill:#0f2a2e,stroke:#2dd4bf,color:#e2e8f0
-    classDef planned fill:#1e1b3a,stroke:#a78bfa,color:#c4b5fd,stroke-dasharray:5 5
-    class MW,AUTH,SC,GW,MCP,T1,UI,INS,DB,AUD,SCAN,RL built
-    class AG,A2A planned
+    class MW,AUTH,SC,GW,MCP,T1,UI,INS,DB,AUD,SCAN,RL,AG,A2A built
 ```
 
-Dashed nodes and edges are planned. REST calls to `/api/notes` go through the gateway. MCP clients talk to the MCP server directly once they pass auth and the `agent:run` scope check. Audit rows are written for auth decisions and tool calls.
+REST calls to `/api/notes` go through the gateway. MCP clients talk to the MCP server directly once they pass auth and the `agent:run` scope check. Audit rows are written for auth decisions and tool calls.
 
 ### Request sequence
 
@@ -127,13 +125,6 @@ On `main` today:
 - **AI incident analyst.** Real audit denials and open scanner findings are grouped into incidents in code. `POST /api/analyst/explain` asks the local model to explain one incident. Every timeline line has to cite a real event, and a reply that fails the checks is not shown. The analyst never blocks, revokes, or approves. See [docs/AI_ANALYST.md](docs/AI_ANALYST.md).
 - **Frontend.** React 19, Vite and Tailwind. The live console at `/console` and `/dashboard` reads the real API.
 
-## Status
-
-Planned for v1.0 (target 31 October 2026):
-
-- An LLM-assisted scanner to catch complex semantic poisoning.
-- The rest of the GenAI work described below.
-
 ## GenAI
 
 The notes agent is a LangGraph client of MCP Guard. `POST /api/agents/notes/run` (`agent:run`) runs it. `GET /api/llm/health` (`admin`) reports whether the LLM is enabled, whether Ollama is reachable and has the configured model, and whether Groq is configured. The health response does not include the key.
@@ -145,12 +136,6 @@ From `api/`, with the API already running:
 ```bash
 uv run python scripts/run_notes_agent.py "List the notes"
 ```
-
-Still planned:
-
-- A prompt-injection check on tool output before it goes back to the model.
-- LLM-written explanations of schema changes and scanner findings. Audit incidents are explained by the AI incident analyst above.
-- A2A manager and worker agents, each with its own key.
 
 ```mermaid
 flowchart LR

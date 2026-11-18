@@ -512,6 +512,54 @@ export interface SandboxHealth {
   limits: Record<string, unknown>;
 }
 
+export interface LlmCallRecord {
+  id: string;
+  model: string;
+  provider: string;
+  purpose: string;
+  error: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  latency: number | null;
+  latency_ms: number | null;
+  status: string;
+  fell_back: boolean;
+  is_fallback: boolean;
+  key_prefix: string | null;
+  request_id: string | null;
+  created_at: string | null;
+  timestamp: string | null;
+}
+
+export interface LlmCallsMetrics {
+  call_count: number;
+  average_latency: number;
+  avg_latency_ms: number;
+  fallback_rate: number;
+  fallback_count: number;
+}
+
+export interface LlmCallsPage {
+  items: LlmCallRecord[];
+  calls: LlmCallRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+  metrics: LlmCallsMetrics;
+  call_count: number;
+  average_latency: number;
+  avg_latency_ms: number;
+  fallback_rate: number;
+}
+
+export interface LlmHealth {
+  enabled: boolean;
+  ollama_reachable: boolean;
+  ollama_model: string;
+  ollama_model_present: boolean;
+  groq_configured: boolean;
+}
+
 // ── API functions ─────────────────────────────────────────────────────
 
 export const consoleApi = {
@@ -801,6 +849,25 @@ export const consoleApi = {
 
   async analystStatus(): Promise<AnalystStatus> {
     return apiFetch<AnalystStatus>('/api/analyst/status');
+  },
+
+  async listLlmCalls(params: {
+    provider?: string;
+    status?: string;
+    key_prefix?: string;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<LlmCallsPage> {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== '') q.set(k, String(v));
+    }
+    const query = q.toString();
+    return apiFetch<LlmCallsPage>(`/api/llm-calls${query ? `?${query}` : ''}`);
+  },
+
+  async llmHealth(): Promise<LlmHealth> {
+    return apiFetch<LlmHealth>('/api/llm/health');
   },
 };
 
