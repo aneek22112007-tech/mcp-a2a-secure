@@ -20,7 +20,7 @@ SHARED_SURFACE = "key"
 class BucketState:
     tokens: float
     last_updated: float
-    last_denied: float = 0.0
+    last_denied: float | None = None
 
 
 class TokenBucketRateLimiter:
@@ -72,7 +72,7 @@ class TokenBucketRateLimiter:
             if new_tokens >= 1.0:
                 bucket.tokens = new_tokens - 1.0
                 bucket.last_updated = now
-                bucket.last_denied = 0.0
+                bucket.last_denied = None
                 return True, 0.0, False
 
             self.rejected_total += 1
@@ -82,7 +82,7 @@ class TokenBucketRateLimiter:
 
             window = 1.0 / refill_rate if refill_rate > 0 else 1.0
             should_audit = False
-            if now - bucket.last_denied >= window:
+            if bucket.last_denied is None or now - bucket.last_denied >= window:
                 should_audit = True
                 bucket.last_denied = now
 
