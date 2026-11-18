@@ -104,7 +104,7 @@ Verification in `worker.py` runs **before** reading `WORKER_NOTES_API_KEY` or op
 
 - Signatures are compared in constant time (`hmac.compare_digest`) over a domain-separated payload (`mcpg-a2a-v1.<base64url-payload>`) before parsing claims.
 - A rejected token writes an `a2a.delegation.rejected` audit row (`decision=denied`, `status=denied`, `status_code=403`, `error_code=FORBIDDEN`) containing only the task ID and safe reason code — never the signing key or token.
-- The worker returns `status="blocked"` (A2A state `TASK_STATE_REJECTED`) and does not execute any tool or LLM call.
+- The worker returns `status="blocked"` (A2A state `TASK_STATE_REJECTED`) and does not execute any tool or LLM call; `POST /api/a2a/tasks/run` returns HTTP 200 with `"status": "blocked"` while the audit row records `status_code=403` and `error_code=FORBIDDEN`.
 - Key management uses `A2A_SIGNING_KEY` (`SecretStr`). When unset, the process generates an in-memory 32-byte random key at startup (`secrets.token_bytes(32)`) and logs a startup warning; production and multi-instance deployments should set `A2A_SIGNING_KEY` explicitly so all replicas share the same signing key.
 
 ---
@@ -143,7 +143,7 @@ Each delegation is stored in the `a2a_tasks` table (migration `f3b8c921d47e`). A
 |---|---|---|
 | `completed` | The worker finished and every tool call succeeded. | `TASK_STATE_COMPLETED` |
 | `failed` | LLM disabled or unavailable, gateway unreachable, a tool call failed, the deadline passed, or an unexpected error. | `TASK_STATE_FAILED` |
-| `blocked` | The gateway denied the worker or one of its tool calls (401, 403, 429, pin block, guard block). | `TASK_STATE_REJECTED` |
+| `blocked` | The worker rejected an invalid signed delegation, or the gateway denied the worker or one of its tool calls (401, 403, 429, pin block, guard block). | `TASK_STATE_REJECTED` |
 | `cancelled` | The run was cancelled while in progress. | `TASK_STATE_CANCELED` |
 
 A blocked tool call is never reported as `completed`.
@@ -156,7 +156,7 @@ A blocked tool call is never reported as `completed`.
 |---|---|
 | `a2a.denied` | Delegation rejected (excess or empty scopes), 403 `FORBIDDEN`. |
 | `a2a.delegate` | Delegation granted and task row created. Reason lists the task id, worker prefix, delegated scopes, and `signed=true`. |
-| `a2a.delegation.rejected` | Worker rejected a missing, malformed, tampered, expired, or mismatched signed delegation token before execution, 403 `FORBIDDEN`. |
+| `a2a.delegation.rejected` | Worker rejected a missing, malformed, tampered, expired, or mismatched signed delegation token before execution. The API returns HTTP 200 with `status: "blocked"`, while this audit row records `status_code=403` and `error_code=FORBIDDEN`. |
 | `a2a.worker.start` | The manager starts the run (written after the LLM-enabled check, before the plan step). |
 | `a2a.complete` | Task finished as `completed`. |
 | `a2a.failed` | Task finished as `failed` or `blocked`, including timeouts. Also written when the worker key is not configured (503). |
