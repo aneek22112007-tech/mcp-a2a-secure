@@ -25,6 +25,9 @@ const AuditView = lazy(() =>
 const AnalystView = lazy(() =>
   import('./features/analyst/AnalystView').then(m => ({ default: m.AnalystView }))
 );
+const AgentsView = lazy(() =>
+  import('./features/agents/AgentsView').then(m => ({ default: m.AgentsView }))
+);
 const MetricsView = lazy(() =>
   import('./features/metrics/MetricsView').then(m => ({ default: m.MetricsView }))
 );
@@ -98,6 +101,7 @@ function ConsoleBody({
     const titles: Partial<Record<ViewId, string>> = {
       guard: 'Guard Events',
       llm: 'LLM Calls',
+      agents: 'Agents',
     };
     const label = titles[view] ?? (view.charAt(0).toUpperCase() + view.slice(1));
     document.title = `${label} · MCP Guard Console`;
@@ -119,6 +123,7 @@ function ConsoleBody({
         {view === 'keys' && <KeysView offline={offline} clientIds={session.clientId ? [session.clientId] : []} />}
         {view === 'audit' && <AuditView offline={offline} />}
         {view === 'analyst' && <AnalystView offline={offline} scopes={session.scopes} />}
+        {view === 'agents' && <AgentsView offline={offline} />}
         {view === 'llm' && <LlmCallsView offline={offline} />}
         {view === 'metrics' && <MetricsView offline={offline} />}
         {view === 'pins' && <PinsView offline={offline} />}

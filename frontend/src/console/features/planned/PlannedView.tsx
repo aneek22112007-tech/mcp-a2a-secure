@@ -26,6 +26,7 @@ const LIVE: Item[] = [
     description:
       'An LLM-driven agent that calls the notes tools through the gateway. Every call passes auth, scope, rate limit, pin and guard checks and is audited like any other client.',
     links: [
+      { label: 'Run it on the Agents page', href: '#/agents' },
       { label: 'LLM Calls', href: '#/llm' },
       { label: 'LLM availability and latency in Metrics', href: '#/metrics' },
       { label: 'Agent tool calls in Live Audit', href: '#/audit' },
@@ -56,8 +57,9 @@ const LIVE: Item[] = [
     icon: Layers,
     title: 'A2A delegation',
     description:
-      'Agent-to-agent calls with scope attenuation at each hop and a delegation chain recorded in the audit log.',
+      'Agent-to-agent calls with scope attenuation at each hop and a delegation chain recorded in the audit log. Every delegation is signed with HMAC-SHA256 and checked by the worker before it runs.',
     links: [
+      { label: 'Run it on the Agents page', href: '#/agents' },
       { label: 'a2a.* events in Live Audit', href: '#/audit' },
     ],
   },

@@ -45,6 +45,16 @@ function explainSignal(): AbortSignal {
   return controller.signal;
 }
 
+function agentSignal(): AbortSignal {
+  const ms = 180_000;
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
 function timeoutSignal(): AbortSignal {
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
     return AbortSignal.timeout(REQUEST_TIMEOUT_MS);
@@ -561,6 +571,63 @@ export interface LlmHealth {
   groq_configured: boolean;
 }
 
+export interface AgentToolCall {
+  name: string;
+  arguments: Record<string, unknown>;
+  status: string;
+  output: string | null;
+  error: string | null;
+}
+
+export interface NotesRunResponse {
+  result: string;
+  tool_calls: AgentToolCall[];
+  provider: string | null;
+  model: string | null;
+  request_id: string | null;
+}
+
+export interface A2ACapabilities {
+  agent_name: string;
+  a2a_sdk: string;
+  max_hops: number;
+  allowed_tools: string[];
+  max_task_chars: number;
+  delegation_signing: boolean;
+  delegation_signing_algorithm: string;
+  agent_card: Record<string, unknown>;
+}
+
+export interface A2ATaskResponse {
+  task_id: string;
+  status: 'completed' | 'failed' | 'blocked' | 'cancelled';
+  result: string;
+  error: string | null;
+  tool_calls: AgentToolCall[];
+  provider: string | null;
+  model: string | null;
+  manager_request_id: string | null;
+  manager_key_prefix: string | null;
+  worker_key_prefix: string | null;
+  delegated_scopes: string[];
+  capabilities: A2ACapabilities;
+}
+
+export interface A2ATaskDetail {
+  task_id: string;
+  status: string;
+  task_input: string;
+  result: string | null;
+  error: string | null;
+  manager_key_prefix: string | null;
+  worker_key_prefix: string | null;
+  delegated_scopes: string[];
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  a2a_task: Record<string, unknown> | null;
+}
+
 // ── API functions ─────────────────────────────────────────────────────
 
 export const consoleApi = {
@@ -870,6 +937,36 @@ export const consoleApi = {
   async llmHealth(): Promise<LlmHealth> {
     return apiFetch<LlmHealth>('/api/llm/health');
   },
+
+  async runNotesAgent(task: string): Promise<NotesRunResponse> {
+    return apiFetch<NotesRunResponse>(
+      '/api/agents/notes/run',
+      { method: 'POST', body: JSON.stringify({ task }), signal: agentSignal() },
+      undefined,
+      'The agent did not finish within 3 minutes.',
+    );
+  },
+
+  async runA2ATask(task: string): Promise<A2ATaskResponse> {
+    return apiFetch<A2ATaskResponse>(
+      '/api/a2a/tasks/run',
+      { method: 'POST', body: JSON.stringify({ task }), signal: agentSignal() },
+      undefined,
+      'The agent did not finish within 3 minutes.',
+    );
+  },
+
+  async getA2ATask(id: string): Promise<A2ATaskDetail> {
+    return apiFetch<A2ATaskDetail>(`/api/a2a/tasks/${encodeURIComponent(id)}`);
+  },
+
+  async a2aCapabilities(): Promise<A2ACapabilities> {
+    return apiFetch<A2ACapabilities>('/api/a2a/capabilities');
+  },
+
+  async a2aAgentCard(): Promise<Record<string, unknown>> {
+    return apiFetch<Record<string, unknown>>('/api/a2a/agent-card');
+  },
 };
 
 async function readRawResponse(res: Response): Promise<{
@@ -1004,6 +1101,18 @@ const SCOPE_PROBES: { scope: string; run: () => Promise<unknown> }[] = [
   { scope: 'scanner:read', run: () => consoleApi.listFindings({ limit: 1 }) },
   { scope: 'sandbox:read', run: () => consoleApi.sandboxHealth() },
   { scope: 'notes:read', run: () => consoleApi.listNotes() },
+  // A key without agent:run writes one real auth.deny audit row.
+  {
+    scope: 'agent:run',
+    run: async () => {
+      try {
+        return await consoleApi.getA2ATask('00000000-0000-0000-0000-000000000000');
+      } catch (err) {
+        if (err instanceof ConsoleApiError && err.status === 404) return null;
+        throw err;
+      }
+    },
+  },
 ];
 
 export interface DetectedAccess {
