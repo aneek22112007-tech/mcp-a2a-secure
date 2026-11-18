@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -21,6 +21,7 @@ from app.audit.redaction import current_client_ip, current_request_id, safe_tool
 from app.audit.sink import AuditUnavailableError, record_event
 from app.auth.dependencies import authorize_route, get_principal
 from app.auth.principal import Principal
+from app.config import get_settings
 from app.models.audit_events import AUDIT_DECISION_ALLOWED
 from app.models.tool_pins import ToolPin
 from app.repos.tool_pins import list_pins
@@ -66,6 +67,7 @@ class ToolPinOut(BaseModel):
 
 class ToolPinList(BaseModel):
     items: list[ToolPinOut]
+    mode: Literal["off", "warn", "enforce"]
 
 
 class PinSyncOut(BaseModel):
@@ -104,7 +106,7 @@ async def list_tool_pins() -> ToolPinList:
     names = {definition.name for definition in list_tool_definitions()}
     names.update(rows)
     items = [_view(rows.get(name), name) for name in sorted(names)]
-    return ToolPinList(items=items)
+    return ToolPinList(items=items, mode=get_settings().tool_pinning_mode)
 
 
 @router.get("/{tool_name}", response_model=ToolPinOut)
