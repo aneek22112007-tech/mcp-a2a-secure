@@ -756,9 +756,9 @@ export const consoleApi = {
     if (ai) {
       return apiFetch<ScanStats>(
         `${base}?ai=true`,
-        { method: 'POST', signal: longSignal(90_000) },
+        { method: 'POST', signal: longSignal(150_000) },
         undefined,
-        AI_SCAN_TIMEOUT_MESSAGE,
+        'AI scan timed out. Check that Ollama is running.',
       );
     }
     return apiFetch<ScanStats>(base, { method: 'POST' });
