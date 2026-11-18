@@ -1,5 +1,7 @@
 # MCP Guard
 
+[![CI](https://github.com/aneek22112007-tech/mcp-a2a-secure/actions/workflows/ci.yml/badge.svg)](https://github.com/aneek22112007-tech/mcp-a2a-secure/actions/workflows/ci.yml)
+
 MCP Guard is an authenticating gateway for [Model Context Protocol](https://modelcontextprotocol.io) (MCP) tools. It is a FastAPI app that hosts an MCP server at `/mcp/` and a small REST API. Before a request reaches a tool, MCP Guard checks the caller's Bearer API key and the scopes attached to it.
 
 Most MCP servers trust whoever can reach them. We wanted a place to enforce who is calling and what they may do, and later to put LLM agents behind the same checks so an agent gets the access its key allows and nothing more. This is our OJT 2026 project on the Generative AI track.
