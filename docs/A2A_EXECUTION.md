@@ -26,13 +26,15 @@ It is **not** full A2A protocol support yet. The manager and worker run in the s
                                         |  - resolve worker identity           |
                                         |  - scope attenuation (403 on excess) |
                                         |  - task row + audit events           |
+                                        |  - sign delegation (HMAC-SHA256)     |
                                         |  plan -> delegate -> collect         |
                                         +--------------------------------------+
                                                                 |
-                                     task + manager plan        |  WORKER_NOTES_API_KEY
+                           task + plan + signed token           |  WORKER_NOTES_API_KEY
                                                                 v
                                         +--------------------------------------+
                                         | Worker (notes agent, LangGraph)      |
+                                        |  - verify signed token (fail-closed) |
                                         |  one authenticated /mcp/ session     |
                                         |  X-Request-ID = task_id              |
                                         +--------------------------------------+
@@ -87,6 +89,26 @@ delegated_scopes = manager_scopes ∩ worker_scopes ∩ {notes:read, notes:write
 
 ---
 
+## 3.1 Signed delegation grants (`api/app/agents/a2a/signing.py`)
+
+Before invoking the worker, the manager wraps the attenuated grant in an **HMAC-SHA256** signed token bound to:
+
+- `task_id` — binds the grant to a single A2A task.
+- `manager_key_prefix` and `worker_key_prefix` — binds both participating identities.
+- `delegated_scopes` — exact sorted attenuated scopes.
+- `task_hash` — SHA-256 hex digest of the exact instruction delivered to the worker.
+- `iat` and `exp` — short-lived validity window (default 120 seconds, matching the task deadline).
+- `nonce` — random 128-bit hex value per delegation.
+
+Verification in `worker.py` runs **before** reading `WORKER_NOTES_API_KEY` or opening any `/mcp/` session and fails closed on any error (missing, malformed, invalid signature, expired, or mismatched `task_id`, prefixes, scopes, or task hash):
+
+- Signatures are compared in constant time (`hmac.compare_digest`) over a domain-separated payload (`mcpg-a2a-v1.<base64url-payload>`) before parsing claims.
+- A rejected token writes an `a2a.delegation.rejected` audit row (`decision=denied`, `status=denied`, `status_code=403`, `error_code=FORBIDDEN`) containing only the task ID and safe reason code — never the signing key or token.
+- The worker returns `status="blocked"` (A2A state `TASK_STATE_REJECTED`) and does not execute any tool or LLM call; `POST /api/a2a/tasks/run` returns HTTP 200 with `"status": "blocked"` while the audit row records `status_code=403` and `error_code=FORBIDDEN`.
+- Key management uses `A2A_SIGNING_KEY` (`SecretStr`). When unset, the process generates an in-memory 32-byte random key at startup (`secrets.token_bytes(32)`) and logs a startup warning; production and multi-instance deployments should set `A2A_SIGNING_KEY` explicitly so all replicas share the same signing key.
+
+---
+
 ## 4. MCP per-tool scope enforcement
 
 At `/mcp/`, `McpBearerAuthMiddleware` (`app/auth/mcp_asgi.py`) verifies that the connecting key holds `agent:run` to open an MCP session. In addition, `McpToolScopeMiddleware` (`app/mcp_tool_scope.py`) inspects incoming `tools/call` requests and enforces per-tool scopes defined in `TOOL_SCOPES` (`notes:write` for `write_note`, `notes:read` for `list_notes` and `read_note`):
@@ -106,7 +128,7 @@ All routes are registered in `ROUTE_SCOPES` (`app/auth/scopes.py`).
 |---|---|---|
 | `POST /api/a2a/tasks/run` | `agent:run` | Run one delegated task. Body: `{"task": "..."}` (1 to 8,000 characters). |
 | `GET /api/a2a/tasks/{id}` | `agent:run` | Task status and result. Owner-only: only the key that created the task can read it; any other key, including admin, gets 404 `NOT_FOUND`. |
-| `GET /api/a2a/capabilities` | public | Agent name, installed `a2a-sdk` version, max hops (1), allowed tools, max task length, and the agent card. |
+| `GET /api/a2a/capabilities` | public | Agent name, installed `a2a-sdk` version, max hops (1), allowed tools, max task length, delegation signing metadata (`delegation_signing`, `delegation_signing_algorithm`), and the agent card. |
 | `GET /api/a2a/agent-card` | public | The worker's agent card, built with `a2a.types.AgentCard` (name, description, version, capabilities, skills). |
 
 `GET /api/a2a/tasks/{id}` also returns an `a2a_task` object: the task as an `a2a.types.Task` (id, status state, and history with the user's task and the agent's result or error).
@@ -121,7 +143,7 @@ Each delegation is stored in the `a2a_tasks` table (migration `f3b8c921d47e`). A
 |---|---|---|
 | `completed` | The worker finished and every tool call succeeded. | `TASK_STATE_COMPLETED` |
 | `failed` | LLM disabled or unavailable, gateway unreachable, a tool call failed, the deadline passed, or an unexpected error. | `TASK_STATE_FAILED` |
-| `blocked` | The gateway denied the worker or one of its tool calls (401, 403, 429, pin block, guard block). | `TASK_STATE_REJECTED` |
+| `blocked` | The worker rejected an invalid signed delegation, or the gateway denied the worker or one of its tool calls (401, 403, 429, pin block, guard block). | `TASK_STATE_REJECTED` |
 | `cancelled` | The run was cancelled while in progress. | `TASK_STATE_CANCELED` |
 
 A blocked tool call is never reported as `completed`.
@@ -133,7 +155,8 @@ A blocked tool call is never reported as `completed`.
 | Action | When |
 |---|---|
 | `a2a.denied` | Delegation rejected (excess or empty scopes), 403 `FORBIDDEN`. |
-| `a2a.delegate` | Delegation granted and task row created. Reason lists the task id, worker prefix and delegated scopes. |
+| `a2a.delegate` | Delegation granted and task row created. Reason lists the task id, worker prefix, delegated scopes, and `signed=true`. |
+| `a2a.delegation.rejected` | Worker rejected a missing, malformed, tampered, expired, or mismatched signed delegation token before execution. The API returns HTTP 200 with `status: "blocked"`, while this audit row records `status_code=403` and `error_code=FORBIDDEN`. |
 | `a2a.worker.start` | The manager starts the run (written after the LLM-enabled check, before the plan step). |
 | `a2a.complete` | Task finished as `completed`. |
 | `a2a.failed` | Task finished as `failed` or `blocked`, including timeouts. Also written when the worker key is not configured (503). |
@@ -150,6 +173,9 @@ The `a2a.*` rows for a task use `request_id = task_id`. The worker sends `X-Requ
    LLM_ENABLED=true
    # Worker key: agent:run plus notes:read (and notes:write only if the manager also has it)
    WORKER_NOTES_API_KEY=mcpg_<worker_prefix>_<secret>
+   # Recommended in production / multi-instance (openssl rand -hex 32);
+   # falls back to an ephemeral in-memory key with a startup warning when unset.
+   A2A_SIGNING_KEY=<long-random-hex-secret>
    ```
 2. Apply migrations:
    ```bash

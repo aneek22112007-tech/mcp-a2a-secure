@@ -517,22 +517,17 @@ Both paths call `run_tool`. With `SANDBOX_NOTES_SOURCE=volume:<name>`, Compose s
 
 | Security Measure | Where | How |
 |---|---|---|
-| Note name allowlist | `_safe()` in `mcp_server.py` | Regex `[A-Za-z0-9_-]{1,64}` |
-| Path traversal prevention | `_safe()` in `mcp_server.py` | `resolve()` + parent check |
-| CORS restriction | `main.py` | Only `http://localhost:5173` allowed |
-| Password hashing | `authController.js` | bcrypt with salt rounds=10 |
-| JWT auth | `authController.js` + `authMiddleware.js` | HS256, 1h expiry |
-| HttpOnly cookies | `authController.js` | Prevents JS cookie access |
-
-### FUTURE IMPROVEMENTS (not yet implemented)
-
-- MCP endpoint authentication (currently open)
-- HTTPS in production
-- Rate limiting on MCP tool calls
-- Input sanitisation on `content` field
-- Note file size limits
-- Audit logging of tool calls
-- Secrets management (currently uses `.env` fallbacks)
+| API-key auth & per-tool scopes | `api/app/auth/`, `api/app/mcp_tool_scope.py` | `Authorization: Bearer mcpg_...` required on REST routes and `/mcp/`; route-to-scope allowlist and `TOOL_SCOPES` fail closed |
+| Note name allowlist & path traversal guard | `api/app/tools/notes.py`, `_safe()` in `mcp_server.py` | Regex `[A-Za-z0-9_-]{1,64}` + `resolve()` parent check |
+| Body & note size limits | `api/app/middleware.py`, `routes/notes.py`, `gateway.py` | 1 MiB HTTP body limit (`MAX_BODY_BYTES`), 100 KiB note content limit, 128 KiB gateway arg limit |
+| Rate limiting | `api/app/rate_limit.py`, `api/app/shared_state.py` | Per-key token bucket shared across REST and `/mcp/`; shared via Valkey (`REDIS_URL`) in multi-instance mode |
+| Append-only audit log + live SSE | `api/app/audit/`, `api/app/routes/audit.py` | Audit-first writes for mutating calls and `/mcp/` `tools/call`, append-only DB triggers, live `/api/audit/stream` |
+| Tool pinning & poisoning scanner | `api/app/pins/`, `api/app/scanner/` | SHA-256 schema pinning (`enforce` mode), static rules + optional AI scanner (`SCANNER_AI_ENABLED`) |
+| Prompt-injection guard | `api/app/guard/` | G1–G6 detection and sanitization/blocking on tool outputs (`INJECTION_GUARD_MODE=enforce`) |
+| Docker sandbox isolation | `api/app/sandbox/docker.py` | Ephemeral `--network none --read-only --cap-drop ALL` containers running as UID/GID `65534:65534` |
+| Signed A2A delegation | `api/app/agents/a2a/signing.py` | HMAC-SHA256 signed attenuated delegation tokens verified fail-closed before worker execution |
+| HTTP hardening & CORS | `api/app/middleware.py`, `api/app/main.py` | Exact-origin CORS allowlist in production, CSP, HSTS (`HSTS_MAX_AGE_S`), X-Request-ID, production secret validation |
+| Express sign-in service (`backend/`) | `authController.js` + `authMiddleware.js` | Separate Google OAuth / bcrypt + HS256 JWT + HttpOnly cookies service |
 
 ---
 
@@ -573,19 +568,18 @@ Expected: **17 passed**
 
 ## 16. Production Considerations
 
-> These are **future improvements**, not current implementation.
+Current production posture on `main` (see [docs/RUNBOOK.md](RUNBOOK.md) and [docs/LOAD_BALANCING.md](LOAD_BALANCING.md) for full deployment details):
 
-| Concern | Current state | Production fix |
+| Concern | Current state on `main` | Deployment requirement |
 |---|---|---|
-| MCP auth | No auth | Add API key middleware or OAuth |
-| HTTPS | HTTP only | TLS termination via nginx/load balancer |
-| Process management | Manual uvicorn | systemd / Docker / Kubernetes |
-| Notes storage | Local filesystem | PostgreSQL / S3 |
-| Logging | Console only | Structured JSON logs (structlog) |
-| Rate limiting | None | fastapi-limiter |
-| Secrets | .env fallbacks | HashiCorp Vault / AWS Secrets Manager |
-| CORS | localhost only | Domain-specific origin list |
-| Users DB | In-memory array | PostgreSQL |
+| MCP auth | Bearer `mcpg_` API-key auth + per-tool scopes (`McpBearerAuthMiddleware`, `McpToolScopeMiddleware`), deny-by-default | Provision scoped keys; never grant `admin` to workers |
+| HTTPS / HSTS | Caddy reverse proxy (`proxy` service); `HSTS_MAX_AGE_S` supported | Terminate TLS at your public proxy/load balancer and set `HSTS_MAX_AGE_S > 0` |
+| Process management | Docker Compose stack (`postgres`, `valkey`, `migrate`, `api1`, `api2`, `proxy`) | Orchestrate restarts, health checks (`/health`, `/ready`), and resource limits |
+| Persistence | PostgreSQL 16 (Compose/production) via SQLAlchemy async + Alembic; SQLite for local dev; named volumes for notes and shared files | Run Postgres with a non-owner application role so append-only audit triggers cannot be disabled |
+| Logging | Structured logs with `rid=` (`log_config.json`) + append-only `audit_events` table | Forward container logs to centralized log storage |
+| Rate limiting | Per-key token bucket shared across REST and `/mcp/`, backed by Valkey (`REDIS_URL`) when `MULTI_INSTANCE=true` | Keep `REDIS_URL` and `MULTI_INSTANCE=true` enabled across replicas |
+| Secrets | Strict startup validation rejects missing/placeholder `API_KEY_PEPPER` (and placeholder `A2A_SIGNING_KEY`) in production | Inject secrets (`POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `API_KEY_PEPPER`, `A2A_SIGNING_KEY`) from a secrets manager |
+| CORS | Production validates exact `http`/`https` origins (`CORS_ORIGINS`) | Restrict `CORS_ORIGINS` to production dashboard origin(s) |
 
 ---
 

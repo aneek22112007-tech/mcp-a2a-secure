@@ -22,6 +22,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.agents.a2a.delegation import DelegationContext
+from app.agents.a2a.signing import (
+    DelegationVerificationError,
+    verify_delegation,
+)
 from app.agents.gateway import (
     GatewayBlockedError,
     GatewayProtocolError,
@@ -29,6 +33,15 @@ from app.agents.gateway import (
     McpGatewaySession,
 )
 from app.agents.notes_agent import NotesAgentOutcome, run_notes_agent
+from app.audit.events import (
+    ACTION_A2A_DELEGATION_REJECTED,
+    AUDIT_DECISION_DENIED,
+    STATUS_DENIED,
+    AuditRecord,
+)
+from app.audit.redaction import safe_reason
+from app.audit.sink import record_event
+from app.auth.principal import Principal
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -54,17 +67,49 @@ async def run_worker(
     task_input: str,
     delegation: DelegationContext,
     *,
+    delegation_token: str | None = None,
+    manager_principal: Principal | None = None,
     request_id: str | None = None,
 ) -> WorkerOutcome:
     """Execute the notes agent as the worker identity.
 
-    The worker key is read from server config (``WORKER_NOTES_API_KEY``).
-    The caller supplies the task text and the already-computed
-    ``DelegationContext``; it must not supply raw credentials.
+    Verifies the signed A2A delegation token fail-closed before reading worker
+    credentials or opening any gateway session. The caller must not supply raw
+    credentials.
 
     ``request_id`` is the task_id propagated through so audit rows
     reference the same correlation anchor.
     """
+    try:
+        verified = verify_delegation(
+            delegation_token,
+            expected_task_id=task_id,
+            expected_task_input=task_input,
+            expected_delegation=delegation,
+        )
+    except DelegationVerificationError as exc:
+        logger.warning(
+            "a2a.delegation.rejected task_id=%s reason=%s",
+            task_id,
+            exc.reason_code,
+        )
+        await _record_delegation_rejected(
+            task_id=task_id,
+            reason_code=exc.reason_code,
+            delegation=delegation,
+            manager_principal=manager_principal,
+            request_id=request_id or task_id,
+        )
+        return WorkerOutcome(
+            task_id=task_id,
+            status="blocked",
+            result=f"Delegation rejected: {exc}",
+            tool_calls=[],
+            provider=None,
+            model=None,
+            worker_key_prefix=delegation.worker_key_prefix or None,
+        )
+
     worker_secret = settings.worker_notes_api_key
     if worker_secret is None or not worker_secret.get_secret_value().strip():
         raise WorkerNotConfiguredError("WORKER_NOTES_API_KEY is not set.")
@@ -76,7 +121,7 @@ async def run_worker(
         "a2a.worker.start task_id=%s worker_prefix=%s delegated_scopes=%s",
         task_id,
         worker_key_prefix or "-",
-        ",".join(sorted(delegation.delegated_scopes)) or "(none)",
+        ",".join(sorted(verified.delegated_scopes)) or "(none)",
     )
 
     # Open one MCP session for this entire worker run using the worker key.
@@ -188,6 +233,33 @@ async def run_worker(
         provider=outcome.provider,
         model=outcome.model,
         worker_key_prefix=worker_key_prefix,
+    )
+
+
+async def _record_delegation_rejected(
+    *,
+    task_id: str,
+    reason_code: str,
+    delegation: DelegationContext,
+    manager_principal: Principal | None,
+    request_id: str | None,
+) -> None:
+    """Record a best-effort a2a.delegation.rejected audit event without secrets."""
+    actor = AuditRecord.actor_fields(manager_principal)
+    if actor["key_prefix"] is None and delegation.manager_key_prefix:
+        actor["key_prefix"] = delegation.manager_key_prefix
+    await record_event(
+        AuditRecord(
+            action=ACTION_A2A_DELEGATION_REJECTED,
+            decision=AUDIT_DECISION_DENIED,
+            status=STATUS_DENIED,
+            request_id=request_id,
+            reason=safe_reason(f"task_id={task_id} reason={reason_code}"),
+            status_code=403,
+            error_code="FORBIDDEN",
+            **actor,
+        ),
+        required=False,
     )
 
 

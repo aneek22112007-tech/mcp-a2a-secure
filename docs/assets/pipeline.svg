@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" width="960" height="300" role="img" aria-labelledby="t d">
 <title id="t">MCP Guard request pipeline</title>
-<desc id="d">Animated diagram: a request packet flows from an agent through Auth, Scope check, Scanner, Audit and finally the MCP tool. Three scenarios loop: a valid scoped key reaches the tool (200), a request with no key is stopped at Auth (401), and a key without the needed scope is stopped at the scope check (403). Scanner and Audit are planned stages.</desc>
+<desc id="d">Animated diagram: a request packet flows from an agent through Auth, Scope check, Scanner, Audit and finally the MCP tool. Three scenarios loop: a valid scoped key reaches the tool (200), a request with no key is stopped at Auth (401), and a key without the needed scope is stopped at the scope check (403).</desc>
 <defs>
 <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1224"/><stop offset="1" stop-color="#131a33"/></linearGradient>
 <linearGradient id="wire" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
@@ -14,7 +14,6 @@ text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",mo
 .sub{font-size:11px;fill:#94a3b8}
 .cap{font-size:12px;fill:#94a3b8}
 .res{font-size:15px;font-weight:700}
-.tag{font-size:9px;font-weight:700;letter-spacing:1px;fill:#0b1224}
 .dash{stroke-dasharray:6 8;animation:flow 1.2s linear infinite}
 @keyframes flow{to{stroke-dashoffset:-28}}
 @media (prefers-reduced-motion:reduce){.dash{animation:none}}
@@ -35,16 +34,12 @@ text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",mo
 <rect x="286.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#2dd4bf" stroke-width="1.5"/>
 <text x="352" y="134" text-anchor="middle" class="lbl">SCOPES</text>
 <text x="352" y="187.0" text-anchor="middle" class="sub">route-to-scope map</text>
-<rect x="448.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 5"/>
-<text x="514" y="134" text-anchor="middle" class="lbl" style="fill:#94a3b8">SCANNER</text>
+<rect x="448.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#2dd4bf" stroke-width="1.5"/>
+<text x="514" y="134" text-anchor="middle" class="lbl">SCANNER</text>
 <text x="514" y="187.0" text-anchor="middle" class="sub">tool-poisoning rules</text>
-<rect x="484" y="82.0" width="60" height="16" rx="8" fill="#a78bfa"/>
-<text x="514" y="94.0" text-anchor="middle" class="tag">PLANNED</text>
-<rect x="610.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#475569" stroke-width="1.5" stroke-dasharray="5 5"/>
-<text x="676" y="134" text-anchor="middle" class="lbl" style="fill:#94a3b8">AUDIT</text>
+<rect x="610.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#2dd4bf" stroke-width="1.5"/>
+<text x="676" y="134" text-anchor="middle" class="lbl">AUDIT</text>
 <text x="676" y="187.0" text-anchor="middle" class="sub">audit_events + SSE</text>
-<rect x="646" y="82.0" width="60" height="16" rx="8" fill="#a78bfa"/>
-<text x="676" y="94.0" text-anchor="middle" class="tag">PLANNED</text>
 <rect x="772.0" y="91.0" width="132" height="74" rx="14" fill="#101a2e" stroke="#2dd4bf" stroke-width="1.5"/>
 <text x="838" y="134" text-anchor="middle" class="lbl">TOOL</text>
 <text x="838" y="187.0" text-anchor="middle" class="sub">MCP notes tools</text>
@@ -62,6 +57,6 @@ text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",mo
 <text x="480.0" y="264" text-anchor="middle" class="res" style="fill:#34d399" opacity="0">200 OK · tool result returned<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.2617;0.2767;0.3233;0.3383;1"/></text>
 <text x="480.0" y="264" text-anchor="middle" class="res" style="fill:#f87171" opacity="0">401 UNAUTHORIZED · WWW-Authenticate: Bearer<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.395;0.41;0.6467;0.6617;1"/></text>
 <text x="480.0" y="264" text-anchor="middle" class="res" style="fill:#fbbf24" opacity="0">403 FORBIDDEN · insufficient_scope<animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.7783;0.7933;0.98;0.995;1"/></text>
-<text x="28" y="286" class="cap" style="font-size:10px">solid = built today · dashed = planned</text>
+<text x="28" y="286" class="cap" style="font-size:10px">solid = active gateway stages</text>
 <text x="932" y="286" text-anchor="end" class="cap" style="font-size:10px">uniform JSON error envelope + X-Request-ID on every response</text>
 </svg>
