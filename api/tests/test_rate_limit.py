@@ -516,3 +516,25 @@ async def test_metrics_expose_limiter_counters(tmp_path):
         assert summary["totals"]["rate_limit_audit_rows"] == 2
 
     await engine.dispose()
+
+
+def test_first_denial_audited_right_after_boot(monkeypatch):
+    """A small monotonic clock must still audit the first denial."""
+    moments = iter((5.0, 5.1, 5.1))
+    monkeypatch.setattr("app.rate_limit.time.monotonic", lambda: next(moments))
+    monkeypatch.setattr(settings, "rate_limit_capacity", 1)
+    monkeypatch.setattr(settings, "rate_limit_refill_rate_per_sec", 0.001)
+
+    fresh = TokenBucketRateLimiter()
+
+    allowed, _, should_audit = fresh.acquire("rest", "boot")
+    assert allowed is True
+    assert should_audit is False
+
+    allowed, _, should_audit = fresh.acquire("rest", "boot")
+    assert allowed is False
+    assert should_audit is True
+
+    allowed, _, should_audit = fresh.acquire("rest", "boot")
+    assert allowed is False
+    assert should_audit is False
