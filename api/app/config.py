@@ -627,6 +627,12 @@ def _is_exact_http_origin(origin: str) -> bool:
 settings = Settings()
 
 
+def get_settings() -> Settings:
+    """Return the process settings singleton."""
+
+    return settings
+
+
 def warn_explicit_production_modes() -> None:
     """Log when production explicitly chooses warn instead of enforce.
 

@@ -35,6 +35,7 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | `POSTGRES_PASSWORD` | unset (no default) | Compose (Required) | Password for PostgreSQL service. Required by Compose syntax `${POSTGRES_PASSWORD:?...}` |
 | `API_KEY_PEPPER` | unset (no default) | Compose & Production | Pepper for hashing API keys. Required in production and Compose (`${API_KEY_PEPPER:?...}`). A production-like process rejects a placeholder and raises `API_KEY_PEPPER is a placeholder; set a long random value` without printing the value |
 | `CORS_ORIGINS` | `["http://localhost:5173"]` | Local & Compose | JSON array of allowed CORS origins |
+| `HSTS_MAX_AGE_S` | `0` | Local & Compose | `max-age` for `Strict-Transport-Security`. `0` omits the header. Set above 0 only once the public server has HTTPS |
 | `MCP_SELF_URL` | `http://127.0.0.1:8000/mcp/` | Local & Compose | URL probed by the `/api/status` endpoint |
 | `MCP_SELF_API_KEY` | unset (`None`) | Local & Compose | API key with `agent:run` used by `/api/status` to probe `/mcp/`. Amber status if unset |
 | `DATABASE_URL` | `sqlite+aiosqlite:///data/mcp_guard.db` | Local | Async SQLAlchemy URL. SQLite in local dev. Compose sets its own `postgresql+asyncpg://...@postgres:5432/...` URL and does not read `DATABASE_URL` from the shell |
@@ -73,7 +74,10 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | `ENABLE_RETENTION_SCHEDULER` | `false` (`true` in Compose) | Local & Compose | Enable background retention scheduler task |
 | `LLM_ENABLED` | `false` | Local & Compose | Enable LLM calls for notes agent. When false, agent returns 503 |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` (`http://host.docker.internal:11434` in Compose) | Local & Compose | Base URL of local Ollama server |
+| `OLLAMA_MODEL` | `qwen3.5:9b` | Local & Compose | Primary Ollama chat model |
 | `GROQ_API_KEY` | unset (`None`) | Local & Compose | Optional Groq API key fallback |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Local & Compose | Fallback Groq chat model |
+| `LLM_TIMEOUT_SECONDS` | `60` | Local & Compose | Timeout in seconds for one LLM request |
 | `NOTES_AGENT_API_KEY` | unset (`None`) | Local & Compose | Optional API key for notes agent self-calls to `/mcp/` |
 | `WORKER_NOTES_API_KEY` | unset (`None`) | Local & Compose | Optional API key for A2A worker notes calls |
 | `ANALYST_WINDOW_HOURS` | `24` | Local & Compose | How far back incidents are built, in hours (1 to 168) |

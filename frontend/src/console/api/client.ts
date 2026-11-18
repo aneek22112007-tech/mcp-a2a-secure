@@ -341,6 +341,7 @@ export interface ToolPin {
 
 export interface ToolPinList {
   items: ToolPin[];
+  mode: 'off' | 'warn' | 'enforce';
 }
 
 export interface PinSyncResult {

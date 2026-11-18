@@ -33,9 +33,9 @@ function PinsViewInner({ offline }: PinsViewProps) {
   const approveRef = useDialogA11y(!!approveTarget, () => setApproveTarget(null));
   const [revokeTarget, setRevokeTarget] = useState<ToolPin | null>(null);
   const [note, setNote] = useState('');
-  const [pinningModeHint] = useState<'off' | 'warn' | 'enforce'>('enforce');
 
   const { data, isLoading, isError, refetch } = usePins();
+  const pinningMode = data?.mode;
   const syncPins  = useSyncPins();
   const approvePin = useApprovePin();
   const revokePin  = useRevokePin();
@@ -104,7 +104,7 @@ function PinsViewInner({ offline }: PinsViewProps) {
         </div>
       </div>
 
-      {/* Pinning mode banner */}
+      {/* Pinning mode from GET /api/pins */}
       <div
         className="panel"
         style={{
@@ -112,23 +112,22 @@ function PinsViewInner({ offline }: PinsViewProps) {
           display: 'flex',
           gap: 10,
           alignItems: 'center',
-          borderColor: pinningModeHint === 'enforce' ? 'var(--c-amber)' : 'var(--c-border)',
+          borderColor: pinningMode === 'enforce' ? 'var(--c-amber)' : 'var(--c-border)',
         }}
       >
         <Pin size={13} style={{ color: 'var(--c-amber)', flexShrink: 0 }} />
         <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>
-          Pinning mode is set in{' '}
-          <span className="mono">api/.env</span>
-          {' '}→{' '}
+          Pinning mode is the live server value of{' '}
           <span className="mono" style={{ color: 'var(--c-amber)' }}>TOOL_PINNING_MODE</span>.
-          {' '}This console shows a hint only — current server value is not exposed by any endpoint.
         </span>
-        <span
-          className={`badge ${pinningModeHint === 'enforce' ? 'badge-deny' : pinningModeHint === 'warn' ? 'badge-review' : 'badge-muted'}`}
-          style={{ flexShrink: 0 }}
-        >
-          expected: enforce
-        </span>
+        {pinningMode && (
+          <span
+            className={`badge ${pinningMode === 'enforce' ? 'badge-deny' : pinningMode === 'warn' ? 'badge-review' : 'badge-muted'}`}
+            style={{ flexShrink: 0 }}
+          >
+            Pinning mode: {pinningMode}
+          </span>
+        )}
       </div>
 
       {/* Pin legend */}
