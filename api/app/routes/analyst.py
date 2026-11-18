@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app import database
+from app.analyst.brief import incident_brief
 from app.analyst.errors import AnalystUnavailableError
 from app.analyst.incidents import group_incidents
 from app.analyst.output import ReportBody
@@ -95,6 +96,7 @@ class IncidentSummaryOut(BaseModel):
     first_seen: datetime
     last_seen: datetime
     event_count: int
+    brief: str
     counts_by_action: dict[str, int]
     events_fingerprint: str
     related_ids: list[str]
@@ -213,6 +215,7 @@ def _summary(incident: Incident, row: AnalystReport | None) -> IncidentSummaryOu
         first_seen=incident.first_seen,
         last_seen=incident.last_seen,
         event_count=incident.event_count,
+        brief=incident_brief(incident),
         counts_by_action=dict(incident.counts_by_action),
         events_fingerprint=incident.events_fingerprint,
         related_ids=list(incident.related_ids),

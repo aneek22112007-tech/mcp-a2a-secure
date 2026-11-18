@@ -212,6 +212,9 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
                         </span>
                       )}
                     </span>
+                    {item.brief && (
+                      <span className="analyst-brief" title={item.brief}>{item.brief}</span>
+                    )}
                     <span className="analyst-times">
                       <time dateTime={item.first_seen} title={fmtDatetime(item.first_seen)}>
                         {elapsedSince(item.first_seen)}
@@ -236,6 +239,15 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
               message={detail.error instanceof Error ? detail.error.message : 'Could not load this incident.'}
               onRetry={() => { void detail.refetch(); }}
             />
+          )}
+          {detail.data && (
+            <div className="analyst-happened">
+              <p className="section-label">What happened</p>
+              <p>{detail.data.brief}</p>
+              <p className="page-sub">
+                Click Explain for a detailed AI explanation that cites each event.
+              </p>
+            </div>
           )}
           {detail.data && (
             <Facts

@@ -436,6 +436,7 @@ export interface Incident {
   first_seen: string;
   last_seen: string;
   event_count: number;
+  brief: string;
   counts_by_action: Record<string, number>;
   events_fingerprint: string;
   related_ids: string[];
