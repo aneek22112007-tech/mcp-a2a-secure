@@ -66,17 +66,16 @@ const LIVE: Item[] = [
       'Groups real audit events into incidents and explains them in plain English with the local model. Every sentence cites the events it is based on.',
     links: [{ label: 'Open the AI Analyst', href: '#/analyst' }],
   },
-];
-
-const UPCOMING: Item[] = [
   {
     icon: ScanSearch,
     title: 'AI-assisted scanner',
     description:
-      'A model-based pass over tool descriptions and schemas that adds to the current rule-based findings.',
-    target: 'Block 9',
+      'The model reads each tool description and flags hidden instructions, secret requests, and exfiltration attempts that the fixed rules miss.',
+    links: [{ label: 'Open the Scanner', href: '#/scanner' }],
   },
 ];
+
+const UPCOMING: Item[] = [];
 
 function Row({ item, live }: { item: Item; live: boolean }) {
   const Icon = item.icon;

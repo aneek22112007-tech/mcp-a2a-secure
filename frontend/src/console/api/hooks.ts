@@ -261,7 +261,7 @@ export function useFindings(
 export function useScanAll() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => consoleApi.scanAll(),
+    mutationFn: (ai?: boolean) => consoleApi.scanAll(ai ?? false),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['findings'] });
       qc.invalidateQueries({ queryKey: QK.pins });
@@ -272,7 +272,8 @@ export function useScanAll() {
 export function useScanTool() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (tool_name: string) => consoleApi.scanTool(tool_name),
+    mutationFn: ({ tool_name, ai }: { tool_name: string; ai?: boolean }) =>
+      consoleApi.scanTool(tool_name, ai ?? false),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['findings'] });
     },

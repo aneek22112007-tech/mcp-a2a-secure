@@ -22,6 +22,8 @@ class ScanStatsResponse(BaseModel):
     tools_scanned: int
     findings_open: int
     by_severity: dict[str, int]
+    ai_checked: int = 0
+    ai_unavailable: int = 0
 
 
 class FindingResponse(BaseModel):
@@ -49,6 +51,14 @@ def check_scanner_enabled():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Scanner is disabled in configuration.",
+        )
+
+
+def check_ai_scanner_enabled():
+    if not settings.scanner_ai_enabled or not settings.llm_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI scanner is not enabled. Set SCANNER_AI_ENABLED=true and LLM_ENABLED=true.",
         )
 
 
@@ -116,9 +126,11 @@ async def get_finding_by_id(
 
 
 @router.post("/run", response_model=ScanStatsResponse)
-async def scan_all():
+async def scan_all(ai: bool = Query(False)):
     check_scanner_enabled()
-    stats = await run_scan_all()
+    if ai:
+        check_ai_scanner_enabled()
+    stats = await run_scan_all(ai=ai)
     from app.audit.events import AuditRecord
     from app.audit.sink import record_event
 
@@ -128,7 +140,7 @@ async def scan_all():
                 action="tool.scan.manual",
                 status="ok",
                 decision="allowed",
-                reason="Admin initiated full scan",
+                reason="Admin initiated full scan" + (" (with AI)" if ai else ""),
             ),
             required=False,
         )
@@ -141,13 +153,17 @@ async def scan_all():
         tools_scanned=stats.tools_scanned,
         findings_open=stats.findings_open,
         by_severity=stats.by_severity,
+        ai_checked=stats.ai_checked,
+        ai_unavailable=stats.ai_unavailable,
     )
 
 
 @router.post("/run/{tool_name}", response_model=ScanStatsResponse)
-async def scan_tool_endpoint(tool_name: str):
+async def scan_tool_endpoint(tool_name: str, ai: bool = Query(False)):
     check_scanner_enabled()
-    stats = await run_scan_one(tool_name)
+    if ai:
+        check_ai_scanner_enabled()
+    stats = await run_scan_one(tool_name, ai=ai)
     if not stats:
         raise HTTPException(status_code=404, detail="Tool not found.")
     from app.audit.events import AuditRecord
@@ -159,7 +175,8 @@ async def scan_tool_endpoint(tool_name: str):
                 action="tool.scan.manual",
                 status="ok",
                 decision="allowed",
-                reason=f"Admin initiated scan for {tool_name}",
+                reason=f"Admin initiated scan for {tool_name}"
+                + (" (with AI)" if ai else ""),
             ),
             required=False,
         )
@@ -172,6 +189,8 @@ async def scan_tool_endpoint(tool_name: str):
         tools_scanned=stats.tools_scanned,
         findings_open=stats.findings_open,
         by_severity=stats.by_severity,
+        ai_checked=stats.ai_checked,
+        ai_unavailable=stats.ai_unavailable,
     )
 
 

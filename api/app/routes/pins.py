@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Annotated
 
@@ -34,6 +35,8 @@ from app.tools.catalog import (
     get_tool_definition,
     list_tool_definitions,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/pins",
@@ -122,6 +125,12 @@ async def sync_tool_pins() -> PinSyncOut:
     """Write pending pins for catalog schemas that are not already stored."""
 
     updated = await sync_pending_from_catalog()
+    try:
+        from app.services.scanner import run_scan_all
+
+        await run_scan_all()
+    except Exception:
+        logger.exception("Failed to run scanner after pin sync")
     return PinSyncOut(updated=updated)
 
 
@@ -154,6 +163,12 @@ async def approve_tool_pin(
             status_code=400,
             detail="Approver is not a known API key.",
         ) from None
+    try:
+        from app.services.scanner import run_scan_one
+
+        await run_scan_one(definition.name)
+    except Exception:
+        logger.exception("Failed to run scanner after approving %s", definition.name)
     return _view(row, definition.name)
 
 
