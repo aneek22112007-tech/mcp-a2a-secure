@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from datetime import datetime
 
 from app.analyst.types import (
     KIND_A2A,
@@ -21,7 +20,6 @@ from app.analyst.types import (
     Incident,
     IncidentEvent,
 )
-from app.repos.common import as_utc
 
 # One or two sentences. A little over is kept when cutting would drop a fact.
 _TARGET = 220
@@ -65,9 +63,7 @@ _UNSAFE_REASON = re.compile(
 def incident_brief(incident: Incident) -> str:
     """Return one or two sentences describing this incident."""
 
-    sentences = _sentences(incident)
-    text = _fit(sentences)
-    return _with_window(text, incident.first_seen, incident.last_seen)
+    return _fit(_sentences(incident))
 
 
 def _sentences(incident: Incident) -> list[str]:
@@ -403,19 +399,6 @@ def _fit(sentences: list[str]) -> str:
         cut = cut.rsplit(" ", 1)[0]
     cut = cut.rstrip(" ,;:.")
     return f"{cut}."
-
-
-def _with_window(text: str, first: datetime, last: datetime) -> str:
-    start = as_utc(first).strftime("%H:%M")
-    end = as_utc(last).strftime("%H:%M")
-    if start == end:
-        return text
-    clause = f"between {start} and {end}"
-    body = text.removesuffix(".")
-    candidate = f"{body} {clause}."
-    if len(candidate) <= _TARGET:
-        return candidate
-    return text
 
 
 def _requests(count: int) -> str:
