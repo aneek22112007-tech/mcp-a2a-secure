@@ -37,6 +37,12 @@ const ScannerView = lazy(() =>
 const SandboxView = lazy(() =>
   import('./features/sandbox/SandboxView').then(m => ({ default: m.SandboxView }))
 );
+const GuardView = lazy(() =>
+  import('./features/guard/GuardView').then(m => ({ default: m.GuardView }))
+);
+const LlmCallsView = lazy(() =>
+  import('./features/llm/LlmCallsView').then(m => ({ default: m.LlmCallsView }))
+);
 const AttackView = lazy(() =>
   import('./features/attack/AttackView').then(m => ({ default: m.AttackView }))
 );
@@ -89,7 +95,11 @@ function ConsoleBody({
   };
 
   useEffect(() => {
-    const label = view.charAt(0).toUpperCase() + view.slice(1);
+    const titles: Partial<Record<ViewId, string>> = {
+      guard: 'Guard Events',
+      llm: 'LLM Calls',
+    };
+    const label = titles[view] ?? (view.charAt(0).toUpperCase() + view.slice(1));
     document.title = `${label} · MCP Guard Console`;
   }, [view]);
 
@@ -109,10 +119,12 @@ function ConsoleBody({
         {view === 'keys' && <KeysView offline={offline} clientIds={session.clientId ? [session.clientId] : []} />}
         {view === 'audit' && <AuditView offline={offline} />}
         {view === 'analyst' && <AnalystView offline={offline} scopes={session.scopes} />}
+        {view === 'llm' && <LlmCallsView offline={offline} />}
         {view === 'metrics' && <MetricsView offline={offline} />}
         {view === 'pins' && <PinsView offline={offline} />}
         {view === 'scanner' && <ScannerView offline={offline} />}
         {view === 'sandbox' && <SandboxView offline={offline} />}
+        {view === 'guard' && <GuardView offline={offline} scopes={session.scopes} />}
         {view === 'attack' && <AttackView offline={offline} />}
         {view === 'planned' && <PlannedView />}
       </Suspense>
