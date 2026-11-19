@@ -55,6 +55,17 @@ function agentSignal(): AbortSignal {
   return controller.signal;
 }
 
+function longSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(ms);
+  }
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), ms);
+  return controller.signal;
+}
+
+const AI_SCAN_TIMEOUT_MESSAGE = 'AI scan timed out. Try scanning one tool at a time.';
+
 function timeoutSignal(): AbortSignal {
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
     return AbortSignal.timeout(REQUEST_TIMEOUT_MS);
@@ -729,14 +740,28 @@ export const consoleApi = {
   },
 
   async scanAll(ai = false): Promise<ScanStats> {
-    const url = ai ? '/api/scanner/run?ai=true' : '/api/scanner/run';
-    return apiFetch<ScanStats>(url, { method: 'POST' });
+    if (ai) {
+      return apiFetch<ScanStats>(
+        '/api/scanner/run?ai=true',
+        { method: 'POST', signal: longSignal(600_000) },
+        undefined,
+        AI_SCAN_TIMEOUT_MESSAGE,
+      );
+    }
+    return apiFetch<ScanStats>('/api/scanner/run', { method: 'POST' });
   },
 
   async scanTool(tool_name: string, ai = false): Promise<ScanStats> {
     const base = `/api/scanner/run/${encodeURIComponent(tool_name)}`;
-    const url = ai ? `${base}?ai=true` : base;
-    return apiFetch<ScanStats>(url, { method: 'POST' });
+    if (ai) {
+      return apiFetch<ScanStats>(
+        `${base}?ai=true`,
+        { method: 'POST', signal: longSignal(150_000) },
+        undefined,
+        'AI scan timed out. Check that Ollama is running.',
+      );
+    }
+    return apiFetch<ScanStats>(base, { method: 'POST' });
   },
 
   async resolveFinding(finding_id: string): Promise<ScanFinding> {
