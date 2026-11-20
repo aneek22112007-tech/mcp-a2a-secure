@@ -41,6 +41,13 @@ def ensure_notes_dir() -> Path:
 mcp = FastMCP("mcp-guard")
 mcp.settings.streamable_http_path = "/"
 
+# DNS rebinding protection stays on. A hosted deploy adds its public host and
+# origin through MCP_ALLOWED_HOSTS and MCP_ALLOWED_ORIGINS.
+_transport_security = mcp.settings.transport_security
+if _transport_security is not None:
+    _transport_security.allowed_hosts.extend(settings.mcp_allowed_hosts)
+    _transport_security.allowed_origins.extend(settings.mcp_allowed_origins)
+
 
 # ---------------------------------------------------------------------------
 # Security helper
