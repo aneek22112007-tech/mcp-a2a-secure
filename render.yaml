@@ -1,0 +1,103 @@
+# Render Blueprint for the free-tier deploy. See docs/DEPLOY_FREE.md.
+# Postgres runs on Neon and Redis on Upstash, so only the two web services
+# are defined here. Values marked sync: false are asked for in the Render
+# dashboard when the Blueprint is created. Never commit their values.
+services:
+  # FastAPI gateway (api/). The image entrypoint runs `alembic upgrade head`
+  # and then starts uvicorn on port 8000, so PORT is pinned to 8000.
+  - type: web
+    name: mcp-guard-api
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerContext: ./api
+    dockerfilePath: ./api/Dockerfile
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - api/**
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: ENVIRONMENT
+        value: production
+      - key: RUN_MIGRATIONS
+        value: "true"
+      - key: MULTI_INSTANCE
+        value: "false"
+      - key: INSTANCE_ID
+        value: render
+      # Neon direct (not pooled) connection string, with ?ssl=require.
+      - key: DATABASE_URL
+        sync: false
+      # Upstash rediss:// URL. Optional for a single instance; leave blank to skip.
+      - key: REDIS_URL
+        sync: false
+      - key: API_KEY_PEPPER
+        generateValue: true
+      - key: A2A_SIGNING_KEY
+        generateValue: true
+      # JSON list with the Vercel site origin, e.g. ["https://mcp-guard.vercel.app"]
+      - key: CORS_ORIGINS
+        sync: false
+      # JSON list with this service's host, e.g. ["mcp-guard-api.onrender.com"]
+      - key: MCP_ALLOWED_HOSTS
+        sync: false
+      # JSON list with the Vercel site origin, e.g. ["https://mcp-guard.vercel.app"]
+      - key: MCP_ALLOWED_ORIGINS
+        sync: false
+      - key: TOOL_PINNING_MODE
+        value: enforce
+      - key: INJECTION_GUARD_MODE
+        value: enforce
+      - key: ENABLE_RETENTION_SCHEDULER
+        value: "true"
+      # Production refuses SANDBOX_MODE=inprocess. Render has no Docker daemon,
+      # so sandboxed tool calls fail closed on this host.
+      - key: SANDBOX_MODE
+        value: docker
+      - key: UPSTREAM_FS_ENABLED
+        value: "false"
+      - key: UPSTREAM_LAB_ENABLED
+        value: "false"
+      - key: LLM_ENABLED
+        value: "true"
+      - key: SCANNER_AI_ENABLED
+        value: "true"
+      - key: SCANNER_AI_ON_STARTUP
+        value: "false"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+      - key: LLM_TIMEOUT_SECONDS
+        value: "60"
+      - key: DB_POOL_SIZE
+        value: "3"
+      - key: DB_MAX_OVERFLOW
+        value: "2"
+      - key: UVICORN_LIMIT_CONCURRENCY
+        value: "64"
+
+  # Login server (backend/, Express). Users are kept in memory, so accounts
+  # reset whenever the free instance sleeps or restarts.
+  - type: web
+    name: mcp-guard-login
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false

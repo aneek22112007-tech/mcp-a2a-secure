@@ -86,6 +86,17 @@ class Settings(BaseSettings):
         default=None,
         description="API key for internal status probe",
     )
+    mcp_allowed_hosts: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Extra Host header values /mcp accepts, added to the local defaults. "
+            "Set the public host name when the API runs behind a hosted proxy."
+        ),
+    )
+    mcp_allowed_origins: list[str] = Field(
+        default_factory=list,
+        description="Extra exact Origin values /mcp accepts, added to the local defaults.",
+    )
 
     database_url: str = Field(
         default=_DEFAULT_DB_URL,
@@ -546,6 +557,13 @@ class Settings(BaseSettings):
                     raise ValueError(
                         "CORS_ORIGINS must be exact http/https origins in production"
                     )
+
+        for host in self.mcp_allowed_hosts:
+            if not re.fullmatch(r"[A-Za-z0-9.-]+(:(\d+|\*))?", host):
+                raise ValueError("MCP_ALLOWED_HOSTS entries must be host or host:port")
+        for origin in self.mcp_allowed_origins:
+            if not _is_exact_http_origin(origin):
+                raise ValueError("MCP_ALLOWED_ORIGINS must be exact http/https origins")
 
         networks = []
         for p in self.trusted_proxies:
