@@ -196,7 +196,6 @@ export function OverviewView({ offline }: OverviewProps) {
           value={<span>{allowRate == null ? '—' : fmtPercent(allowRate)}</span>}
           narrative={`${totals.successful.toLocaleString()} allowed of ${totals.total.toLocaleString()} all time`}
           series={series?.buckets.map(b => (known(b.t) ? b.allowed : 0))}
-          current={cur?.allowed} previous={prev?.allowed}
           color="var(--c-chart-allow)"
         />
         <StatCard
