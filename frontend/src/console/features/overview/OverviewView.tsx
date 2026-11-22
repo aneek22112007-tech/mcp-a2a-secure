@@ -12,10 +12,11 @@ import { ErrorPanel, StreamDot, EmptyState } from '../../components/ui';
 import { lightsMatched, pipelineLights, type StageLight } from '../../components/pipelineLogic';
 import { ATTACK_SEQUENCE, waitForCaption, type AttackResult } from '../attack/runners';
 import {
-  fmtTimestamp, fmtDuration, fmtUptime, elapsedSince,
+  fmtTimestamp, fmtDuration, elapsedSince,
   getPinBadge, PIN_BADGE_LABEL, isConsolePoll, CONSOLE_TZ,
-  fmtPercent, plural, trafficCommands,
+  plural, trafficCommands, envFromBase,
 } from '../../utils/helpers';
+import { CommandBand } from './CommandBand';
 import { getApiBase, type MetricsResponse, type AuditEvent, type ToolPin } from '../../api/client';
 import { useReducedMotion } from '../../../hooks/useReducedMotion';
 
@@ -161,6 +162,9 @@ export function OverviewView({ offline }: OverviewProps) {
   const trafficNote = partial
     ? `Newest ${series?.sampled ?? 0} audit events, from ${timeFmt.format(new Date(coveredFrom))} IST. Older minutes were not loaded.`
     : 'Allowed and denied decisions per minute, last 30 minutes (IST)';
+  const bandState: 'ok' | 'degraded' | 'down' | 'unknown' = offline
+    ? 'down'
+    : !health ? 'unknown' : health.status !== 'ok' ? 'degraded' : streamState === 'offline' ? 'degraded' : 'ok';
   const healthTone = (ok: boolean | undefined) => (ok == null ? 'neutral' : ok ? 'ok' : 'bad');
 
   return (
@@ -169,9 +173,7 @@ export function OverviewView({ offline }: OverviewProps) {
         <div>
           <h1 className="page-title">Overview</h1>
           <p className="page-sub">
-            Gateway traffic, policy decisions and tool health
-            {health ? ` for ${health.app}` : ''}
-            {probe?.uptime_seconds != null && ` · up ${fmtUptime(probe.uptime_seconds)}`}
+            Gateway traffic, policy decisions and tool health{health ? ` for ${health.app}` : ''}
           </p>
         </div>
         <div className="home-actions">
@@ -180,29 +182,43 @@ export function OverviewView({ offline }: OverviewProps) {
         </div>
       </header>
 
+      <CommandBand
+        state={bandState}
+        envName={envFromBase(getApiBase()).name}
+        total={totals.total}
+        allowRate={allowRate}
+        denied={totals.denied}
+        uptimeSeconds={probe?.uptime_seconds}
+        events={[...liveEvents, ...(auditPage?.items ?? [])]}
+        pins={pins}
+        lights={lights}
+      />
+
       <div className="stat-grid">
         <StatCard
-          label="Requests"
+          label="Requests, 15 min"
           icon={<Activity size={14} />}
-          value={<Count value={totals.total} color="var(--c-text)" />}
-          narrative={cur ? `${plural(cur.total, 'request')} in the last 15 min` : 'All time, from /api/metrics'}
+          value={<Count value={series?.current.total ?? 0} color="var(--c-text)" />}
+          narrative={partial
+            ? 'At least; older rows not loaded'
+            : prev ? `vs ${prev.total.toLocaleString()} in the 15 min before` : 'From the audit log'}
           series={series?.buckets.map(b => (known(b.t) ? b.total : 0))}
           current={cur?.total} previous={prev?.total}
           color="var(--c-chart-info)"
         />
         <StatCard
-          label="Allow rate"
+          label="Allowed, 15 min"
           icon={<Shield size={14} />}
-          value={<span>{allowRate == null ? '—' : fmtPercent(allowRate)}</span>}
-          narrative={`${totals.successful.toLocaleString()} allowed of ${totals.total.toLocaleString()} all time`}
+          value={<Count value={series?.current.allowed ?? 0} color="var(--c-text)" />}
+          narrative={`${totals.successful.toLocaleString()} allowed all time`}
           series={series?.buckets.map(b => (known(b.t) ? b.allowed : 0))}
           color="var(--c-chart-allow)"
         />
         <StatCard
-          label="Denied"
+          label="Denied, 15 min"
           icon={<ShieldX size={14} />}
-          value={<Count value={totals.denied} color="var(--c-text)" />}
-          narrative={`Auth, scope and policy · ${plural(totals.rate_limit_rejections, 'rate-limit rejection')}`}
+          value={<Count value={series?.current.denied ?? 0} color="var(--c-text)" />}
+          narrative={`Auth, scope and policy · ${plural(totals.rate_limit_rejections, 'rate-limit rejection')} all time`}
           series={series?.buckets.map(b => (known(b.t) ? b.denied : 0))}
           current={cur?.denied} previous={prev?.denied}
           goodWhenUp={false}
@@ -426,24 +442,24 @@ function TrafficChart({ data }: { data: { t: number; allowed: number | null; den
         <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
           <defs>
             <linearGradient id="trafficAllow" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#2DD4BF" stopOpacity={0.32} />
-              <stop offset="100%" stopColor="#2DD4BF" stopOpacity={0.02} />
+              <stop offset="0%" stopColor="#14B8A6" stopOpacity={0.32} />
+              <stop offset="100%" stopColor="#14B8A6" stopOpacity={0.02} />
             </linearGradient>
             <linearGradient id="trafficDeny" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#F43F5E" stopOpacity={0.35} />
               <stop offset="100%" stopColor="#F43F5E" stopOpacity={0.02} />
             </linearGradient>
           </defs>
-          <CartesianGrid vertical={false} stroke="#1E1E23" />
-          <XAxis dataKey="t" tickFormatter={(t: number) => timeFmt.format(new Date(t))} tick={{ fill: '#71717A', fontSize: 11 }} axisLine={false} tickLine={false} minTickGap={40} />
-          <YAxis allowDecimals={false} tick={{ fill: '#71717A', fontSize: 11 }} axisLine={false} tickLine={false} width={36} />
+          <CartesianGrid vertical={false} stroke="#EEECE6" />
+          <XAxis dataKey="t" tickFormatter={(t: number) => timeFmt.format(new Date(t))} tick={{ fill: '#8A8A93', fontSize: 11 }} axisLine={false} tickLine={false} minTickGap={40} />
+          <YAxis allowDecimals={false} tick={{ fill: '#8A8A93', fontSize: 11 }} axisLine={false} tickLine={false} width={36} />
           <Tooltip
-            cursor={{ stroke: '#3F3F46' }}
+            cursor={{ stroke: '#DCD9D1' }}
             contentStyle={{ background: '#18181B', border: '1px solid #27272A', borderRadius: 8, fontSize: 12 }}
             labelStyle={{ color: '#A1A1AA' }}
             labelFormatter={(t) => `${timeFmt.format(new Date(Number(t)))} IST`}
           />
-          <Area type="monotone" dataKey="allowed" name="Allowed" stackId="1" stroke="#2DD4BF" strokeWidth={1.75} fill="url(#trafficAllow)" isAnimationActive={false} />
+          <Area type="monotone" dataKey="allowed" name="Allowed" stackId="1" stroke="#14B8A6" strokeWidth={1.75} fill="url(#trafficAllow)" isAnimationActive={false} />
           <Area type="monotone" dataKey="denied" name="Denied" stackId="1" stroke="#F43F5E" strokeWidth={1.75} fill="url(#trafficDeny)" isAnimationActive={false} />
         </AreaChart>
       </ResponsiveContainer>

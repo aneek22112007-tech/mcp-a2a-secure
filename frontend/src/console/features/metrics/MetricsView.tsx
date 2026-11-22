@@ -14,15 +14,15 @@ interface MetricsViewProps { offline: boolean }
 
 // Recharts themed to design tokens
 const CHART_COLORS = {
-  allow:  '#2DD4BF',
+  allow:  '#14B8A6',
   deny:   '#F43F5E',
   review: '#FBBF24',
   high:   '#FB923C',
   info:   '#60A5FA',
-  muted:  '#3F3F46',
+  muted:  '#D4D1C8',
 };
 
-const AXIS_TICK = { fill: '#71717A', fontSize: 11 };
+const AXIS_TICK = { fill: '#8A8A93', fontSize: 11 };
 
 interface TipPayload { name?: string; value?: number | string; color?: string; dataKey?: string | number; payload?: Record<string, unknown> }
 
@@ -185,7 +185,7 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
                       <stop offset="100%" stopColor={CHART_COLORS.deny} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="#1E1E23" vertical={false} />
+                  <CartesianGrid stroke="#EEECE6" vertical={false} />
                   <XAxis
                     dataKey="t"
                     tickFormatter={(t: number) => fmtTimestamp(new Date(t).toISOString()).slice(0, 5)}
@@ -194,7 +194,7 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
                   <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
                   <Tooltip
                     content={<ChartTooltip unit="count" labelFmt={l => `${fmtTimestamp(new Date(Number(l)).toISOString())} IST`} />}
-                    cursor={{ stroke: '#3F3F46' }}
+                    cursor={{ stroke: '#DCD9D1' }}
                   />
                   <Area type="monotone" dataKey="Allowed" stroke={CHART_COLORS.allow} fill="url(#gAllow)" strokeWidth={1.75} isAnimationActive={false} />
                   <Area type="monotone" dataKey="Denied" stroke={CHART_COLORS.deny} fill="url(#gDeny)" strokeWidth={1.75} isAnimationActive={false} />

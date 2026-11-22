@@ -5,6 +5,7 @@ import './styles/console.css';
 import './styles/premium.css';
 import './styles/theme.css';
 import './styles/layout.css';
+import './styles/v4.css';
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
@@ -207,7 +208,7 @@ export function ConsoleApp() {
   return (
     <QueryClientProvider client={queryClient}>
       <ConsoleBody session={session} offline={offline} backendUp={backendUp === true} />
-      <Toaster richColors theme="dark" position="bottom-right" />
+      <Toaster richColors theme="light" position="bottom-right" />
     </QueryClientProvider>
   );
 }
