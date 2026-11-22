@@ -413,6 +413,7 @@
   .mcpg-console .rail-btn span.rail-count { display: inline-flex; }
   .mcpg-console .subheader { padding: 0 10px 0 6px; gap: 8px; }
   .mcpg-console .subheader .crumbs li:not([aria-current]) { display: none; }
+  .mcpg-console .subheader .crumbs li[aria-current] .crumb-sep { display: none; }
   .mcpg-console .subheader .updated { display: none; }
   .home-actions { width: 100%; }
   .home-actions .btn { flex: 1; justify-content: center; }
