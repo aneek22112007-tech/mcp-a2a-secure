@@ -146,7 +146,7 @@ flowchart LR
 | API | Python 3.11+, FastAPI, Uvicorn, the official MCP Python SDK (FastMCP, Streamable HTTP) |
 | Data | SQLAlchemy 2 (async), Alembic, Postgres 16 (SQLite for local development), asyncpg |
 | Shared state | Valkey 8 (Redis-compatible) |
-| Agents and LLM | LangGraph, LangChain with ChatOllama (`qwen3.5:9b`) and ChatGroq (`llama-3.3-70b-versatile`) as fallback, `a2a-sdk` types |
+| Agents and LLM | LangGraph, LangChain with ChatOllama (`qwen3.5:9b`) and ChatGroq (`openai/gpt-oss-120b`) as fallback, `a2a-sdk` types |
 | Sandbox | Docker containers started per tool call |
 | Frontend | React 19, Vite 8, Tailwind CSS 4, TanStack Query, React Router |
 | Sign-in service | Node 22, Express, bcrypt, JWT, Google sign-in |
@@ -291,7 +291,7 @@ The API reads `api/.env` locally and the root `.env` under Compose. Templates: [
 | `MULTI_INSTANCE` | `false` | When true, startup refuses SQLite and a missing `REDIS_URL` |
 | `LLM_ENABLED` | `false` | Turns on the agents and the analyst |
 | `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | `http://localhost:11434` / `qwen3.5:9b` | Primary model |
-| `GROQ_API_KEY` / `GROQ_MODEL` | unset / `llama-3.3-70b-versatile` | Fallback model, used only when Ollama can't be reached or times out |
+| `GROQ_API_KEY` / `GROQ_MODEL` | unset / `openai/gpt-oss-120b` | Fallback model, used only when Ollama can't be reached or times out |
 | `SCANNER_AI_ENABLED` | `false` | Turns on the AI scanner pass. Needs `LLM_ENABLED=true` |
 | `NOTES_AGENT_API_KEY` / `WORKER_NOTES_API_KEY` | unset | Keys the notes agent and A2A worker use against `/mcp/` |
 | `A2A_SIGNING_KEY` | unset | HMAC key for delegation tokens. Without it each process makes a temporary key and logs a warning |

@@ -305,7 +305,7 @@ class Settings(BaseSettings):
         description="Groq API key. Used only when Ollama cannot be reached.",
     )
     groq_model: str = Field(
-        default="llama-3.3-70b-versatile",
+        default="openai/gpt-oss-120b",
         min_length=1,
         description="Groq model used as the fallback chat model.",
     )

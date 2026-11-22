@@ -52,7 +52,7 @@ function explainMessage(err: unknown): string {
   if (err.code === 'ANALYST_UNAVAILABLE') {
     return reason === 'disabled'
       ? 'Analyst unavailable. LLM_ENABLED is false.'
-      : 'Analyst unavailable. Ollama is not reachable at the configured URL and Groq is not configured.';
+      : 'Analyst unavailable. Ollama is not reachable and the Groq fallback did not answer. Check GROQ_API_KEY and GROQ_MODEL.';
   }
   return err.message;
 }
