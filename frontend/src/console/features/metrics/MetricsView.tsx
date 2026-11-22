@@ -121,12 +121,13 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
         .map(([k, v]) => ({ name: k, value: v }))
     : [];
 
-  const timeline = (series?.buckets ?? []).slice(-range).map(b => ({
-    t: b.t,
-    Allowed: b.allowed,
-    Denied: b.denied,
-  }));
-  const timelineHasData = timeline.some(p => p.Allowed + p.Denied > 0);
+  // Minutes older than the loaded audit rows are unknown, so they are drawn as a gap.
+  const coveredFrom = series?.coveredFrom ?? null;
+  const timeline = (series?.buckets ?? []).slice(-range).map(b => {
+    const known = coveredFrom == null || b.t + 60_000 > coveredFrom;
+    return { t: b.t, Allowed: known ? b.allowed : null, Denied: known ? b.denied : null };
+  });
+  const timelineHasData = timeline.some(p => (p.Allowed ?? 0) + (p.Denied ?? 0) > 0);
   const successRate = totals && totals.total ? totals.successful / totals.total : null;
 
   const statusTotal = statusData.reduce((n, d) => n + d.value, 0);
@@ -158,7 +159,9 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
       <div className="grid-2-1">
         <Card
           title="Gateway activity"
-          description="Allowed and denied decisions per minute (IST)"
+          description={coveredFrom != null
+            ? `Per minute (IST), newest ${series?.sampled ?? 0} audit events from ${fmtTimestamp(new Date(coveredFrom).toISOString()).slice(0, 5)}`
+            : 'Allowed and denied decisions per minute (IST)'}
           action={(
             <div className="seg seg-text" role="group" aria-label="Time range">
               {RANGES.map(r => (

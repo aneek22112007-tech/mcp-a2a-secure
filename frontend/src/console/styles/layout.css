@@ -421,3 +421,12 @@
   .mcpg-console .analyst-split { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 1100px) { .mcpg-console .analyst-split { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── Legacy panel heads read like card heads ───────────────────────── */
+.mcpg-console .panel-head { min-height: 52px; padding: 12px 20px; }
+.mcpg-console .panel-head .section-label,
+.mcpg-console .panel-pad > .section-label:first-child,
+.mcpg-console .panel > .section-label:first-child { font-size: 14px; }
+.mcpg-console .panel-pad { padding: 18px 20px; }
+.mcpg-console .page-header .page-title { font-size: 22px; }
+.mcpg-console .panel .data-table th:first-child, .mcpg-console .panel .data-table td:first-child { padding-left: 20px; }

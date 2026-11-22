@@ -146,12 +146,21 @@ export function OverviewView({ offline }: OverviewProps) {
   const ranked = rankFromEvents(events.length ? [...liveEvents, ...(auditPage?.items ?? [])] : []);
   const auditWindow = auditPage?.items.length ?? 0;
   const allowRate = totals.total ? totals.successful / totals.total : null;
-  const cur = series?.current;
-  const prev = series?.previous;
+  // When the newest 500 audit rows do not reach back 30 minutes, earlier minutes are unknown.
+  const coveredFrom = series?.coveredFrom ?? null;
+  const partial = coveredFrom != null;
+  const cur = partial ? undefined : series?.current;
+  const prev = partial ? undefined : series?.previous;
   const pinTotal = summary.trusted + summary.review + summary.drift + summary.revoked;
   const sandboxEntries = sandbox ? Object.entries(sandbox.by_status).filter(([, c]) => c > 0).sort(([, a], [, b]) => b - a) : [];
-  const traffic = (series?.buckets ?? []).map(b => ({ t: b.t, allowed: b.allowed, denied: b.denied }));
-  const trafficTotals = traffic.reduce((acc, b) => ({ allowed: acc.allowed + b.allowed, denied: acc.denied + b.denied }), { allowed: 0, denied: 0 });
+  const known = (t: number) => coveredFrom == null || t + 60_000 > coveredFrom;
+  const traffic = (series?.buckets ?? []).map(b => (known(b.t)
+    ? { t: b.t, allowed: b.allowed, denied: b.denied }
+    : { t: b.t, allowed: null, denied: null }));
+  const trafficTotals = traffic.reduce((acc, b) => ({ allowed: acc.allowed + (b.allowed ?? 0), denied: acc.denied + (b.denied ?? 0) }), { allowed: 0, denied: 0 });
+  const trafficNote = partial
+    ? `Newest ${series?.sampled ?? 0} audit events, from ${timeFmt.format(new Date(coveredFrom))} IST. Older minutes were not loaded.`
+    : 'Allowed and denied decisions per minute, last 30 minutes (IST)';
   const healthTone = (ok: boolean | undefined) => (ok == null ? 'neutral' : ok ? 'ok' : 'bad');
 
   return (
@@ -177,7 +186,7 @@ export function OverviewView({ offline }: OverviewProps) {
           icon={<Activity size={14} />}
           value={<Count value={totals.total} color="var(--c-text)" />}
           narrative={cur ? `${plural(cur.total, 'request')} in the last 15 min` : 'All time, from /api/metrics'}
-          series={series?.buckets.map(b => b.total)}
+          series={series?.buckets.map(b => (known(b.t) ? b.total : 0))}
           current={cur?.total} previous={prev?.total}
           color="var(--c-chart-info)"
         />
@@ -186,7 +195,7 @@ export function OverviewView({ offline }: OverviewProps) {
           icon={<Shield size={14} />}
           value={<span>{allowRate == null ? '—' : fmtPercent(allowRate)}</span>}
           narrative={`${totals.successful.toLocaleString()} allowed of ${totals.total.toLocaleString()} all time`}
-          series={series?.buckets.map(b => b.allowed)}
+          series={series?.buckets.map(b => (known(b.t) ? b.allowed : 0))}
           current={cur?.allowed} previous={prev?.allowed}
           color="var(--c-chart-allow)"
         />
@@ -195,7 +204,7 @@ export function OverviewView({ offline }: OverviewProps) {
           icon={<ShieldX size={14} />}
           value={<Count value={totals.denied} color="var(--c-text)" />}
           narrative={`Auth, scope and policy · ${plural(totals.rate_limit_rejections, 'rate-limit rejection')}`}
-          series={series?.buckets.map(b => b.denied)}
+          series={series?.buckets.map(b => (known(b.t) ? b.denied : 0))}
           current={cur?.denied} previous={prev?.denied}
           goodWhenUp={false}
           color="var(--c-chart-deny)"
@@ -213,7 +222,7 @@ export function OverviewView({ offline }: OverviewProps) {
       <div className="grid-2-1">
         <Card
           title="Gateway traffic"
-          description="Allowed and denied decisions per minute, last 30 minutes (IST)"
+          description={trafficNote}
           label="Gateway traffic"
           action={(
             <div className="legend">
@@ -312,7 +321,7 @@ export function OverviewView({ offline }: OverviewProps) {
 
         <Card
           title="Tools"
-          description={auditWindow ? `Calls by tool in the latest ${plural(auditWindow, 'event')}, pins, sandbox` : 'Calls by tool, pin status and sandbox runs'}
+          description="Calls by tool, pin status and sandbox runs"
           label="Tools"
           action={<a className="card-link" href="#/pins">Pins <ArrowRight size={12} aria-hidden /></a>}
         >
@@ -408,7 +417,7 @@ export function OverviewView({ offline }: OverviewProps) {
 
 const timeFmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: CONSOLE_TZ });
 
-function TrafficChart({ data }: { data: { t: number; allowed: number; denied: number }[] }) {
+function TrafficChart({ data }: { data: { t: number; allowed: number | null; denied: number | null }[] }) {
   if (!data.some(d => d.allowed || d.denied)) {
     return <div className="chart-empty">No gateway traffic in the last 30 minutes</div>;
   }
