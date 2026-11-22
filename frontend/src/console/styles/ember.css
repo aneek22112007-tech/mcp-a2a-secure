@@ -1060,3 +1060,5 @@
   -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
   box-shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.9), 0 0 30px -16px var(--ember-glow);
 }
+.mcpg-console input[type="checkbox"], .mcpg-console input[type="radio"],
+.connect-screen input[type="checkbox"] { accent-color: var(--ember-1); }
