@@ -30,7 +30,7 @@ The diagram loops through three cases: a key with the right scope reaches the to
 
 | Part | URL | Host |
 | --- | --- | --- |
-| Landing page and console | https://mcp-guard-ten.vercel.app | Vercel |
+| Landing page and console | https://mcp-guard-psi.vercel.app | Vercel |
 | API and MCP endpoint | https://mcp-guard-api.onrender.com | Render (free web service) |
 | Sign-in service | `mcp-guard-login` on Render | Render (free web service) |
 | Database | Neon Postgres | Neon (free) |
@@ -132,7 +132,7 @@ On the hosted copy, Vercel takes the place of Caddy, there is one API instance o
 
 ```mermaid
 flowchart LR
-    B["Browser"] --> V["Vercel<br/>mcp-guard-ten.vercel.app"]
+    B["Browser"] --> V["Vercel<br/>mcp-guard-psi.vercel.app"]
     V -- "/api/*, /mcp, /health, /ready" --> R["Render<br/>mcp-guard-api"]
     V -- "/api/auth/*" --> L["Render<br/>mcp-guard-login"]
     R --> N[("Neon Postgres")]
