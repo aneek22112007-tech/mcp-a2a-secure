@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
-  ResponsiveContainer, Cell, AreaChart, Area,
+  XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, AreaChart, Area,
 } from 'recharts';
-import { Activity, Database, Gauge, ShieldAlert, Cpu, BarChart2 } from 'lucide-react';
+import { Activity, Gauge, ShieldAlert, Cpu, BarChart2 } from 'lucide-react';
+import { BarList, Card, StatusRow } from '../../components/blocks';
 import { useMetrics, useActivitySeries } from '../../api/hooks';
 import { ErrorPanel, EmptyState, ConsoleErrorBoundary } from '../../components/ui';
 import { SkeletonPage } from '../../components/premium';
@@ -14,15 +14,15 @@ interface MetricsViewProps { offline: boolean }
 
 // Recharts themed to design tokens
 const CHART_COLORS = {
-  allow:  '#3DB88B',
-  deny:   '#E5484D',
-  review: '#E0A23B',
-  high:   '#E07B45',
-  info:   '#6F9FD8',
-  muted:  '#3A3A40',
+  allow:  '#2DD4BF',
+  deny:   '#F43F5E',
+  review: '#FBBF24',
+  high:   '#FB923C',
+  info:   '#60A5FA',
+  muted:  '#3F3F46',
 };
 
-const AXIS_TICK = { fill: '#76767E', fontSize: 10, fontFamily: 'var(--font-mono)' };
+const AXIS_TICK = { fill: '#71717A', fontSize: 11 };
 
 interface TipPayload { name?: string; value?: number | string; color?: string; dataKey?: string | number; payload?: Record<string, unknown> }
 
@@ -63,24 +63,12 @@ function Legend({ items }: { items: { label: string; color: string }[] }) {
   );
 }
 
-function PanelTitle({ label, right }: { label: string; right?: React.ReactNode }) {
+function Stat({ label, value, sub, dot }: { label: string; value: React.ReactNode; sub?: string; dot?: string }) {
   return (
-    <div className="row-between" style={{ marginBottom: 14, paddingBottom: 10, borderBottom: '1px solid var(--c-border)' }}>
-      <h2 className="section-label" style={{ margin: 0 }}>{label}</h2>
-      {right}
-    </div>
-  );
-}
-
-function Stat({ label, value, tone, icon, sub }: { label: string; value: React.ReactNode; tone: string; icon: React.ReactNode; sub?: string }) {
-  return (
-    <div className="kpi-card" style={{ ['--kpi-tone' as string]: tone, gap: 8 }}>
-      <div className="kpi-head">
-        <span className="kpi-icon" aria-hidden>{icon}</span>
-        <span className="stat-card-label">{label}</span>
-      </div>
-      <div className="kpi-value" style={{ fontSize: 24 }}>{value}</div>
-      {sub && <div className="kpi-foot-note">{sub}</div>}
+    <div className="summary-cell">
+      <span className="summary-label">{dot && <span className="summary-dot" style={{ background: dot }} aria-hidden />}{label}</span>
+      <span className="summary-value">{value}</span>
+      {sub && <span className="summary-sub">{sub}</span>}
     </div>
   );
 }
@@ -141,228 +129,188 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
   const timelineHasData = timeline.some(p => p.Allowed + p.Denied > 0);
   const successRate = totals && totals.total ? totals.successful / totals.total : null;
 
+  const statusTotal = statusData.reduce((n, d) => n + d.value, 0);
+  const llmLabel = llm ? (llm.enabled ? `${llm.primary_provider || 'ollama'} · ${llm.primary_model}` : 'Disabled') : '—';
+
   return (
     <div className="console-page">
-      <header className="page-header">
+      <header className="home-head">
         <div>
           <h1 className="page-title">Metrics</h1>
-          <p className="page-sub">Aggregated from the audit log, sandbox runs and the injection guard.</p>
+          <p className="page-sub">Aggregated from the audit log, sandbox runs and the injection guard</p>
         </div>
       </header>
 
-      <div className="kpi-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
-        <Stat label="Total" value={fmtNumber(totals?.total)} tone="var(--c-amber)" icon={<Activity size={13} />} sub={successRate != null ? `${fmtPercent(successRate)} successful` : undefined} />
-        <Stat label="Denied" value={fmtNumber(totals?.denied)} tone="var(--c-deny)" icon={<ShieldAlert size={13} />} sub="auth, scope and policy" />
-        <Stat label="Errors" value={fmtNumber(totals?.error)} tone="var(--c-high)" icon={<BarChart2 size={13} />} sub="tool or upstream failures" />
-        <Stat label="Rate limited" value={fmtNumber(totals?.rate_limit_rejections)} tone="var(--c-review)" icon={<Gauge size={13} />} sub="since API start" />
-        <Stat label="Guard hits" value={fmtNumber(guard?.hits ?? 0)} tone="var(--c-high)" icon={<ShieldAlert size={13} />} sub={guard ? `${guard.blocked} blocked · ${guard.sanitized} sanitized` : 'not reported'} />
+      <div className="summary-strip summary-strip-6">
+        <Stat label="Total requests" value={fmtNumber(totals?.total)} sub={successRate != null ? `${fmtPercent(successRate)} successful` : undefined} />
+        <Stat label="Denied" dot={CHART_COLORS.deny} value={fmtNumber(totals?.denied)} sub="Auth, scope and policy" />
+        <Stat label="Errors" dot={CHART_COLORS.high} value={fmtNumber(totals?.error)} sub="Tool or upstream failures" />
+        <Stat label="Rate limited" dot={CHART_COLORS.review} value={fmtNumber(totals?.rate_limit_rejections)} sub="Since API start" />
+        <Stat label="Guard hits" value={fmtNumber(guard?.hits ?? 0)} sub={guard ? `${guard.blocked} blocked · ${guard.sanitized} sanitized` : 'Not reported'} />
         <Stat
           label="Database"
-          value={<span style={{ color: metrics?.database?.available ? 'var(--c-allow)' : 'var(--c-deny)' }}>{metrics?.database?.available ? 'Online' : 'Offline'}</span>}
-          tone={metrics?.database?.available ? 'var(--c-allow)' : 'var(--c-deny)'}
-          icon={<Database size={13} />}
-          sub={metrics?.database?.error ?? 'audit store reachable'}
+          dot={metrics?.database?.available ? CHART_COLORS.allow : CHART_COLORS.deny}
+          value={metrics?.database?.available ? 'Online' : 'Offline'}
+          sub={metrics?.database?.error ?? 'Audit store reachable'}
         />
       </div>
 
-        <div className="panel" style={{ padding: 20 }}>
-          <PanelTitle
-            label="Gateway activity per minute"
-            right={(
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <Legend items={[{ label: 'Allowed', color: CHART_COLORS.allow }, { label: 'Denied', color: CHART_COLORS.deny }]} />
-                <div className="seg" role="group" aria-label="Time range">
-                  {RANGES.map(r => (
-                    <button key={r.id} aria-pressed={range === r.id} onClick={() => setRange(r.id)}>{r.label}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-          />
+      <div className="grid-2-1">
+        <Card
+          title="Gateway activity"
+          description="Allowed and denied decisions per minute (IST)"
+          action={(
+            <div className="seg seg-text" role="group" aria-label="Time range">
+              {RANGES.map(r => (
+                <button key={r.id} aria-pressed={range === r.id} onClick={() => setRange(r.id)}>{r.label}</button>
+              ))}
+            </div>
+          )}
+        >
+          <Legend items={[{ label: 'Allowed', color: CHART_COLORS.allow }, { label: 'Denied', color: CHART_COLORS.deny }]} />
           {timelineHasData ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={timeline} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gAllow" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor={CHART_COLORS.allow} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={CHART_COLORS.allow} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gDeny" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor={CHART_COLORS.deny} stopOpacity={0.4} />
-                    <stop offset="100%" stopColor={CHART_COLORS.deny} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="#1F1F23" vertical={false} />
-                <XAxis
-                  dataKey="t"
-                  tickFormatter={(t: number) => fmtTimestamp(new Date(t).toISOString()).slice(0, 5)}
-                  tick={AXIS_TICK} axisLine={{ stroke: '#2E2E33' }} tickLine={false} minTickGap={40}
-                />
-                <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip
-                  content={<ChartTooltip unit="count" labelFmt={l => `${fmtTimestamp(new Date(Number(l)).toISOString())} IST`} />}
-                  cursor={{ stroke: '#45454C' }}
-                />
-                <Area type="monotone" dataKey="Allowed" stroke={CHART_COLORS.allow} fill="url(#gAllow)" strokeWidth={1.5} isAnimationActive={false} />
-                <Area type="monotone" dataKey="Denied" stroke={CHART_COLORS.deny} fill="url(#gDeny)" strokeWidth={1.5} isAnimationActive={false} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <div style={{ height: 240, marginTop: 12 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={timeline} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gAllow" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stopColor={CHART_COLORS.allow} stopOpacity={0.3} />
+                      <stop offset="100%" stopColor={CHART_COLORS.allow} stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gDeny" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stopColor={CHART_COLORS.deny} stopOpacity={0.35} />
+                      <stop offset="100%" stopColor={CHART_COLORS.deny} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#1E1E23" vertical={false} />
+                  <XAxis
+                    dataKey="t"
+                    tickFormatter={(t: number) => fmtTimestamp(new Date(t).toISOString()).slice(0, 5)}
+                    tick={AXIS_TICK} axisLine={false} tickLine={false} minTickGap={40}
+                  />
+                  <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip
+                    content={<ChartTooltip unit="count" labelFmt={l => `${fmtTimestamp(new Date(Number(l)).toISOString())} IST`} />}
+                    cursor={{ stroke: '#3F3F46' }}
+                  />
+                  <Area type="monotone" dataKey="Allowed" stroke={CHART_COLORS.allow} fill="url(#gAllow)" strokeWidth={1.75} isAnimationActive={false} />
+                  <Area type="monotone" dataKey="Denied" stroke={CHART_COLORS.deny} fill="url(#gDeny)" strokeWidth={1.75} isAnimationActive={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           ) : (
             <EmptyState label={`No gateway calls in the last ${range} minutes.`} hint="Console polls are left out. Calls from agents and keys show up within 15 seconds:" command={trafficCommands(getApiBase()).restCall} icon={Activity} />
           )}
-        </div>
+        </Card>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div className="panel" style={{ padding: 20 }}>
-          <PanelTitle label="Request status breakdown" right={<Legend items={statusData.map(s => ({ label: s.name, color: s.color }))} />} />
-          {statusData.some(s => s.value > 0) ? (
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={statusData} margin={{ top: 4, right: 4, left: -16, bottom: 4 }} barCategoryGap="30%">
-                <CartesianGrid stroke="#1F1F23" vertical={false} />
-                <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#2E2E33' }} tickLine={false} />
-                <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
-                <Bar dataKey="value" name="Requests" radius={[3, 3, 0, 0]} maxBarSize={48}>
-                  {statusData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+        <Card title="Request outcomes" description="Every request since the API started">
+          {statusTotal > 0 ? (
+            <>
+              <div className="stackbar" role="img" aria-label="Share of request outcomes">
+                {statusData.filter(d => d.value > 0).map(d => (
+                  <span key={d.name} style={{ flexGrow: d.value, background: d.color }} title={`${d.name}: ${fmtNumber(d.value)}`} />
+                ))}
+              </div>
+              <ul className="outcome-list">
+                {statusData.map(d => (
+                  <li key={d.name}>
+                    <span className="outcome-name"><span className="legend-swatch" style={{ background: d.color }} aria-hidden />{d.name}</span>
+                    <span className="outcome-pct">{fmtPercent(d.value / statusTotal)}</span>
+                    <span className="outcome-value">{fmtNumber(d.value)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
           ) : (
             <EmptyState label="No requests recorded yet." icon={BarChart2} />
           )}
-        </div>
-
-        <div className="panel" style={{ padding: 20 }}>
-          <PanelTitle label="Injection guard and LLM" />
-          <dl className="kv-grid">
-            <div><dt>Guard hits</dt><dd>{fmtNumber(guard?.hits ?? 0)}</dd></div>
-            <div><dt>Blocked</dt><dd className="tone-deny">{fmtNumber(guard?.blocked ?? 0)}</dd></div>
-            <div><dt>Sanitized</dt><dd className="tone-review">{fmtNumber(guard?.sanitized ?? 0)}</dd></div>
-            <div>
-              <dt>LLM</dt>
-              <dd className={llm?.enabled ? 'tone-allow' : 'dim'}>
-                {llm
-                  ? llm.enabled
-                    ? `Enabled (${llm.primary_provider || 'ollama'} · ${llm.primary_model})`
-                    : 'Disabled'
-                  : '—'}
-              </dd>
-            </div>
-            <div>
-              <dt>Groq fallback</dt>
-              <dd className={llm?.fallback_configured ? 'tone-allow' : 'dim'}>
-                {llm ? (llm.fallback_configured ? 'Configured' : 'Not configured') : '—'}
-              </dd>
-            </div>
-            <div><dt>LLM calls</dt><dd>{fmtNumber(llm?.call_count ?? 0)}</dd></div>
-            <div><dt>Avg latency</dt><dd>{llm && llm.call_count ? fmtDuration(llm.avg_latency_ms) : '—'}</dd></div>
-            <div><dt>Fallbacks</dt><dd>{llm ? `${fmtNumber(llm.fallback_count)} (${fmtPercent(llm.fallback_rate)})` : '—'}</dd></div>
-            <div><dt>Sandbox runs</dt><dd>{fmtNumber(sandbox?.runs_total ?? 0)}</dd></div>
-          </dl>
-        </div>
+        </Card>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div className="panel" style={{ padding: 20 }}>
-          <PanelTitle
-            label="Slowest tools"
-            right={<Legend items={[{ label: 'Average', color: CHART_COLORS.allow }, { label: 'Max', color: CHART_COLORS.review }]} />}
+      <div className="grid-3">
+        <Card title="Busiest keys" description="Requests per API key prefix">
+          <BarList
+            items={busyData.map(k => ({ key: k.name, value: k.value, name: <span className="mono">{k.name}</span> }))}
+            color="var(--c-info-bar)"
+            format={n => fmtNumber(n)}
+            empty="No key activity yet"
           />
+        </Card>
+
+        <Card title="Slowest tools" description="Average duration, worst case on hover">
           {slowData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={Math.max(160, slowData.length * 44)}>
-              <BarChart data={slowData} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }} barGap={2}>
-                <CartesianGrid stroke="#1F1F23" horizontal={false} />
-                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: '#2E2E33' }} tickLine={false} unit=" ms" />
-                <YAxis dataKey="name" type="category" width={120} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip unit="ms" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
-                <Bar dataKey="avg" name="Average" fill={CHART_COLORS.allow} radius={[0, 3, 3, 0]} maxBarSize={14} />
-                <Bar dataKey="max" name="Max" fill={CHART_COLORS.review} radius={[0, 3, 3, 0]} maxBarSize={14} />
-              </BarChart>
-            </ResponsiveContainer>
+            <BarList
+              items={slowData.map(t => ({ key: t.name, value: t.avg, name: <span className="mono">{t.name}</span>, hint: `${t.count} calls · max ${fmtDuration(t.max)}` }))}
+              color="var(--c-allow-bar)"
+              format={n => fmtDuration(n)}
+            />
           ) : (
             <EmptyState label="No tool calls yet" hint="Run the notes agent or call a tool over MCP:" command={trafficCommands(getApiBase()).agent} icon={Cpu} />
           )}
-        </div>
+        </Card>
 
-        <div className="panel" style={{ padding: 20 }}>
-          <PanelTitle label="Busiest keys" right={<Legend items={[{ label: 'Requests', color: CHART_COLORS.info }]} />} />
-          {busyData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={Math.max(160, busyData.length * 36)}>
-              <BarChart data={busyData} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke="#1F1F23" horizontal={false} />
-                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: '#2E2E33' }} tickLine={false} allowDecimals={false} />
-                <YAxis dataKey="name" type="category" width={90} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
-                <Bar dataKey="value" fill={CHART_COLORS.info} radius={[0, 3, 3, 0]} maxBarSize={16} name="Requests" />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <EmptyState label="No key activity yet." icon={Activity} />
-          )}
-        </div>
+        <Card title="Injection guard and LLM" description="Counters from /api/metrics" bodyClassName="status-list">
+          <StatusRow label="Guard hits" value={fmtNumber(guard?.hits ?? 0)} />
+          <StatusRow label="Blocked" value={fmtNumber(guard?.blocked ?? 0)} tone={(guard?.blocked ?? 0) > 0 ? 'bad' : 'neutral'} />
+          <StatusRow label="Sanitized" value={fmtNumber(guard?.sanitized ?? 0)} tone={(guard?.sanitized ?? 0) > 0 ? 'warn' : 'neutral'} />
+          <StatusRow label="LLM" value={llmLabel} tone={llm ? (llm.enabled ? 'ok' : 'neutral') : 'neutral'} />
+          <StatusRow label="Groq fallback" value={llm ? (llm.fallback_configured ? 'Configured' : 'Not configured') : '—'} tone={llm?.fallback_configured ? 'ok' : 'neutral'} />
+          <StatusRow label="LLM calls" value={`${fmtNumber(llm?.call_count ?? 0)} · avg ${llm && llm.call_count ? fmtDuration(llm.avg_latency_ms) : '—'}`} />
+          <StatusRow label="Fallbacks" value={llm ? `${fmtNumber(llm.fallback_count)} (${fmtPercent(llm.fallback_rate)})` : '—'} />
+          <StatusRow label="Sandbox runs" value={fmtNumber(sandbox?.runs_total ?? 0)} />
+        </Card>
       </div>
 
-        <div className="panel" style={{ padding: 20 }}>
-          <PanelTitle label="Tool latency, last 30 minutes" right={<span className="muted-sm">from audit duration_ms</span>} />
-          {series && series.latency.samples > 0 ? (
-            <table className="data-table">
-              <thead>
-                <tr><th>Tool</th><th className="num">Calls</th><th className="num">p50</th><th className="num">p95</th></tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><strong>All tools</strong></td>
-                  <td className="num">{fmtNumber(series.latency.samples)}</td>
-                  <td className="num">{fmtDuration(series.latency.p50)}</td>
-                  <td className="num">{fmtDuration(series.latency.p95)}</td>
+      <Card title="Tool latency" description="Last 30 minutes, from audit duration_ms" bodyClassName="card-body-flush">
+        {series && series.latency.samples > 0 ? (
+          <table className="data-table">
+            <thead>
+              <tr><th>Tool</th><th className="num">Calls</th><th className="num">p50</th><th className="num">p95</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>All tools</strong></td>
+                <td className="num">{fmtNumber(series.latency.samples)}</td>
+                <td className="num">{fmtDuration(series.latency.p50)}</td>
+                <td className="num">{fmtDuration(series.latency.p95)}</td>
+              </tr>
+              {Object.entries(series.latency.byTool).sort((a, b) => (b[1].p95 ?? 0) - (a[1].p95 ?? 0)).map(([tool, l]) => (
+                <tr key={tool}>
+                  <td className="mono">{tool}</td>
+                  <td className="num">{fmtNumber(l.samples)}</td>
+                  <td className="num">{fmtDuration(l.p50)}</td>
+                  <td className="num">{fmtDuration(l.p95)}</td>
                 </tr>
-                {Object.entries(series.latency.byTool).sort((a, b) => (b[1].p95 ?? 0) - (a[1].p95 ?? 0)).map(([tool, l]) => (
-                  <tr key={tool}>
-                    <td className="mono">{tool}</td>
-                    <td className="num">{fmtNumber(l.samples)}</td>
-                    <td className="num">{fmtDuration(l.p50)}</td>
-                    <td className="num">{fmtDuration(l.p95)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <EmptyState label="No tool calls in the last 30 minutes" hint="Percentiles need at least one tool call:" command={trafficCommands(getApiBase()).agent} icon={Gauge} />
-          )}
-        </div>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <EmptyState label="No tool calls in the last 30 minutes" hint="Percentiles need at least one tool call:" command={trafficCommands(getApiBase()).agent} icon={Gauge} />
+        )}
+      </Card>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div className="panel" style={{ padding: 20 }}>
-          <PanelTitle label="Sandbox runs by status" />
+      <div className="grid-1-1">
+        <Card title="Sandbox runs by status" description="All recorded sandbox executions">
           {sandboxStatusData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={170}>
-              <BarChart data={sandboxStatusData} margin={{ top: 4, right: 4, left: -16, bottom: 4 }} barCategoryGap="30%">
-                <CartesianGrid stroke="#1F1F23" vertical={false} />
-                <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#2E2E33' }} tickLine={false} />
-                <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
-                <Bar dataKey="value" radius={[3, 3, 0, 0]} maxBarSize={36} name="Runs">
-                  {sandboxStatusData.map((d, i) => (
-                    <Cell key={i} fill={d.name === 'success' || d.name === 'ok' ? CHART_COLORS.allow : d.name === 'timeout' ? CHART_COLORS.review : CHART_COLORS.deny} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <BarList
+              items={sandboxStatusData.sort((a, b) => b.value - a.value).map(d => ({ key: d.name, value: d.value, name: d.name }))}
+              color={'var(--c-info-bar)'}
+              format={n => fmtNumber(n)}
+            />
           ) : (
             <EmptyState label="No sandbox runs yet." icon={Cpu} />
           )}
-        </div>
+        </Card>
 
-        <div className="panel" style={{ padding: 20 }}>
-          <PanelTitle label="Sandbox errors by type" />
+        <Card title="Sandbox errors by type" description="Failure classes reported by the sandbox" bodyClassName={sandbox && Object.keys(sandbox.by_error_type).length > 0 ? 'card-body-flush' : ''}>
           {sandbox && Object.keys(sandbox.by_error_type).length > 0 ? (
             <table className="data-table">
-              <thead><tr><th>Error type</th><th style={{ textAlign: 'right' }}>Count</th></tr></thead>
+              <thead><tr><th>Error type</th><th className="num">Count</th></tr></thead>
               <tbody>
                 {Object.entries(sandbox.by_error_type).map(([k, v]) => (
                   <tr key={k}>
-                    <td className="mono" style={{ fontSize: 11 }}>{k}</td>
-                    <td className="mono" style={{ fontSize: 12, color: 'var(--c-deny)', textAlign: 'right' }}>{fmtNumber(v)}</td>
+                    <td className="mono">{k}</td>
+                    <td className="mono num">{fmtNumber(v)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -370,7 +318,7 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
           ) : (
             <EmptyState label="No sandbox errors recorded." icon={ShieldAlert} />
           )}
-        </div>
+        </Card>
       </div>
     </div>
   );

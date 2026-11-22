@@ -2,15 +2,15 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useDialogA11y } from './a11y';
 import {
   Shield, ShieldAlert, Cpu, LayoutDashboard, Key, FileText, Brain, Bot, BarChart2,
-  Pin, Search, Box, Zap, HelpCircle, ChevronLeft, ChevronRight,
-  RefreshCw, PanelLeft, Keyboard, LogOut, Command as CommandIcon,
+  Pin, Search, Box, Zap, HelpCircle,
+  RefreshCw, PanelLeft, Keyboard, LogOut,
   WifiOff,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { StreamDot } from './ui';
 import { EnvSelector, HealthPill, KeyMenu, SubHeader } from './Chrome';
-import { useHealth, useLastUpdated } from '../api/hooks';
+import { useFindings, useHealth, useIncidents, useLastUpdated, usePins } from '../api/hooks';
 import { CommandPalette, type Command } from './CommandPalette';
 import { Kbd } from './premium';
 import type { ViewId } from './views';
@@ -233,58 +233,34 @@ export function ConsoleShell({
   });
 
   const groups = ['Monitor', 'Protect', 'Manage'] as const;
+  const counts = useNavCounts(hasScope, offline);
+  const env = envFromBase(base);
 
   return (
     <div className={`mcpg-console ${collapsed ? 'is-collapsed' : ''} density-${density}`}>
       <a href="#main-content" className="skip-link">Skip to content</a>
-      <header className="status-strip">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden><Shield size={12} /></span>
-          <span>MCP Guard</span>
-        </div>
-        <span className="strip-slash" aria-hidden>/</span>
-        <EnvSelector base={base} />
-
-        <span className="strip-spacer" />
-
-        <button
-          className="palette-trigger"
-          onClick={() => setPaletteOpen(true)}
-          aria-label="Open command palette"
-          aria-keyshortcuts="Control+K Meta+K"
-        >
-          <Search size={13} aria-hidden />
-          <span>Search or jump to…</span>
-          <span className="palette-trigger-keys"><Kbd>{MOD_KEY}</Kbd><Kbd>K</Kbd></span>
-        </button>
-
-        <span className="strip-spacer" />
-
-        {offline && (
-          <span className="badge badge-review" role="status" aria-label="Backend offline">
-            <WifiOff size={11} aria-hidden />
-            {lastUpdated
-              ? `Backend offline. Showing the last data received at ${clockFmt.format(new Date(lastUpdated))} ${CONSOLE_TZ_LABEL}.`
-              : 'Backend offline. No data loaded yet.'}
-          </span>
-        )}
-
-        <HealthPill
-          state={healthState}
-          title={healthState === 'ok' ? `GET /health ok · live stream ${streamState}` : healthState === 'degraded' ? `Backend up, live stream ${streamState}` : 'GET /health failed'}
-        />
-        <StreamDot state={streamState} />
-        <IstClock />
-        <KeyMenu
-          prefix={keyPrefix}
-          scopes={scopes}
-          onShortcuts={() => setHelpOpen(true)}
-          onForget={handleForget}
-        />
-      </header>
 
       <div className="shell-body">
         <nav className="rail" aria-label="Main navigation">
+          <div className="rail-head">
+            <EnvSelector
+              base={base}
+              brand={<span className="ws-logo" aria-hidden><Shield size={15} /></span>}
+            />
+          </div>
+
+          <button
+            className="rail-search"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Open command palette"
+            aria-keyshortcuts="Control+K Meta+K"
+            title={collapsed ? `Search (${MOD_KEY} K)` : undefined}
+          >
+            <Search size={14} aria-hidden />
+            {!collapsed && <span>Search</span>}
+            {!collapsed && <span className="rail-search-keys"><Kbd>{MOD_KEY}</Kbd><Kbd>K</Kbd></span>}
+          </button>
+
           <div className="rail-items">
             {groups.map(group => {
               const items = visible.filter(i => i.group === group);
@@ -295,19 +271,24 @@ export function ConsoleShell({
                   {items.map(item => {
                     const active = activeView === item.id;
                     const Icon = item.icon;
+                    const count = counts[item.id];
                     return (
                       <button
                         key={item.id}
                         className={`rail-btn ${active ? 'is-active' : ''}`}
                         onClick={() => go(item.id)}
-                        aria-label={item.label}
+                        aria-label={count ? `${item.label}, ${count.label}` : item.label}
                         aria-current={active ? 'page' : undefined}
                         aria-keyshortcuts={`G ${item.key.toUpperCase()}`}
-                        title={collapsed ? `${item.label}  (g ${item.key})` : item.desc}
+                        title={collapsed ? `${item.label}  (g ${item.key})` : `${item.desc}  (g ${item.key})`}
                       >
-                        <Icon size={15} aria-hidden />
+                        <Icon size={16} aria-hidden />
                         {!collapsed && <span className="rail-label">{item.label}</span>}
-                        {!collapsed && <span className="rail-kbd" aria-hidden>g {item.key}</span>}
+                        {count && (
+                          <span className={`rail-count ${count.tone ? `is-${count.tone}` : ''}`} title={count.label}>
+                            {count.value}
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -315,24 +296,56 @@ export function ConsoleShell({
               );
             })}
           </div>
-          {!collapsed && (
-            <div className="rail-foot">
-              <CommandIcon size={12} aria-hidden />
-              <span>Press <Kbd>?</Kbd> for shortcuts</span>
-            </div>
-          )}
-          <button
-            className="btn btn-ghost btn-sm rail-toggle"
-            onClick={() => setCollapsed(value => !value)}
-            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-            title={collapsed ? 'Expand ([)' : 'Collapse ([)'}
-          >
-            {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-          </button>
+
+          <div className="rail-bottom">
+            {!collapsed ? (
+              <div className="sys-card" aria-label="System status">
+                <div className="sys-row">
+                  <HealthPill
+                    state={healthState}
+                    title={healthState === 'ok' ? `GET /health ok · live stream ${streamState}` : healthState === 'degraded' ? `Backend up, live stream ${streamState}` : 'GET /health failed'}
+                  />
+                  <IstClock />
+                </div>
+                <div className="sys-row sys-row-muted">
+                  <StreamDot state={streamState} />
+                  <span className="sys-ver mono" title={base}>{new URL(base, window.location.href).host}</span>
+                </div>
+              </div>
+            ) : (
+              <span className={`sys-dot health-${healthState}`} title={`Gateway ${healthState}`} aria-label={`Gateway ${healthState}`} role="status" />
+            )}
+            <KeyMenu
+              card={!collapsed}
+              prefix={keyPrefix}
+              scopes={scopes}
+              onShortcuts={() => setHelpOpen(true)}
+              onForget={handleForget}
+            />
+          </div>
         </nav>
+
         <main id="main-content" ref={mainRef} className="scroll-y shell-main" tabIndex={-1} aria-label={activeItem.label}>
           <SubHeader
-            crumbs={[envFromBase(base).name, activeItem.group, activeItem.label]}
+            leading={(
+              <button
+                className="subheader-toggle"
+                onClick={() => setCollapsed(value => !value)}
+                aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+                title={collapsed ? 'Expand sidebar ([)' : 'Collapse sidebar ([)'}
+              >
+                <PanelLeft size={15} aria-hidden />
+              </button>
+            )}
+            notice={offline ? (
+              <span className="badge badge-review" role="status" aria-label="Backend offline">
+                <WifiOff size={11} aria-hidden />
+                {lastUpdated
+                  ? `Offline. Last data ${clockFmt.format(new Date(lastUpdated))} ${CONSOLE_TZ_LABEL}`
+                  : 'Offline. No data loaded yet'}
+              </span>
+            ) : undefined}
+            crumbs={[env.name, activeItem.group, activeItem.label]}
             onRefresh={refreshAll}
             density={density}
             onDensity={setDensity}
@@ -346,4 +359,34 @@ export function ConsoleShell({
       {helpOpen && <ShortcutsDialog onClose={() => setHelpOpen(false)} items={visible} />}
     </div>
   );
+}
+
+interface NavCount { value: string; label: string; tone?: 'deny' | 'review' }
+
+/**
+ * Sidebar counts from data the console already loads. A query only runs when the key
+ * holds the scope the endpoint needs, so a narrow key never triggers 403s from the rail.
+ */
+function useNavCounts(hasScope: (s?: string) => boolean, offline: boolean): Partial<Record<ViewId, NavCount>> {
+  const canAudit = hasScope('audit:read') && !offline;
+  const canPins = hasScope('tools:read') && !offline;
+  const canScan = hasScope('scanner:read') && !offline;
+  const { data: incidents } = useIncidents({}, canAudit);
+  const { data: pins } = usePins(canPins);
+  const { data: findings } = useFindings({ open_only: true, limit: 100 }, canScan);
+  const out: Partial<Record<ViewId, NavCount>> = {};
+  const nInc = incidents?.items.length ?? 0;
+  if (canAudit && nInc > 0) {
+    out.analyst = { value: String(nInc), label: `${nInc} ${nInc === 1 ? 'incident' : 'incidents'} in the last ${incidents?.window_hours ?? 24} h`, tone: 'deny' };
+  }
+  const drift = (pins?.items ?? []).filter(p => !p.matches || p.status !== 'approved').length;
+  if (canPins && drift > 0) {
+    out.pins = { value: String(drift), label: `${drift} ${drift === 1 ? 'tool needs' : 'tools need'} review`, tone: 'review' };
+  }
+  const nFind = findings?.items.length ?? 0;
+  if (canScan && nFind > 0) {
+    const v = findings?.next_offset != null ? `${nFind}+` : String(nFind);
+    out.scanner = { value: v, label: `${v} open findings` };
+  }
+  return out;
 }

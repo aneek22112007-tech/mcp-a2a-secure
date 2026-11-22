@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Brain } from 'lucide-react';
+import { AlertTriangle, Brain, Info, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useAnalystStatus,
@@ -82,6 +82,7 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
   const [fresh, setFresh] = useState(false);
   const [seenId, setSeenId] = useState<string | null>(null);
   const [hit, setHit] = useState<string | null>(null);
+  const [tab, setTab] = useState<'summary' | 'events'>('summary');
   const [live, setLive] = useState<ExplainResult | null>(null);
   const [errorFor, setErrorFor] = useState<{ id: string; message: string } | null>(null);
 
@@ -134,16 +135,32 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
     );
   };
 
+  const incidents = list.data?.items ?? [];
+  const highCount = incidents.filter(i => i.severity === 'high').length;
+  const explainedCount = incidents.filter(i => i.latest_report && !i.latest_report.stale).length;
+  const eventTotal = incidents.reduce((n, i) => n + i.event_count, 0);
+
   return (
     <div className="console-page">
-      <div>
-        <h1 className="page-title">AI Analyst</h1>
-        <p className="page-sub">
-          Incidents grouped from real audit events
-          {windowHours != null ? ` in the last ${windowHours} hours` : ''}.
-          An explanation cites those events. It does not block or approve anything.
-        </p>
-      </div>
+      <header className="home-head">
+        <div>
+          <h1 className="page-title">AI Analyst</h1>
+          <p className="page-sub">
+            Incidents grouped from real audit events
+            {windowHours != null ? ` in the last ${windowHours} hours` : ''}.
+            An explanation cites those events. It does not block or approve anything.
+          </p>
+        </div>
+      </header>
+
+      {list.data && (
+        <div className="summary-strip summary-strip-4" aria-label="Incident summary">
+          <div className="summary-cell"><span className="summary-label">Incidents</span><span className="summary-value">{incidents.length}</span></div>
+          <div className="summary-cell"><span className="summary-label"><span className="summary-dot is-deny" aria-hidden />High severity</span><span className="summary-value">{highCount}</span></div>
+          <div className="summary-cell"><span className="summary-label">Events grouped</span><span className="summary-value">{eventTotal.toLocaleString()}</span></div>
+          <div className="summary-cell"><span className="summary-label"><span className="summary-dot is-allow" aria-hidden />Explained</span><span className="summary-value">{explainedCount}</span></div>
+        </div>
+      )}
 
       {fresh && (
         <div className="banner banner-allow" role="status">
@@ -162,23 +179,18 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
         </div>
       )}
 
-      <div className="analyst-filters">
-        <FilterChips
-          label="Kind"
-          value={kind}
-          options={KINDS}
-          onChange={setKind}
-        />
-        <FilterChips
-          label="Severity"
-          value={severity}
-          options={SEVERITIES}
-          onChange={setSeverity}
-        />
-      </div>
-
       <div className="analyst-split">
-        <section className="panel" aria-label="Incidents">
+        <section className="card analyst-list-card" aria-label="Incidents">
+          <div className="analyst-list-head">
+            <div className="analyst-list-title">
+              <span>Incidents</span>
+              {list.data && <span className="rail-count">{incidents.length}</span>}
+            </div>
+            <div className="analyst-filters">
+              <FilterChips label="Kind" value={kind} options={KINDS} onChange={setKind} />
+              <FilterChips label="Severity" value={severity} options={SEVERITIES} onChange={setSeverity} />
+            </div>
+          </div>
           {list.isLoading && <LoadingPanel label="Loading incidents…" />}
           {list.isError && (
             <ErrorPanel
@@ -186,12 +198,12 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
               onRetry={() => { void list.refetch(); }}
             />
           )}
-          {list.data && list.data.items.length === 0 && (
+          {list.data && incidents.length === 0 && (
             <EmptyState label={`No security incidents in the last ${list.data.window_hours} hours.`} icon={Brain} />
           )}
-          {list.data && list.data.items.length > 0 && (
+          {list.data && incidents.length > 0 && (
             <ul className="analyst-list">
-              {list.data.items.map(item => (
+              {incidents.map(item => (
                 <li key={item.id}>
                   <button
                     type="button"
@@ -199,30 +211,32 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
                     aria-current={item.id === selected ? 'true' : undefined}
                     onClick={() => setPicked(item.id)}
                   >
-                    <span className="analyst-row-top">
-                      <span className={`badge ${severityBadgeClass(item.severity)}`}>{item.severity}</span>
-                      <span>{item.kind}</span>
-                      {isPrefix(item.group_key)
-                        ? <MonoValue value={item.group_key} />
-                        : <span>{item.group_key}</span>}
-                      <span className="analyst-count">{item.event_count} events</span>
-                      {item.latest_report && (
-                        <span className={`badge ${item.latest_report.stale ? 'badge-review' : 'badge-allow'}`}>
-                          {item.latest_report.stale ? 'stale' : 'explained'}
-                        </span>
-                      )}
+                    <span className={`sev-tile sev-${item.severity}`} aria-hidden>
+                      {item.severity === 'high' ? <ShieldAlert size={14} /> : item.severity === 'medium' ? <AlertTriangle size={14} /> : <Info size={14} />}
                     </span>
-                    {item.brief && (
-                      <span className="analyst-brief" title={item.brief}>{item.brief}</span>
-                    )}
-                    <span className="analyst-times">
-                      <time dateTime={item.first_seen} title={fmtDatetime(item.first_seen)}>
-                        {elapsedSince(item.first_seen)}
-                      </time>
-                      {' – '}
-                      <time dateTime={item.last_seen} title={fmtDatetime(item.last_seen)}>
-                        {elapsedSince(item.last_seen)}
-                      </time>
+                    <span className="analyst-row-main">
+                      <span className="analyst-row-top">
+                        <span className="analyst-kind">{item.kind}</span>
+                        {isPrefix(item.group_key)
+                          ? <MonoValue value={item.group_key} />
+                          : <span className="analyst-group">{item.group_key}</span>}
+                        {item.latest_report && (
+                          <span className={`badge ${item.latest_report.stale ? 'badge-review' : 'badge-allow'}`}>
+                            {item.latest_report.stale ? 'stale' : 'explained'}
+                          </span>
+                        )}
+                        <time className="analyst-when" dateTime={item.last_seen} title={fmtDatetime(item.last_seen)}>
+                          {elapsedSince(item.last_seen)}
+                        </time>
+                      </span>
+                      {item.brief && (
+                        <span className="analyst-brief" title={item.brief}>{item.brief}</span>
+                      )}
+                      <span className="analyst-times">
+                        <span className={`badge ${severityBadgeClass(item.severity)}`}>{item.severity}</span>
+                        <span>{item.event_count} events</span>
+                        <span>first seen {elapsedSince(item.first_seen)}</span>
+                      </span>
                     </span>
                   </button>
                 </li>
@@ -231,8 +245,8 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
           )}
         </section>
 
-        <section className="panel panel-pad analyst-detail" aria-label="Incident detail">
-          {!selected && <p className="page-sub">Select an incident.</p>}
+        <section className="card analyst-detail" aria-label="Incident detail">
+          {!selected && <div className="card-body"><p className="page-sub">Select an incident.</p></div>}
           {detail.isLoading && selected && <LoadingPanel label="Loading incident…" />}
           {detail.isError && (
             <ErrorPanel
@@ -241,14 +255,34 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
             />
           )}
           {detail.data && (
-            <div className="analyst-happened">
-              <p className="section-label">What happened</p>
-              <p>{detail.data.brief}</p>
-              <p className="page-sub">
-                Click Explain for a detailed AI explanation that cites each event.
-              </p>
+            <header className="detail-head">
+              <div className="detail-head-top">
+                <span className={`badge ${severityBadgeClass(detail.data.severity)}`}>{detail.data.severity}</span>
+                <span className="detail-kind">{detail.data.kind}</span>
+                <span className="detail-sep" aria-hidden>·</span>
+                <span className="detail-meta">{detail.data.event_count} events</span>
+                <span className="detail-sep" aria-hidden>·</span>
+                <span className="detail-meta">
+                  <time dateTime={detail.data.first_seen} title={fmtDatetime(detail.data.first_seen)}>{elapsedSince(detail.data.first_seen)}</time>
+                  {' – '}
+                  <time dateTime={detail.data.last_seen} title={fmtDatetime(detail.data.last_seen)}>{elapsedSince(detail.data.last_seen)}</time>
+                </span>
+              </div>
+              <h2 className="detail-title">{detail.data.brief}</h2>
+              <div className="tabs" role="tablist" aria-label="Incident sections">
+                <button role="tab" type="button" aria-selected={tab === 'summary'} onClick={() => setTab('summary')}>Summary</button>
+                <button role="tab" type="button" aria-selected={tab === 'events'} onClick={() => setTab('events')}>
+                  Events <span className="tab-count">{detail.data.event_count}</span>
+                </button>
+              </div>
+            </header>
+          )}
+          {detail.data && tab === 'events' && (
+            <div className="detail-body detail-body-flush" role="tabpanel">
+              <EventsTable incident={detail.data} hit={hit} />
             </div>
           )}
+          <div className="detail-body" role="tabpanel" hidden={!!detail.data && tab !== 'summary'}>
           {detail.data && (
             <Facts
               incident={detail.data}
@@ -259,34 +293,34 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
               }}
             />
           )}
-          {detail.data && (
-            <EventsTable
-              incident={detail.data}
-              hit={hit}
-            />
-          )}
           <div className="analyst-explain">
+            <div className="explain-head">
+              <div>
+                <p className="explain-title">AI explanation</p>
+                <p className="page-sub">Click Explain for a detailed explanation that cites each event.</p>
+              </div>
+              {canExplain && (
+                <button
+                  type="button"
+                  className="btn btn-amber btn-sm"
+                  disabled={!selected || offline || !!down || explain.isPending || status.isLoading}
+                  onClick={() => ask(stale)}
+                >
+                  {explain.isPending && <Spinner size={12} />}
+                  {explain.isPending
+                    ? `Asking ${askingModel}...`
+                    : stale && report
+                      ? 'Explain again'
+                      : 'Explain'}
+                </button>
+              )}
+            </div>
             {!canExplain && (
               <p>You need the analyst:run scope to ask for an explanation.</p>
             )}
             {canExplain && down && <p>{down}</p>}
             {canExplain && !down && status.isError && (
               <p>Analyst status could not be loaded.</p>
-            )}
-            {canExplain && (
-              <button
-                type="button"
-                className="btn btn-amber btn-sm"
-                disabled={!selected || offline || !!down || explain.isPending || status.isLoading}
-                onClick={() => ask(stale)}
-              >
-                {explain.isPending && <Spinner size={12} />}
-                {explain.isPending
-                  ? `Asking ${askingModel}...`
-                  : stale && report
-                    ? 'Explain again'
-                    : 'Explain'}
-              </button>
             )}
             {canExplain && !down && stale && report && (
               <p>New events joined this incident since this explanation.</p>
@@ -299,10 +333,14 @@ export function AnalystView({ offline, scopes }: AnalystViewProps) {
                 meta={shownLive ?? stored}
                 onRef={(ref) => {
                   setHit(ref);
-                  document.getElementById(`analyst-evt-${ref}`)?.scrollIntoView({ block: 'nearest' });
+                  setTab('events');
+                  window.setTimeout(() => {
+                    document.getElementById(`analyst-evt-${ref}`)?.scrollIntoView({ block: 'nearest' });
+                  }, 0);
                 }}
               />
             )}
+          </div>
           </div>
         </section>
       </div>
@@ -348,44 +386,49 @@ function Facts({
   onOpen: (id: string) => void;
 }) {
   return (
-    <div className="analyst-facts">
-      <p>
-        <span className={`badge ${severityBadgeClass(incident.severity)}`}>{incident.severity}</span>
-        {' '}{incident.kind}
-      </p>
-      <p>
-        Key prefixes:{' '}
-        {incident.key_prefixes.length === 0
-          ? '—'
-          : incident.key_prefixes.map(prefix => <MonoValue key={prefix} value={prefix} />)}
-      </p>
-      <p>Tools: {incident.tool_names.length ? incident.tool_names.join(', ') : '—'}</p>
-      <p>
-        Counts:{' '}
-        {Object.entries(incident.counts_by_action).map(([action, count]) => (
-          <span key={action}>{action} {count} </span>
-        ))}
-      </p>
-      <p>
-        <time dateTime={incident.first_seen} title={fmtDatetime(incident.first_seen)}>
-          {elapsedSince(incident.first_seen)}
-        </time>
-        {' – '}
-        <time dateTime={incident.last_seen} title={fmtDatetime(incident.last_seen)}>
-          {elapsedSince(incident.last_seen)}
-        </time>
-      </p>
-      {incident.related_ids.length > 0 && (
-        <p className="analyst-refs">
-          Related:{' '}
-          {incident.related_ids.map(id => (
-            <button key={id} type="button" className="chip" onClick={() => onOpen(id)}>
-              <MonoValue value={id} />
-            </button>
+    <dl className="facts">
+      <div>
+        <dt>Key prefixes</dt>
+        <dd>
+          {incident.key_prefixes.length === 0
+            ? '—'
+            : incident.key_prefixes.map(prefix => <MonoValue key={prefix} value={prefix} />)}
+        </dd>
+      </div>
+      <div>
+        <dt>Tools</dt>
+        <dd className="mono">{incident.tool_names.length ? incident.tool_names.join(', ') : '—'}</dd>
+      </div>
+      <div>
+        <dt>Actions</dt>
+        <dd className="facts-chips">
+          {Object.entries(incident.counts_by_action).map(([action, count]) => (
+            <span key={action} className="fact-chip"><span className="mono">{action}</span><b>{count}</b></span>
           ))}
-        </p>
+        </dd>
+      </div>
+      <div>
+        <dt>Window</dt>
+        <dd>
+          <time dateTime={incident.first_seen}>{fmtDatetime(incident.first_seen)}</time>
+          {' – '}
+          <time dateTime={incident.last_seen}>{fmtDatetime(incident.last_seen)}</time>
+          {' IST'}
+        </dd>
+      </div>
+      {incident.related_ids.length > 0 && (
+        <div>
+          <dt>Related</dt>
+          <dd className="analyst-refs">
+            {incident.related_ids.map(id => (
+              <button key={id} type="button" className="chip" onClick={() => onOpen(id)}>
+                <MonoValue value={id} />
+              </button>
+            ))}
+          </dd>
+        </div>
       )}
-    </div>
+    </dl>
   );
 }
 

@@ -4,6 +4,7 @@
 import './styles/console.css';
 import './styles/premium.css';
 import './styles/theme.css';
+import './styles/layout.css';
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
