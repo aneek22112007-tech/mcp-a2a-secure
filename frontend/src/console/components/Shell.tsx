@@ -13,7 +13,6 @@ import { EnvSelector, HealthPill, KeyMenu, SubHeader } from './Chrome';
 import { useHealth, useLastUpdated } from '../api/hooks';
 import { CommandPalette, type Command } from './CommandPalette';
 import { Kbd } from './premium';
-import { Ambient } from './Ambient';
 import type { ViewId } from './views';
 import { forgetApiKey, getApiBase, getKeyPrefix } from '../api/client';
 import type { StreamState } from '../api/client';
@@ -237,7 +236,6 @@ export function ConsoleShell({
 
   return (
     <div className={`mcpg-console ${collapsed ? 'is-collapsed' : ''} density-${density}`}>
-      <Ambient />
       <a href="#main-content" className="skip-link">Skip to content</a>
       <header className="status-strip">
         <div className="brand">
