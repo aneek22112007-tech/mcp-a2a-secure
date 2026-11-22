@@ -305,9 +305,13 @@ class Settings(BaseSettings):
         description="Groq API key. Used only when Ollama cannot be reached.",
     )
     groq_model: str = Field(
-        default="openai/gpt-oss-120b",
+        default="qwen/qwen3.8-27b",
         min_length=1,
-        description="Groq model used as the fallback chat model.",
+        description="First Groq model tried when Ollama cannot be reached.",
+    )
+    groq_fallback_model: str | None = Field(
+        default="openai/gpt-oss-120b",
+        description="Second Groq model, tried only if GROQ_MODEL fails. Empty to turn off.",
     )
     llm_timeout_seconds: float = Field(
         default=60,

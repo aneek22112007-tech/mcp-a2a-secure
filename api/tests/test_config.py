@@ -117,7 +117,7 @@ def test_llm_settings_defaults(monkeypatch):
     assert settings.ollama_base_url == "http://localhost:11434"
     assert settings.ollama_model == "qwen3.5:9b"
     assert settings.groq_api_key is None
-    assert settings.groq_model == "openai/gpt-oss-120b"
+    assert settings.groq_model == "qwen/qwen3.8-27b"
     assert settings.llm_timeout_seconds == 60
     assert settings.notes_agent_api_key is None
 

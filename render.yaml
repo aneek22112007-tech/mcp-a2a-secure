@@ -70,6 +70,8 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL
+        value: qwen/qwen3.8-27b
+      - key: GROQ_FALLBACK_MODEL
         value: openai/gpt-oss-120b
       - key: LLM_TIMEOUT_SECONDS
         value: "60"
