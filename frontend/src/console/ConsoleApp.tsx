@@ -3,6 +3,7 @@
  */
 import './styles/console.css';
 import './styles/premium.css';
+import './styles/ember.css';
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
@@ -12,6 +13,8 @@ import { VIEW_IDS, type ViewId } from './components/views';
 import { useAuditStream } from './api/hooks';
 import { consoleApi, detectAccess, forgetApiKey, getApiKey } from './api/client';
 import { LoadingPanel } from './components/ui';
+import { Ambient } from './components/Ambient';
+import { useDepth } from './components/useDepth';
 
 const OverviewView = lazy(() =>
   import('./features/overview/OverviewView').then(m => ({ default: m.OverviewView }))
@@ -140,6 +143,7 @@ function ConsoleBody({
 export function ConsoleApp() {
   const [session, setSession] = useState<Session | null>(null);
   const [backendUp, setBackendUp] = useState<boolean | null>(null);
+  useDepth();
 
   useEffect(() => {
     let cancelled = false;
@@ -184,14 +188,16 @@ export function ConsoleApp() {
   if (backendUp === null) {
     return (
       <main className="boot-screen" role="status">
-        Checking backend…
+        <Ambient />
+        <span>Checking backend…</span>
       </main>
     );
   }
 
   if (!session) {
     return (
-      <main>
+      <main className="connect-root">
+        <Ambient />
         <ConnectScreen
           onConnected={(clientId, scopes) => {
             setSession({ clientId, scopes });

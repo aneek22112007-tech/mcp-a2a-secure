@@ -5,6 +5,7 @@ import { useMetrics, useHealth, useStatus, useAuditStream, useAudit, usePins, us
 import { KpiCard, SkeletonPage } from '../../components/premium';
 import { ErrorPanel, StreamDot, EmptyState } from '../../components/ui';
 import { PipelineStrip } from '../../components/Pipeline';
+import { GatewayCore, type CoreState } from '../../components/GatewayCore';
 import { lightsMatched, pipelineLights, type StageLight } from '../../components/pipelineLogic';
 import { ATTACK_SEQUENCE, waitForCaption, type AttackResult } from '../attack/runners';
 import {
@@ -101,6 +102,12 @@ export function OverviewView({ offline }: OverviewProps) {
   const totals = metrics?.totals ?? { total: 0, successful: 0, denied: 0, error: 0, rate_limit_rejections: 0 };
   const sandbox = metrics?.sandbox;
   const mcpUnconfigured = status?.mcp === 'offline' && status.error === 'mcp_unavailable';
+  // Same rule as the health pill in the top bar.
+  const coreState: CoreState = offline
+    ? 'down'
+    : health?.status === 'ok'
+      ? (streamState === 'offline' ? 'degraded' : 'ok')
+      : health ? 'degraded' : 'unknown';
 
   const rememberLights = (result: AttackResult) => {
     const next = pipelineLights(result.stage, result.status);
@@ -141,16 +148,28 @@ export function OverviewView({ offline }: OverviewProps) {
 
   return (
     <div className="console-page">
-      <header className="page-header">
+      <header className="page-header page-hero">
         <div>
+          <span className="hero-eyebrow">Gateway console</span>
           <h1 className="page-title">Overview</h1>
           <p className="page-sub">
             Gateway traffic, policy decisions and tool health.
             {health && ` ${health.app}`}
             {probe?.uptime_seconds != null && ` · up ${fmtUptime(probe.uptime_seconds)}`}
           </p>
+          <div className="hero-actions">
+            <a className="btn btn-primary" href="#/audit">Open Live Audit</a>
+          </div>
         </div>
-        <a className="btn btn-primary" href="#/audit">Open Live Audit</a>
+        <GatewayCore
+          state={coreState}
+          facts={[
+            { label: 'Live stream', value: streamState },
+            { label: 'MCP', value: mcpUnconfigured ? 'not configured' : (probe?.mcp ?? '—') },
+            { label: 'Database', value: metrics?.database ? (metrics.database.available ? 'ok' : 'error') : '—' },
+            { label: 'Uptime', value: probe?.uptime_seconds != null ? fmtUptime(probe.uptime_seconds) : '—' },
+          ]}
+        />
       </header>
 
       <div className="kpi-row">

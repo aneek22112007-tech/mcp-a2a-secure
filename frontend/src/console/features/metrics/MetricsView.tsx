@@ -14,15 +14,15 @@ interface MetricsViewProps { offline: boolean }
 
 // Recharts themed to design tokens
 const CHART_COLORS = {
-  allow:  '#3DD6B0',
-  deny:   '#F0524A',
-  review: '#F2A33A',
-  high:   '#E87B3B',
-  info:   '#7F9BB3',
-  muted:  '#31343A',
+  allow:  '#3FE0B5',
+  deny:   '#FF4F6D',
+  review: '#F7B84B',
+  high:   '#FF8A4C',
+  info:   '#8DB7E0',
+  muted:  '#352A25',
 };
 
-const AXIS_TICK = { fill: '#8B8D90', fontSize: 10, fontFamily: 'var(--font-mono)' };
+const AXIS_TICK = { fill: '#8F857F', fontSize: 10, fontFamily: 'var(--font-mono)' };
 
 interface TipPayload { name?: string; value?: number | string; color?: string; dataKey?: string | number; payload?: Record<string, unknown> }
 
@@ -192,16 +192,16 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
                     <stop offset="100%" stopColor={CHART_COLORS.deny} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#1E2023" vertical={false} />
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
                 <XAxis
                   dataKey="t"
                   tickFormatter={(t: number) => fmtTimestamp(new Date(t).toISOString()).slice(0, 5)}
-                  tick={AXIS_TICK} axisLine={{ stroke: '#26282B' }} tickLine={false} minTickGap={40}
+                  tick={AXIS_TICK} axisLine={{ stroke: 'rgba(254,110,68,0.22)' }} tickLine={false} minTickGap={40}
                 />
                 <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   content={<ChartTooltip unit="count" labelFmt={l => `${fmtTimestamp(new Date(Number(l)).toISOString())} IST`} />}
-                  cursor={{ stroke: '#3A3D42' }}
+                  cursor={{ stroke: 'rgba(254,110,68,0.5)' }}
                 />
                 <Area type="monotone" dataKey="Allowed" stroke={CHART_COLORS.allow} fill="url(#gAllow)" strokeWidth={1.5} isAnimationActive={false} />
                 <Area type="monotone" dataKey="Denied" stroke={CHART_COLORS.deny} fill="url(#gDeny)" strokeWidth={1.5} isAnimationActive={false} />
@@ -218,10 +218,10 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
           {statusData.some(s => s.value > 0) ? (
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={statusData} margin={{ top: 4, right: 4, left: -16, bottom: 4 }} barCategoryGap="30%">
-                <CartesianGrid stroke="#1E2023" vertical={false} />
-                <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#26282B' }} tickLine={false} />
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: 'rgba(254,110,68,0.22)' }} tickLine={false} />
                 <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(254,110,68,0.06)' }} />
                 <Bar dataKey="value" name="Requests" radius={[3, 3, 0, 0]} maxBarSize={48}>
                   {statusData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                 </Bar>
@@ -271,10 +271,10 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
           {slowData.length > 0 ? (
             <ResponsiveContainer width="100%" height={Math.max(160, slowData.length * 44)}>
               <BarChart data={slowData} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }} barGap={2}>
-                <CartesianGrid stroke="#1E2023" horizontal={false} />
-                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: '#26282B' }} tickLine={false} unit=" ms" />
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: 'rgba(254,110,68,0.22)' }} tickLine={false} unit=" ms" />
                 <YAxis dataKey="name" type="category" width={120} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip unit="ms" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                <Tooltip content={<ChartTooltip unit="ms" />} cursor={{ fill: 'rgba(254,110,68,0.06)' }} />
                 <Bar dataKey="avg" name="Average" fill={CHART_COLORS.allow} radius={[0, 3, 3, 0]} maxBarSize={14} />
                 <Bar dataKey="max" name="Max" fill={CHART_COLORS.review} radius={[0, 3, 3, 0]} maxBarSize={14} />
               </BarChart>
@@ -289,10 +289,10 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
           {busyData.length > 0 ? (
             <ResponsiveContainer width="100%" height={Math.max(160, busyData.length * 36)}>
               <BarChart data={busyData} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke="#1E2023" horizontal={false} />
-                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: '#26282B' }} tickLine={false} allowDecimals={false} />
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: 'rgba(254,110,68,0.22)' }} tickLine={false} allowDecimals={false} />
                 <YAxis dataKey="name" type="category" width={90} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(254,110,68,0.06)' }} />
                 <Bar dataKey="value" fill={CHART_COLORS.info} radius={[0, 3, 3, 0]} maxBarSize={16} name="Requests" />
               </BarChart>
             </ResponsiveContainer>
@@ -337,10 +337,10 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
           {sandboxStatusData.length > 0 ? (
             <ResponsiveContainer width="100%" height={170}>
               <BarChart data={sandboxStatusData} margin={{ top: 4, right: 4, left: -16, bottom: 4 }} barCategoryGap="30%">
-                <CartesianGrid stroke="#1E2023" vertical={false} />
-                <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#26282B' }} tickLine={false} />
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: 'rgba(254,110,68,0.22)' }} tickLine={false} />
                 <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(254,110,68,0.06)' }} />
                 <Bar dataKey="value" radius={[3, 3, 0, 0]} maxBarSize={36} name="Runs">
                   {sandboxStatusData.map((d, i) => (
                     <Cell key={i} fill={d.name === 'success' || d.name === 'ok' ? CHART_COLORS.allow : d.name === 'timeout' ? CHART_COLORS.review : CHART_COLORS.deny} />
