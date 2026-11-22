@@ -14,15 +14,15 @@ interface MetricsViewProps { offline: boolean }
 
 // Recharts themed to design tokens
 const CHART_COLORS = {
-  allow:  '#3DD6B0',
-  deny:   '#F0524A',
-  review: '#F2A33A',
-  high:   '#E87B3B',
-  info:   '#7F9BB3',
-  muted:  '#31343A',
+  allow:  '#3DB88B',
+  deny:   '#E5484D',
+  review: '#E0A23B',
+  high:   '#E07B45',
+  info:   '#6F9FD8',
+  muted:  '#3A3A40',
 };
 
-const AXIS_TICK = { fill: '#8B8D90', fontSize: 10, fontFamily: 'var(--font-mono)' };
+const AXIS_TICK = { fill: '#76767E', fontSize: 10, fontFamily: 'var(--font-mono)' };
 
 interface TipPayload { name?: string; value?: number | string; color?: string; dataKey?: string | number; payload?: Record<string, unknown> }
 
@@ -192,16 +192,16 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
                     <stop offset="100%" stopColor={CHART_COLORS.deny} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#1E2023" vertical={false} />
+                <CartesianGrid stroke="#1F1F23" vertical={false} />
                 <XAxis
                   dataKey="t"
                   tickFormatter={(t: number) => fmtTimestamp(new Date(t).toISOString()).slice(0, 5)}
-                  tick={AXIS_TICK} axisLine={{ stroke: '#26282B' }} tickLine={false} minTickGap={40}
+                  tick={AXIS_TICK} axisLine={{ stroke: '#2E2E33' }} tickLine={false} minTickGap={40}
                 />
                 <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip
                   content={<ChartTooltip unit="count" labelFmt={l => `${fmtTimestamp(new Date(Number(l)).toISOString())} IST`} />}
-                  cursor={{ stroke: '#3A3D42' }}
+                  cursor={{ stroke: '#45454C' }}
                 />
                 <Area type="monotone" dataKey="Allowed" stroke={CHART_COLORS.allow} fill="url(#gAllow)" strokeWidth={1.5} isAnimationActive={false} />
                 <Area type="monotone" dataKey="Denied" stroke={CHART_COLORS.deny} fill="url(#gDeny)" strokeWidth={1.5} isAnimationActive={false} />
@@ -218,8 +218,8 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
           {statusData.some(s => s.value > 0) ? (
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={statusData} margin={{ top: 4, right: 4, left: -16, bottom: 4 }} barCategoryGap="30%">
-                <CartesianGrid stroke="#1E2023" vertical={false} />
-                <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#26282B' }} tickLine={false} />
+                <CartesianGrid stroke="#1F1F23" vertical={false} />
+                <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#2E2E33' }} tickLine={false} />
                 <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
                 <Bar dataKey="value" name="Requests" radius={[3, 3, 0, 0]} maxBarSize={48}>
@@ -271,8 +271,8 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
           {slowData.length > 0 ? (
             <ResponsiveContainer width="100%" height={Math.max(160, slowData.length * 44)}>
               <BarChart data={slowData} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }} barGap={2}>
-                <CartesianGrid stroke="#1E2023" horizontal={false} />
-                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: '#26282B' }} tickLine={false} unit=" ms" />
+                <CartesianGrid stroke="#1F1F23" horizontal={false} />
+                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: '#2E2E33' }} tickLine={false} unit=" ms" />
                 <YAxis dataKey="name" type="category" width={120} tick={AXIS_TICK} axisLine={false} tickLine={false} />
                 <Tooltip content={<ChartTooltip unit="ms" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
                 <Bar dataKey="avg" name="Average" fill={CHART_COLORS.allow} radius={[0, 3, 3, 0]} maxBarSize={14} />
@@ -289,8 +289,8 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
           {busyData.length > 0 ? (
             <ResponsiveContainer width="100%" height={Math.max(160, busyData.length * 36)}>
               <BarChart data={busyData} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke="#1E2023" horizontal={false} />
-                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: '#26282B' }} tickLine={false} allowDecimals={false} />
+                <CartesianGrid stroke="#1F1F23" horizontal={false} />
+                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: '#2E2E33' }} tickLine={false} allowDecimals={false} />
                 <YAxis dataKey="name" type="category" width={90} tick={AXIS_TICK} axisLine={false} tickLine={false} />
                 <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
                 <Bar dataKey="value" fill={CHART_COLORS.info} radius={[0, 3, 3, 0]} maxBarSize={16} name="Requests" />
@@ -337,8 +337,8 @@ function MetricsViewInner({ offline: _offline }: MetricsViewProps) {
           {sandboxStatusData.length > 0 ? (
             <ResponsiveContainer width="100%" height={170}>
               <BarChart data={sandboxStatusData} margin={{ top: 4, right: 4, left: -16, bottom: 4 }} barCategoryGap="30%">
-                <CartesianGrid stroke="#1E2023" vertical={false} />
-                <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#26282B' }} tickLine={false} />
+                <CartesianGrid stroke="#1F1F23" vertical={false} />
+                <XAxis dataKey="name" tick={AXIS_TICK} axisLine={{ stroke: '#2E2E33' }} tickLine={false} />
                 <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip content={<ChartTooltip unit="count" />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
                 <Bar dataKey="value" radius={[3, 3, 0, 0]} maxBarSize={36} name="Runs">
