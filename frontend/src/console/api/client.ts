@@ -4,9 +4,11 @@
  * Auth: Authorization: Bearer <key> only.
  */
 
-const DEFAULT_BASE = 'http://127.0.0.1:8000';
+const LOCAL_DEFAULT_BASE = 'http://127.0.0.1:8000';
+const HOSTED_DEFAULT_BASE = 'https://mcp-guard-api.onrender.com';
 const BASE_STORAGE_KEY = 'mcpg_base';
-const REQUEST_TIMEOUT_MS = 5_000;
+const REQUEST_TIMEOUT_MS = 30_000;
+const HEALTH_TIMEOUT_MS = 60_000;
 
 let _base: string | null = null;
 
@@ -14,9 +16,46 @@ function normaliseBase(url: string): string {
   return url.trim().replace(/\/+$/, '');
 }
 
+function isBrowserLocalHost(): boolean {
+  if (typeof window === 'undefined') return true;
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+/** Vercel origins are the frontend, not the API, so they are not a usable console backend. */
+function isUsableConsoleBase(url: string): boolean {
+  const raw = url.trim();
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw.includes('://') ? raw : `http://${raw}`);
+    const host = parsed.hostname.toLowerCase();
+    if (host === 'vercel.app' || host.endsWith('.vercel.app')) return false;
+    return Boolean(host);
+  } catch {
+    return false;
+  }
+}
+
+function envConsoleBase(): string | null {
+  const candidates = [import.meta.env.VITE_CONSOLE_API_URL, import.meta.env.VITE_API_BASE_URL];
+  for (const value of candidates) {
+    if (typeof value === 'string' && isUsableConsoleBase(value)) {
+      return normaliseBase(value);
+    }
+  }
+  return null;
+}
+
+function defaultBase(): string {
+  const fromEnv = envConsoleBase();
+  if (fromEnv) return fromEnv;
+  if (!isBrowserLocalHost()) return HOSTED_DEFAULT_BASE;
+  return LOCAL_DEFAULT_BASE;
+}
+
 /** Runtime API origin. The connect screen writes this; nothing is baked into the bundle. */
 export function setApiBase(url: string): void {
-  const next = normaliseBase(url) || DEFAULT_BASE;
+  const next = normaliseBase(url) || defaultBase();
   _base = next;
   try { sessionStorage.setItem(BASE_STORAGE_KEY, next); } catch { /* ignore */ }
 }
@@ -25,13 +64,15 @@ export function getApiBase(): string {
   if (_base) return _base;
   try {
     const stored = sessionStorage.getItem(BASE_STORAGE_KEY);
-    if (stored && stored.trim()) {
+    if (stored && stored.trim() && isUsableConsoleBase(stored)) {
       _base = normaliseBase(stored);
       return _base;
     }
+    if (stored) {
+      sessionStorage.removeItem(BASE_STORAGE_KEY);
+    }
   } catch { /* ignore */ }
-  const fromEnv = import.meta.env.VITE_API_BASE_URL;
-  _base = normaliseBase(typeof fromEnv === 'string' && fromEnv.trim() ? fromEnv : DEFAULT_BASE);
+  _base = defaultBase();
   return _base;
 }
 
@@ -66,20 +107,16 @@ function longSignal(ms: number): AbortSignal {
 
 const AI_SCAN_TIMEOUT_MESSAGE = 'AI scan timed out. Try scanning one tool at a time.';
 
-function timeoutSignal(): AbortSignal {
-  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-    return AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  }
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  return controller.signal;
+function timeoutSignal(ms: number = REQUEST_TIMEOUT_MS): AbortSignal {
+  return longSignal(ms);
 }
 
-function asTimeout(err: unknown): ConsoleApiError | null {
+function asTimeout(err: unknown, timeoutMs: number = REQUEST_TIMEOUT_MS): ConsoleApiError | null {
   if (err instanceof DOMException && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+    const seconds = Math.round(timeoutMs / 1000);
     return new ConsoleApiError({
       code: 'TIMEOUT',
-      message: 'Request timed out after 5 seconds.',
+      message: `Request timed out after ${seconds} seconds.`,
       details: null,
       request_id: null,
       status: 0,
@@ -645,7 +682,12 @@ export interface A2ATaskDetail {
 export const consoleApi = {
   // Health (no auth needed)
   async health(): Promise<HealthResponse> {
-    return apiFetch<HealthResponse>('/health', { method: 'GET' }, '');
+    return apiFetch<HealthResponse>(
+      '/health',
+      { method: 'GET', signal: timeoutSignal(HEALTH_TIMEOUT_MS) },
+      '',
+      'Timed out waiting for the API. The hosted server can take up to a minute to wake after sitting idle.',
+    );
   },
 
   // Status (any valid key)

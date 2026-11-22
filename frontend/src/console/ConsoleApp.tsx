@@ -143,12 +143,17 @@ export function ConsoleApp() {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const tick = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         await consoleApi.health();
         if (!cancelled) setBackendUp(true);
       } catch {
         if (!cancelled) setBackendUp(false);
+      } finally {
+        inFlight = false;
       }
     };
     void tick();

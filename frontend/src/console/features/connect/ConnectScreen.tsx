@@ -37,9 +37,12 @@ export function ConnectScreen({ onConnected }: ConnectProps) {
 
     try {
       await consoleApi.health();
-    } catch {
+    } catch (err) {
       setState('error');
-      setErrorMsg('Backend unreachable. Check the base URL and that uvicorn is running.');
+      const timeoutHint = err instanceof ConsoleApiError && err.code === 'TIMEOUT'
+        ? ' The hosted API can take up to a minute to wake after sitting idle. Try again in a moment.'
+        : '';
+      setErrorMsg(`Backend unreachable. Check the base URL.${timeoutHint}`);
       return;
     }
 
@@ -90,7 +93,7 @@ export function ConnectScreen({ onConnected }: ConnectProps) {
                 className="input input-mono"
                 value={baseUrl}
                 onChange={event => handleBaseChange(event.target.value)}
-                placeholder="http://127.0.0.1:8000"
+                placeholder="https://mcp-guard-api.onrender.com"
                 aria-label="Backend base URL"
               />
             </span>
@@ -133,6 +136,9 @@ export function ConnectScreen({ onConnected }: ConnectProps) {
             <span className="page-sub">Display hint only. Set <span className="mono">TOOL_PINNING_MODE</span> in <span className="mono">api/.env</span>.</span>
           </label>
 
+          {state === 'checking' && (
+            <p className="page-sub" role="status">Waking the server, this can take up to a minute.</p>
+          )}
           {state === 'error' && (
             <div className="banner banner-deny" role="alert">
               <AlertTriangle size={14} aria-hidden />
