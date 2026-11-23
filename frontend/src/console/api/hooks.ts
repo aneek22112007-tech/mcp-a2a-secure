@@ -332,6 +332,11 @@ export interface ActivitySeries {
   current: Omit<ActivityBucket, 't'>;
   previous: Omit<ActivityBucket, 't'>;
   sampled: number;
+  /**
+   * Set when the page cap was hit before reaching the start of the window: events older
+   * than this time (ms) were not loaded, so earlier buckets are unknown rather than zero.
+   */
+  coveredFrom: number | null;
   /** Tool call latency over the 30 minute window, from audit duration_ms. */
   latency: { p50: number | null; p95: number | null; samples: number; byTool: Record<string, { p50: number | null; p95: number | null; samples: number }> };
 }
@@ -344,7 +349,7 @@ function emptyCounts(): Omit<ActivityBucket, 't'> {
 }
 
 /** Real audit rows from the last 30 minutes, bucketed per minute. Console polls are skipped. */
-export function buildActivitySeries(events: AuditEvent[], now = Date.now()): ActivitySeries {
+export function buildActivitySeries(events: AuditEvent[], now = Date.now(), coveredFrom: number | null = null): ActivitySeries {
   const end = Math.ceil(now / BUCKET_MS) * BUCKET_MS;
   const start = end - BUCKETS * BUCKET_MS;
   const buckets: ActivityBucket[] = Array.from({ length: BUCKETS }, (_, i) => ({ t: start + i * BUCKET_MS, ...emptyCounts() }));
@@ -377,7 +382,7 @@ export function buildActivitySeries(events: AuditEvent[], now = Date.now()): Act
     byTool[tool] = { p50: percentile(list, 50), p95: percentile(list, 95), samples: list.length };
   }
   return {
-    buckets, current, previous, sampled: events.length,
+    buckets, current, previous, sampled: events.length, coveredFrom,
     latency: { p50: percentile(durations, 50), p95: percentile(durations, 95), samples: durations.length, byTool },
   };
 }
@@ -388,15 +393,17 @@ export function useActivitySeries(enabled = true) {
     queryFn: async () => {
       const all: AuditEvent[] = [];
       let offset = 0;
+      let complete = false;
       for (let page = 0; page < 5; page += 1) {
         const res = await consoleApi.listAudit({ limit: 100, offset });
         all.push(...res.items);
         const last = res.items[res.items.length - 1];
-        if (res.next_offset == null || !last) break;
-        if (Date.now() - new Date(last.created_at).getTime() > BUCKETS * BUCKET_MS) break;
+        if (res.next_offset == null || !last) { complete = true; break; }
+        if (Date.now() - new Date(last.created_at).getTime() > BUCKETS * BUCKET_MS) { complete = true; break; }
         offset = res.next_offset;
       }
-      return buildActivitySeries(all);
+      const oldest = all.length ? new Date(all[all.length - 1].created_at).getTime() : null;
+      return buildActivitySeries(all, Date.now(), complete ? null : oldest);
     },
     refetchInterval: 15_000,
     enabled,

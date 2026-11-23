@@ -1,18 +1,22 @@
 import { useEffect, useState } from 'react';
 import NumberFlow from '@number-flow/react';
-import { Activity, Gauge, Shield, ShieldAlert, AlertTriangle, Clock, Server, Box, FileText, Play } from 'lucide-react';
+import {
+  Activity, Gauge, Shield, ShieldAlert, ShieldX, AlertTriangle, Server, Box, FileText, Play,
+  BarChart2, Plug, Database, Timer, Layers, ArrowRight, KeyRound, Pin, Wrench,
+} from 'lucide-react';
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useMetrics, useHealth, useStatus, useAuditStream, useAudit, usePins, useActivitySeries } from '../../api/hooks';
-import { KpiCard, SkeletonPage } from '../../components/premium';
+import { SkeletonPage } from '../../components/premium';
+import { BarList, Card, PipelineStepper, StatCard, StatusRow, type BarListItem } from '../../components/blocks';
 import { ErrorPanel, StreamDot, EmptyState } from '../../components/ui';
-import { PipelineStrip } from '../../components/Pipeline';
 import { lightsMatched, pipelineLights, type StageLight } from '../../components/pipelineLogic';
 import { ATTACK_SEQUENCE, waitForCaption, type AttackResult } from '../attack/runners';
 import {
-  fmtTimestamp, fmtDuration, fmtUptime, decisionBadgeClass,
-  getPinBadge, PIN_BADGE_CLASS, PIN_BADGE_LABEL,
-  sandboxStatusBadgeClass, auditRowClass, isConsolePoll,
-  fmtPercent, plural, trafficCommands,
+  fmtTimestamp, fmtDuration, elapsedSince,
+  getPinBadge, PIN_BADGE_LABEL, isConsolePoll, CONSOLE_TZ,
+  plural, trafficCommands, envFromBase,
 } from '../../utils/helpers';
+import { CommandBand } from './CommandBand';
 import { getApiBase, type MetricsResponse, type AuditEvent, type ToolPin } from '../../api/client';
 import { useReducedMotion } from '../../../hooks/useReducedMotion';
 
@@ -139,220 +143,369 @@ export function OverviewView({ offline }: OverviewProps) {
     setDemoRunning(null);
   };
 
+  const recentEvents = events.slice(0, 7);
+  const ranked = rankFromEvents(events.length ? [...liveEvents, ...(auditPage?.items ?? [])] : []);
+  const auditWindow = auditPage?.items.length ?? 0;
+  const allowRate = totals.total ? totals.successful / totals.total : null;
+  // When the newest 500 audit rows do not reach back 30 minutes, earlier minutes are unknown.
+  const coveredFrom = series?.coveredFrom ?? null;
+  const partial = coveredFrom != null;
+  const cur = partial ? undefined : series?.current;
+  const prev = partial ? undefined : series?.previous;
+  const pinTotal = summary.trusted + summary.review + summary.drift + summary.revoked;
+  const sandboxEntries = sandbox ? Object.entries(sandbox.by_status).filter(([, c]) => c > 0).sort(([, a], [, b]) => b - a) : [];
+  const known = (t: number) => coveredFrom == null || t + 60_000 > coveredFrom;
+  const traffic = (series?.buckets ?? []).map(b => (known(b.t)
+    ? { t: b.t, allowed: b.allowed, denied: b.denied }
+    : { t: b.t, allowed: null, denied: null }));
+  const trafficTotals = traffic.reduce((acc, b) => ({ allowed: acc.allowed + (b.allowed ?? 0), denied: acc.denied + (b.denied ?? 0) }), { allowed: 0, denied: 0 });
+  const trafficNote = partial
+    ? `Newest ${series?.sampled ?? 0} audit events, from ${timeFmt.format(new Date(coveredFrom))} IST. Older minutes were not loaded.`
+    : 'Allowed and denied decisions per minute, last 30 minutes (IST)';
+  const bandState: 'ok' | 'degraded' | 'down' | 'unknown' = offline
+    ? 'down'
+    : !health ? 'unknown' : health.status !== 'ok' ? 'degraded' : streamState === 'offline' ? 'degraded' : 'ok';
+  const healthTone = (ok: boolean | undefined) => (ok == null ? 'neutral' : ok ? 'ok' : 'bad');
+
   return (
-    <div className="console-page">
-      <header className="page-header">
+    <div className="console-page page-home">
+      <header className="home-head">
         <div>
           <h1 className="page-title">Overview</h1>
           <p className="page-sub">
-            Gateway traffic, policy decisions and tool health.
-            {health && ` ${health.app}`}
-            {probe?.uptime_seconds != null && ` · up ${fmtUptime(probe.uptime_seconds)}`}
+            Gateway traffic, policy decisions and tool health{health ? ` for ${health.app}` : ''}
           </p>
         </div>
-        <a className="btn btn-primary" href="#/audit">Open Live Audit</a>
+        <div className="home-actions">
+          <a className="btn btn-ghost" href="#/metrics"><BarChart2 size={14} aria-hidden /> Metrics</a>
+          <a className="btn btn-primary" href="#/audit"><FileText size={14} aria-hidden /> Open Live Audit</a>
+        </div>
       </header>
 
-      <div className="kpi-row">
-        {[
-          { label: 'Requests', value: totals.total, icon: Activity, tone: 'var(--c-info)', key: 'total' as const, up: true, foot: 'all time' },
-          { label: 'Allowed', value: totals.successful, icon: Shield, tone: 'var(--c-allow)', key: 'allowed' as const, up: true, foot: totals.total ? `${fmtPercent(totals.successful / totals.total)} of requests` : undefined },
-          { label: 'Denied', value: totals.denied, icon: AlertTriangle, tone: 'var(--c-deny)', key: 'denied' as const, up: false, foot: 'auth, scope, policy' },
-          { label: 'Rate limited', value: totals.rate_limit_rejections, icon: Clock, tone: 'var(--c-review)', key: 'rateLimited' as const, up: false, foot: 'since API start' },
-          { label: 'Guard blocks', value: metrics?.injection_guard?.blocked ?? 0, icon: ShieldAlert, tone: 'var(--c-high)', key: 'guard' as const, up: false, foot: metrics?.injection_guard ? plural(metrics.injection_guard.hits, 'hit') : 'injection guard' },
-        ].map(({ label, value, icon: Icon, tone, key, up, foot }) => (
-          <KpiCard
-            key={label}
-            label={label}
-            icon={<Icon size={13} />}
-            tone={tone}
-            value={<Count value={value} color="var(--c-text)" />}
-            series={series ? series.buckets.map(bk => bk[key]) : undefined}
-            current={series?.current[key]}
-            previous={series?.previous[key]}
-            goodWhenUp={up}
-            foot={foot}
-          />
-        ))}
-        <KpiCard
-          label="Tool latency"
-          icon={<Gauge size={13} />}
-          tone="var(--c-info)"
-          value={<span>{series?.latency.p95 != null ? fmtDuration(series.latency.p95) : '—'}<span className="kpi-unit"> p95</span></span>}
-          foot={series?.latency.samples
-            ? `p50 ${fmtDuration(series.latency.p50)} · ${plural(series.latency.samples, 'call')}, 30 min`
-            : 'no tool calls in 30 min'}
+      <CommandBand
+        state={bandState}
+        envName={envFromBase(getApiBase()).name}
+        total={totals.total}
+        allowRate={allowRate}
+        denied={totals.denied}
+        uptimeSeconds={probe?.uptime_seconds}
+        events={[...liveEvents, ...(auditPage?.items ?? [])]}
+        pins={pins}
+        lights={lights}
+      />
+
+      <div className="stat-grid">
+        <StatCard
+          label="Requests, 15 min"
+          icon={<Activity size={14} />}
+          value={<Count value={series?.current.total ?? 0} color="var(--c-text)" />}
+          narrative={partial
+            ? 'At least; older rows not loaded'
+            : prev ? `vs ${prev.total.toLocaleString()} in the 15 min before` : 'From the audit log'}
+          series={series?.buckets.map(b => (known(b.t) ? b.total : 0))}
+          current={cur?.total} previous={prev?.total}
+          color="var(--c-chart-info)"
+        />
+        <StatCard
+          label="Allowed, 15 min"
+          icon={<Shield size={14} />}
+          value={<Count value={series?.current.allowed ?? 0} color="var(--c-text)" />}
+          narrative={`${totals.successful.toLocaleString()} allowed all time`}
+          series={series?.buckets.map(b => (known(b.t) ? b.allowed : 0))}
+          color="var(--c-chart-allow)"
+        />
+        <StatCard
+          label="Denied, 15 min"
+          icon={<ShieldX size={14} />}
+          value={<Count value={series?.current.denied ?? 0} color="var(--c-text)" />}
+          narrative={`Auth, scope and policy · ${plural(totals.rate_limit_rejections, 'rate-limit rejection')} all time`}
+          series={series?.buckets.map(b => (known(b.t) ? b.denied : 0))}
+          current={cur?.denied} previous={prev?.denied}
+          goodWhenUp={false}
+          color="var(--c-chart-deny)"
+        />
+        <StatCard
+          label="Tool latency p95"
+          icon={<Gauge size={14} />}
+          value={<span>{series?.latency.p95 != null ? fmtDuration(series.latency.p95) : '—'}</span>}
+          narrative={series?.latency.samples
+            ? `p50 ${fmtDuration(series.latency.p50)} over ${plural(series.latency.samples, 'tool call')}, 30 min`
+            : 'No tool calls in the last 30 min'}
         />
       </div>
 
-      <section className="panel panel-pad">
-        <div className="section-label">Request pipeline</div>
-        <PipelineStrip lights={lights} />
-      </section>
+      <div className="grid-2-1">
+        <Card
+          title="Gateway traffic"
+          description={trafficNote}
+          label="Gateway traffic"
+          action={(
+            <div className="legend">
+              <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--c-chart-allow)' }} />Allowed <b>{trafficTotals.allowed}</b></span>
+              <span className="legend-item"><span className="legend-swatch" style={{ background: 'var(--c-chart-deny)' }} />Denied <b>{trafficTotals.denied}</b></span>
+            </div>
+          )}
+        >
+          <TrafficChart data={traffic} />
+        </Card>
 
-      <div className="split-main">
-        <section className="panel panel-grow">
-          <div className="panel-head">
-            <span className="section-label label-with-icon">
-              <FileText size={14} aria-hidden />
-              Live Events
-            </span>
-            <StreamDot state={streamState} />
+        <Card
+          title="Gateway health"
+          description="Live probes from /api/status and /api/metrics"
+          label="Gateway health"
+          action={<StreamDot state={streamState} />}
+          bodyClassName="status-list"
+        >
+          <StatusRow label="API" icon={<Server size={14} />} value={health?.status === 'ok' ? 'Operational' : health ? health.status : 'Checking'} tone={health ? healthTone(health.status === 'ok') : 'neutral'} />
+          <StatusRow
+            label="MCP endpoint"
+            icon={<Plug size={14} />}
+            value={mcpUnconfigured ? 'Not configured' : probe?.mcp ?? '—'}
+            tone={mcpUnconfigured ? 'warn' : probe ? healthTone(probe.mcp === 'online') : 'neutral'}
+          />
+          <StatusRow label="Database" icon={<Database size={14} />} value={metrics?.database?.available ? 'Connected' : 'Error'} tone={healthTone(metrics?.database?.available)} />
+          <StatusRow label="Probe latency" icon={<Timer size={14} />} value={<span className="mono">{probe?.latency_ms != null ? `${probe.latency_ms} ms` : '—'}</span>} />
+          <StatusRow label="Rate-limit buckets" icon={<Layers size={14} />} value={<span className="mono">{metrics?.in_process_limiter?.active_buckets ?? 0}</span>} />
+          <div className="status-split">
+            <div>
+              <span className="status-split-label">Rate limited</span>
+              <span className="status-split-value">{totals.rate_limit_rejections.toLocaleString()}</span>
+            </div>
+            <div>
+              <span className="status-split-label">Guard blocks</span>
+              <span className="status-split-value">{(metrics?.injection_guard?.blocked ?? 0).toLocaleString()}</span>
+            </div>
+            <div>
+              <span className="status-split-label">Guard hits</span>
+              <span className="status-split-value">{(metrics?.injection_guard?.hits ?? 0).toLocaleString()}</span>
+            </div>
           </div>
-          <div className="events-scroll">
-            {events.length === 0 ? (
-              <EmptyState
-                label="No gateway events yet"
-                hint="Events appear here as soon as a client calls the gateway. Try a call with any key:"
-                command={trafficCommands(getApiBase()).restCall}
-              />
-            ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Action</th>
-                    <th>Decision</th>
-                    <th>Tool</th>
-                    <th>Key</th>
-                    <th>Duration</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {events.slice(0, 18).map((evt, idx) => (
-                    <tr key={evt.id} className={idx === 0 ? 'row-enter' : ''}>
-                      <td className="mono nowrap">{fmtTimestamp(evt.created_at)}</td>
-                      <td className={`mono ${auditRowClass(evt)}`}>{evt.action}</td>
-                      <td><span className={`badge ${decisionBadgeClass(evt.decision)}`}>{evt.decision}</span></td>
-                      <td className="mono">{evt.tool_name ?? '—'}</td>
-                      <td className="mono dim">{evt.key_prefix ?? '—'}</td>
-                      <td className="mono">{fmtDuration(evt.duration_ms)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </section>
+        </Card>
+      </div>
 
-        <section className="panel demo-panel">
-          <div className="panel-head">
-            <span className="section-label">Demo sequence</span>
-            <button className="btn btn-primary btn-sm" onClick={() => void runSequence()} disabled={offline || !!demoRunning}>
-              <Play size={12} aria-hidden />
-              {demoRunning ? 'Running…' : 'Run demo sequence'}
-            </button>
-          </div>
-          <ol className="demo-steps">
-            {ATTACK_SEQUENCE.map(step => {
-              const result = demoResults[step.id];
-              const active = demoRunning === step.id;
-              return (
-                <li key={step.id} className={active ? 'demo-step demo-step-active' : 'demo-step'}>
-                  <p>{step.caption}</p>
-                  {result && (
-                    <p className="demo-step-result">
-                      <span className="badge result-stage" style={{ color: result.stageColor, borderColor: result.stageColor }}>
-                        {result.stage}
+      <div className="grid-3">
+        <Card
+          title="Recent activity"
+          description="Newest gateway decisions"
+          label="Recent activity"
+          action={<a className="card-link" href="#/audit">View all <ArrowRight size={12} aria-hidden /></a>}
+          bodyClassName="feed-body"
+        >
+          {recentEvents.length === 0 ? (
+            <EmptyState
+              label="No gateway events yet"
+              hint="Events appear as soon as a client calls the gateway. Try a call with any key:"
+              command={trafficCommands(getApiBase()).restCall}
+            />
+          ) : (
+            <ul className="feed">
+              {recentEvents.map(evt => {
+                const kind = eventKind(evt);
+                const Icon = kind.icon;
+                return (
+                  <li key={evt.id} className="feed-item">
+                    <span className={`feed-icon tone-${kind.tone}`} aria-hidden><Icon size={14} /></span>
+                    <div className="feed-text">
+                      <span className="feed-title">{kind.title}</span>
+                      <span className="feed-meta">
+                        <span className="mono">{evt.tool_name ?? evt.action}</span>
+                        {evt.key_prefix && <> · <span className="mono">{evt.key_prefix}</span></>}
+                        {evt.status_code != null && <> · {evt.status_code}</>}
                       </span>
+                    </div>
+                    <time className="feed-time" dateTime={evt.created_at} title={`${fmtTimestamp(evt.created_at)} IST`}>{elapsedSince(evt.created_at)}</time>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+
+        <Card
+          title="Top denial reasons"
+          description={auditWindow ? `Across the latest ${plural(auditWindow, 'audit event')}` : 'From the latest audit events'}
+          label="Top denial reasons"
+          action={<a className="card-link" href="#/audit">Investigate <ArrowRight size={12} aria-hidden /></a>}
+        >
+          <BarList
+            items={ranked.reasons}
+            color="var(--c-deny-bar)"
+            empty="No denied requests in the latest events"
+          />
+        </Card>
+
+        <Card
+          title="Tools"
+          description="Calls by tool, pin status and sandbox runs"
+          label="Tools"
+          action={<a className="card-link" href="#/pins">Pins <ArrowRight size={12} aria-hidden /></a>}
+        >
+          <BarList items={ranked.tools} color="var(--c-allow-bar)" empty="No tool calls in the latest events" />
+          <div className="mini-stats">
+            {(['trusted', 'review', 'drift', 'revoked'] as const).map(key => (
+              <div key={key} className="mini-stat">
+                <span className={`mini-dot pin-${key}`} aria-hidden />
+                <span className="mini-label">{PIN_BADGE_LABEL[key]}</span>
+                <span className="mini-value">{summary[key]}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mini-foot">
+            <span><Pin size={12} aria-hidden /> {plural(pinTotal, 'pinned tool')}</span>
+            <span>
+              <Box size={12} aria-hidden />{' '}
+              {sandboxEntries.length
+                ? sandboxEntries.map(([name, c]) => `${c} ${name}`).join(' · ')
+                : 'No sandbox runs yet'}
+            </span>
+          </div>
+        </Card>
+      </div>
+
+      <Card
+        title="Request pipeline"
+        description="Every call passes these checks in order. Run the demo to light up where each request stops."
+        label="Request pipeline"
+        className="pipeline-card"
+        action={(
+          <button className="btn btn-primary btn-sm" onClick={() => void runSequence()} disabled={offline || !!demoRunning}>
+            <Play size={12} aria-hidden />
+            {demoRunning ? 'Running…' : 'Run demo sequence'}
+          </button>
+        )}
+      >
+        <PipelineStepper lights={lights} />
+        <ol className="demo-list">
+          {ATTACK_SEQUENCE.map((step, i) => {
+            const result = demoResults[step.id];
+            const active = demoRunning === step.id;
+            const state = active ? 'running' : result ? (result.ok ? 'ok' : 'stopped') : 'idle';
+            return (
+              <li key={step.id} className={`demo-item demo-${state}`} aria-current={active ? 'step' : undefined}>
+                <span className="demo-num" aria-hidden>{i + 1}</span>
+                <div className="demo-text">
+                  <p className="demo-caption">{step.caption}</p>
+                  {result && (
+                    <p className="demo-result">
+                      <span className="badge result-stage" style={{ color: result.stageColor, borderColor: result.stageColor }}>{result.stage}</span>
                       <span className="mono">HTTP {result.status}</span>
                       {result.pinReason && <span className="mono">{result.pinReason}</span>}
+                      <span className="demo-summary">{result.summary}</span>
                     </p>
                   )}
-                  {result && <p className="page-sub">{result.summary}</p>}
-                </li>
-              );
-            })}
-          </ol>
-          {offline && <p className="page-sub">The sequence sends real requests only while the backend is up.</p>}
-          {demoError && <p className="tone-deny">{demoError}</p>}
-        </section>
-      </div>
-
-      <div className="split-uneven">
-        <section className="panel panel-pad">
-          <div className="section-label">Tool Pins</div>
-          <div className="stack">
-            {(['trusted', 'review', 'drift', 'revoked'] as const).map(key => (
-              <div key={key} className="row-between">
-                <span className={`badge ${PIN_BADGE_CLASS[key]}`}>{PIN_BADGE_LABEL[key]}</span>
-                <span className="mono pin-count">{summary[key]}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel panel-pad">
-          <div className="section-label">Backend Health</div>
-          <div className="stack">
-            <div className="row-between">
-              <span className="muted-line"><Server size={12} aria-hidden /> MCP</span>
-              {mcpUnconfigured ? (
-                <span className="mcp-warn">MCP not configured: set MCP_SELF_API_KEY</span>
-              ) : (
-                <span className={`badge ${probe?.mcp === 'online' ? 'badge-allow' : 'badge-deny'}`}>
-                  {probe?.mcp ?? '—'}
-                </span>
-              )}
-            </div>
-            <div className="row-between">
-              <span className="muted-line">Database</span>
-              <span className={`badge ${metrics?.database?.available ? 'badge-allow' : 'badge-deny'}`}>
-                {metrics?.database?.available ? 'ok' : 'error'}
-              </span>
-            </div>
-            <div className="row-between">
-              <span className="muted-line">Latency</span>
-              <span className="mono">{probe?.latency_ms != null ? `${probe.latency_ms} ms` : '—'}</span>
-            </div>
-            <div className="row-between">
-              <span className="muted-line">Rate buckets</span>
-              <span className="mono">{metrics?.in_process_limiter?.active_buckets ?? 0}</span>
-            </div>
-          </div>
-        </section>
-
-        <section className="panel panel-pad">
-          <div className="section-label label-with-icon"><Box size={12} aria-hidden /> Sandbox Runs</div>
-          <div className="stack">
-            {sandbox && Object.entries(sandbox.by_status).filter(([, count]) => count > 0).sort(([, a], [, b]) => b - a).map(([name, count]) => (
-              <div key={name} className="row-between">
-                <span className={`badge ${sandboxStatusBadgeClass(name)}`}>{name}</span>
-                <span className="mono pin-count">{count}</span>
-              </div>
-            ))}
-            {(!sandbox || Object.values(sandbox.by_status).every(count => count === 0)) && (
-              <span className="page-sub">No runs yet</span>
-            )}
-          </div>
-        </section>
-      </div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        {offline && <p className="page-sub">The sequence sends real requests only while the backend is up.</p>}
+        {demoError && <p className="tone-deny">{demoError}</p>}
+      </Card>
 
       {metrics?.slowest_tools && metrics.slowest_tools.length > 0 && (
-        <section className="panel">
-          <div className="panel-head"><span className="section-label">Slowest Tools</span></div>
+        <Card title="Slowest tools" description="Average and worst duration per tool, from /api/metrics" label="Slowest tools" bodyClassName="card-body-flush">
           <table className="data-table">
             <thead>
               <tr>
                 <th>Tool</th>
-                <th>Requests</th>
-                <th>Avg Duration</th>
-                <th>Max Duration</th>
+                <th className="num">Requests</th>
+                <th className="num">Avg duration</th>
+                <th className="num">Max duration</th>
               </tr>
             </thead>
             <tbody>
               {metrics.slowest_tools.map(tool => (
                 <tr key={tool.tool_name}>
                   <td className="mono">{tool.tool_name}</td>
-                  <td className="mono">{tool.request_count}</td>
-                  <td className="mono">{fmtDuration(tool.avg_duration_ms)}</td>
-                  <td className="mono">{fmtDuration(tool.max_duration_ms)}</td>
+                  <td className="mono num">{tool.request_count}</td>
+                  <td className="mono num">{fmtDuration(tool.avg_duration_ms)}</td>
+                  <td className="mono num">{fmtDuration(tool.max_duration_ms)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </section>
+        </Card>
       )}
     </div>
   );
+}
+
+const timeFmt = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: CONSOLE_TZ });
+
+function TrafficChart({ data }: { data: { t: number; allowed: number | null; denied: number | null }[] }) {
+  if (!data.some(d => d.allowed || d.denied)) {
+    return <div className="chart-empty">No gateway traffic in the last 30 minutes</div>;
+  }
+  return (
+    <div className="chart-hero">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id="trafficAllow" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#14B8A6" stopOpacity={0.32} />
+              <stop offset="100%" stopColor="#14B8A6" stopOpacity={0.02} />
+            </linearGradient>
+            <linearGradient id="trafficDeny" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#F43F5E" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="#F43F5E" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid vertical={false} stroke="#EEECE6" />
+          <XAxis dataKey="t" tickFormatter={(t: number) => timeFmt.format(new Date(t))} tick={{ fill: '#8A8A93', fontSize: 11 }} axisLine={false} tickLine={false} minTickGap={40} />
+          <YAxis allowDecimals={false} tick={{ fill: '#8A8A93', fontSize: 11 }} axisLine={false} tickLine={false} width={36} />
+          <Tooltip
+            cursor={{ stroke: '#DCD9D1' }}
+            contentStyle={{ background: '#18181B', border: '1px solid #27272A', borderRadius: 8, fontSize: 12 }}
+            labelStyle={{ color: '#A1A1AA' }}
+            labelFormatter={(t) => `${timeFmt.format(new Date(Number(t)))} IST`}
+          />
+          <Area type="monotone" dataKey="allowed" name="Allowed" stackId="1" stroke="#14B8A6" strokeWidth={1.75} fill="url(#trafficAllow)" isAnimationActive={false} />
+          <Area type="monotone" dataKey="denied" name="Denied" stackId="1" stroke="#F43F5E" strokeWidth={1.75} fill="url(#trafficDeny)" isAnimationActive={false} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+type Tone = 'allow' | 'deny' | 'warn' | 'info' | 'muted';
+
+function eventKind(evt: AuditEvent): { icon: typeof Activity; tone: Tone; title: string } {
+  const a = evt.action;
+  if (evt.status_code === 429 || a.startsWith('rate_limit')) return { icon: Timer, tone: 'warn', title: 'Rate limit hit' };
+  if (a.startsWith('tool.output.injection') || a.startsWith('guard')) return { icon: ShieldAlert, tone: 'warn', title: 'Injection guard triggered' };
+  if (a.startsWith('auth')) return { icon: KeyRound, tone: evt.decision === 'denied' ? 'deny' : 'info', title: evt.decision === 'denied' ? 'Authentication rejected' : 'Key authenticated' };
+  if (a.startsWith('tool.pin') || a.includes('pin')) return { icon: Pin, tone: evt.decision === 'denied' ? 'deny' : 'info', title: evt.decision === 'denied' ? 'Blocked by pin gate' : 'Pin updated' };
+  const failed = evt.decision === 'error' || (evt.status_code != null && evt.status_code >= 500);
+  if (a.startsWith('tool.call') || a === 'mcp.tools_call') {
+    if (evt.decision === 'denied') return { icon: ShieldX, tone: 'deny', title: 'Tool call denied' };
+    if (failed) return { icon: AlertTriangle, tone: 'warn', title: 'Tool call failed' };
+    return { icon: Wrench, tone: 'allow', title: a === 'mcp.tools_call' ? 'MCP tool call' : 'Tool call allowed' };
+  }
+  if (evt.decision === 'denied') return { icon: ShieldX, tone: 'deny', title: 'Request denied' };
+  if (failed) return { icon: AlertTriangle, tone: 'warn', title: 'Request failed' };
+  const words = a.replace(/[._]+/g, ' ').trim();
+  return { icon: Activity, tone: 'muted', title: words.charAt(0).toUpperCase() + words.slice(1) };
+}
+
+function rankFromEvents(list: AuditEvent[]): { reasons: BarListItem[]; tools: BarListItem[] } {
+  const seen = new Set<string>();
+  const reasons: Record<string, number> = {};
+  const mcpTools: Record<string, number> = {};
+  const restTools: Record<string, number> = {};
+  for (const evt of list) {
+    if (seen.has(evt.id) || isConsolePoll(evt)) continue;
+    seen.add(evt.id);
+    if (evt.decision === 'denied') {
+      const key = evt.error_code || evt.reason || evt.action;
+      reasons[key] = (reasons[key] ?? 0) + 1;
+    }
+    // MCP tools/call rows are the client-facing calls; fall back to tool.call rows when there are none.
+    if (evt.tool_name && evt.action === 'mcp.tools_call') mcpTools[evt.tool_name] = (mcpTools[evt.tool_name] ?? 0) + 1;
+    if (evt.tool_name && evt.action.startsWith('tool.call')) restTools[evt.tool_name] = (restTools[evt.tool_name] ?? 0) + 1;
+  }
+  const top = (rec: Record<string, number>) => Object.entries(rec)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 5)
+    .map(([name, value]) => ({ key: name, value, name: <span className="mono">{name}</span>, hint: name }));
+  return { reasons: top(reasons), tools: top(Object.keys(mcpTools).length ? mcpTools : restTools) };
 }

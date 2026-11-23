@@ -118,7 +118,7 @@ function PinsViewInner({ offline }: PinsViewProps) {
         <Pin size={13} style={{ color: 'var(--c-amber)', flexShrink: 0 }} />
         <span style={{ fontSize: 12, color: 'var(--c-text-muted)' }}>
           Pinning mode is the live server value of{' '}
-          <span className="mono" style={{ color: 'var(--c-amber)' }}>TOOL_PINNING_MODE</span>.
+          <span className="mono" style={{ color: 'var(--c-text)' }}>TOOL_PINNING_MODE</span>.
         </span>
         {pinningMode && (
           <span
