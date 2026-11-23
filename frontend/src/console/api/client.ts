@@ -549,6 +549,31 @@ export interface ExplainResult {
   refs: Record<string, string>;
 }
 
+export interface AnalystChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface AnalystAnswerPart {
+  text: string;
+  refs: string[];
+}
+
+/** One checked answer. refs maps E refs to event ids, or I refs to incident ids. */
+export interface AnalystChatAnswer {
+  scope: string;
+  incident_id: string | null;
+  answer: AnalystAnswerPart[];
+  confidence: string;
+  provider: string;
+  model: string;
+  fell_back: boolean;
+  withheld_fields: number;
+  created_at: string;
+  latency_ms: number;
+  refs: Record<string, string>;
+}
+
 export interface AnalystStatus {
   enabled: boolean;
   ollama_reachable: boolean;
@@ -976,6 +1001,19 @@ export const consoleApi = {
     refresh?: boolean;
   }): Promise<ExplainResult> {
     return apiFetch<ExplainResult>(
+      '/api/analyst/explain',
+      { method: 'POST', body: JSON.stringify(body), signal: explainSignal() },
+      undefined,
+      'The analyst did not reply within 75 seconds.',
+    );
+  },
+
+  /** A follow-up question. Same route, scope and bucket as an explanation. */
+  async askAnalyst(body: {
+    incident_id?: string;
+    messages: AnalystChatTurn[];
+  }): Promise<AnalystChatAnswer> {
+    return apiFetch<AnalystChatAnswer>(
       '/api/analyst/explain',
       { method: 'POST', body: JSON.stringify(body), signal: explainSignal() },
       undefined,

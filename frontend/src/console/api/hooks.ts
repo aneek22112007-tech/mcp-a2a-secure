@@ -461,6 +461,13 @@ export function useExplainIncident() {
   });
 }
 
+export function useAskAnalyst() {
+  return useMutation({
+    mutationFn: (body: Parameters<typeof consoleApi.askAnalyst>[0]) =>
+      consoleApi.askAnalyst(body),
+  });
+}
+
 // ── LLM Calls & Health ────────────────────────────────────────────────
 export function useLlmCalls(
   params: Parameters<typeof consoleApi.listLlmCalls>[0] = {},
