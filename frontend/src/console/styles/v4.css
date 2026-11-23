@@ -405,3 +405,9 @@
   .band-num { font-size: 24px; }
   .band-up { display: none; }
 }
+
+/* Keep absolutely positioned helpers (for example .sr-only labels) inside the
+   scrolling sheet. Without a positioned ancestor they are placed against the
+   document, which makes the page itself scroll past the fixed-height shell. */
+.mcpg-console { position: relative; }
+.mcpg-console .shell-main { position: relative; }
