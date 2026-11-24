@@ -1,4 +1,9 @@
-"""Incident list, detail, explain, and status."""
+"""Incident list, detail, explain, follow-up questions, and status.
+
+Follow-up questions go through POST /api/analyst/explain with a ``messages``
+list, so they use the same route scope, the same audit:read check and the
+same per-key bucket as an explanation.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from app import database
 from app.analyst.brief import incident_brief
+from app.analyst.chat import MAX_TURNS, ChatTurn, answer_question, record_chat_attempt
 from app.analyst.errors import AnalystUnavailableError
 from app.analyst.incidents import group_incidents
 from app.analyst.output import ReportBody
@@ -116,14 +122,31 @@ class IncidentDetailOut(IncidentSummaryOut):
 
 
 class ExplainRequest(BaseModel):
+    """Explain one incident, or answer a question when ``messages`` is set.
+
+    With ``messages`` the thread is about ``incident_id``, or about every
+    incident in the window when no id is given. ``event_id`` is not used then.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     incident_id: str | None = Field(default=None, pattern=r"^inc_[0-9a-f]{16}$")
     event_id: str | None = Field(default=None, max_length=36)
     refresh: bool = False
+    messages: list[ChatTurn] | None = Field(
+        default=None, min_length=1, max_length=MAX_TURNS
+    )
 
     @model_validator(mode="after")
-    def exactly_one_id(self) -> ExplainRequest:
+    def check_ids(self) -> ExplainRequest:
+        if self.messages is not None:
+            if self.event_id or self.refresh:
+                raise ValueError(
+                    "A question takes incident_id or no id, without refresh."
+                )
+            if self.messages[-1].role != "user":
+                raise ValueError("The last message must be the question.")
+            return self
         if bool(self.incident_id) == bool(self.event_id):
             raise ValueError("Provide exactly one of incident_id or event_id.")
         return self
@@ -136,6 +159,27 @@ class ExplainOut(BaseModel):
     model: str
     fell_back: bool
     cached: bool
+    withheld_fields: int
+    created_at: datetime
+    latency_ms: int
+    refs: dict[str, str]
+
+
+class AnswerPartOut(BaseModel):
+    text: str
+    refs: list[str]
+
+
+class ChatOut(BaseModel):
+    """One checked answer. ``refs`` maps E refs to event ids, or I refs to incident ids."""
+
+    scope: str
+    incident_id: str | None
+    answer: list[AnswerPartOut]
+    confidence: str
+    provider: str
+    model: str
+    fell_back: bool
     withheld_fields: int
     created_at: datetime
     latency_ms: int
@@ -353,11 +397,63 @@ async def _incident_for_event(incidents: list[Incident], event_id: str) -> Incid
     )
 
 
-@router.post("/explain", response_model=ExplainOut)
-async def explain(body: ExplainRequest, request: Request) -> ExplainOut:
-    """Explain one incident. The shared bucket already ran. Analyst token is last."""
+async def _ask(body: ExplainRequest, request: Request, principal: Principal) -> ChatOut:
+    turns = body.messages or []
+    request_id = current_request_id(request.scope)
+    client_ip = current_client_ip(request.scope)
+    if not settings.llm_enabled:
+        await record_chat_attempt(
+            principal,
+            request_id=request_id,
+            client_ip=client_ip,
+            status="unavailable",
+            scope=body.incident_id or "overview",
+            turns=len(turns),
+            error="disabled",
+        )
+        raise AnalystUnavailableError("disabled")
+    await analyst_rate_limit(request)
+
+    incidents, _moment, _reports = await _load()
+    incident = _find(incidents, body.incident_id) if body.incident_id else None
+    related: list[Incident] = []
+    if incident is not None:
+        related_ids = set(incident.related_ids)
+        related = [item for item in incidents if item.id in related_ids]
+    result = await answer_question(
+        turns,
+        incident=incident,
+        related=related,
+        incidents=incidents,
+        principal=principal,
+        request_id=request_id,
+        client_ip=client_ip,
+    )
+    return ChatOut(
+        scope=result.scope,
+        incident_id=incident.id if incident is not None else None,
+        answer=[
+            AnswerPartOut(text=part.text, refs=list(part.refs))
+            for part in result.answer.answer
+        ],
+        confidence=result.answer.confidence,
+        provider=result.provider,
+        model=result.model,
+        fell_back=result.fell_back,
+        withheld_fields=result.withheld_fields,
+        created_at=result.created_at,
+        latency_ms=result.latency_ms,
+        refs=result.refs,
+    )
+
+
+@router.post("/explain", response_model=ExplainOut | ChatOut)
+async def explain(body: ExplainRequest, request: Request) -> ExplainOut | ChatOut:
+    """Explain one incident or answer a question. Analyst token is taken last."""
 
     principal = await _require_audit_read(request)
+    if body.messages is not None:
+        return await _ask(body, request, principal)
     request_id = current_request_id(request.scope)
     client_ip = current_client_ip(request.scope)
     if not settings.llm_enabled:
