@@ -10,6 +10,7 @@ import './styles/analyst-chat.css';
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
+import { BootScreen } from './components/BootScreen';
 import { ConnectScreen } from './features/connect/ConnectScreen';
 import { ConsoleShell } from './components/Shell';
 import { VIEW_IDS, type ViewId } from './components/views';
@@ -187,9 +188,7 @@ export function ConsoleApp() {
 
   if (backendUp === null) {
     return (
-      <main className="boot-screen" role="status">
-        Checking backend…
-      </main>
+      <BootScreen />
     );
   }
 
