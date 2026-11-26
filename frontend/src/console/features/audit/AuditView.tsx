@@ -287,7 +287,9 @@ function AuditViewInner({ offline: _offline }: AuditViewProps) {
   });
 
   // SSE live stream
-  const { events: streamEvents, state: streamState } = useAuditStream(50);
+  // Take the whole shared buffer. Console polls are dropped below, and a burst
+  // of them would otherwise push real rows out of a smaller window.
+  const { events: streamEvents, state: streamState } = useAuditStream(200);
 
   const resetPage = useCallback(() => {
     setCursors([0]);
@@ -330,8 +332,15 @@ function AuditViewInner({ offline: _offline }: AuditViewProps) {
 
   const showLiveStrip = !hasFilters && pageIndex === 0;
   const query = search.trim().toLowerCase();
+  // Every streamed row newer than the fetched page goes on top, so a burst
+  // (an attack run, a rate-limit test) shows at once instead of five rows now
+  // and the rest on the next page refresh.
+  const pageNewest = visiblePage[0]?.created_at ?? '';
+  const freshLive = liveEvents.filter(evt => !pageNewest || evt.created_at >= pageNewest);
   const displayItems = (showLiveStrip
-    ? dedupeEvents([...liveEvents.slice(0, 5), ...visiblePage]).slice(0, limit)
+    ? dedupeEvents([...freshLive, ...visiblePage])
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit)
     : dedupeEvents(visiblePage)).filter(evt => matchesSearch(evt, query));
   const deniedOnPage = displayItems.filter(e => e.decision === 'denied').length;
 
@@ -516,7 +525,7 @@ function AuditViewInner({ offline: _offline }: AuditViewProps) {
 
       {/* Table */}
       <div className="table-card-body">
-        {isLoading && !data ? (
+        {isLoading && !data && !(showLiveStrip && freshLive.length > 0) ? (
           <LoadingPanel label="Loading audit events…" />
         ) : isError && !data ? (
           <ErrorPanel message="Failed to load audit events" onRetry={() => void refetch()} />

@@ -201,6 +201,9 @@ async function apiFetch<T>(
   let res: Response;
   try {
     res = await fetch(`${getApiBase()}${path}`, {
+      // API responses are never cached. Skipping the HTTP cache also stops the
+      // browser from queueing identical GETs behind each other.
+      cache: 'no-store',
       ...options,
       headers,
       signal: options.signal ?? timeoutSignal(),
@@ -895,6 +898,7 @@ export const consoleApi = {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        cache: 'no-store',
         signal: timeoutSignal(),
       });
     } catch (err) {
@@ -1126,6 +1130,7 @@ export function createAuditStream(options: AuditStreamOptions): () => void {
     try {
       const res = await fetch(`${getApiBase()}/api/audit/stream`, {
         headers: { 'Authorization': `Bearer ${key}` },
+        cache: 'no-store',
         signal: options.signal,
       });
 

@@ -125,15 +125,25 @@ export async function runWrongScope(): Promise<AttackResult> {
 }
 
 export async function runRateLimit(): Promise<AttackResult> {
-  const results = await Promise.all(
-    Array.from({ length: 120 }, () => consoleApi.rawRequest('/api/metrics', 'GET')),
+  // One slow or dropped request must not hide the answers that did come back.
+  const results: RawHttp[] = await Promise.all(
+    Array.from({ length: 120 }, () => consoleApi.rawRequest('/api/metrics', 'GET').catch(
+      (err: unknown): RawHttp => ({
+        status: 0,
+        headers: {},
+        body: { error: { message: err instanceof Error ? err.message : 'Request failed.' } },
+        ok: false,
+      }),
+    )),
   );
   const limited = results.filter(item => item.status === 429);
-  const sample = limited[0] ?? results[results.length - 1];
+  const failed = results.filter(item => item.status === 0).length;
+  const sample = limited[0] ?? results.find(item => item.status !== 0) ?? results[results.length - 1];
   const retryAfter = limited.map(item => item.headers['retry-after']).find(Boolean) ?? null;
-  const summary = retryAfter
+  const base = retryAfter
     ? `${limited.length} of ${results.length} returned 429. Retry-After: ${retryAfter}s.`
     : `${limited.length} of ${results.length} returned 429.`;
+  const summary = failed > 0 ? `${base} ${failed} got no answer.` : base;
   return finish(
     {
       status: limited.length > 0 ? 429 : sample.status,
@@ -141,6 +151,7 @@ export async function runRateLimit(): Promise<AttackResult> {
       body: {
         sent: results.length,
         too_many_requests: limited.length,
+        no_answer: failed,
         retry_after: retryAfter,
         sample: sample.body,
       },
