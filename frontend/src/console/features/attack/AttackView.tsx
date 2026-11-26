@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Play, Clock, Info } from 'lucide-react';
 import { ConsoleErrorBoundary, LoadingPanel, ErrorPanel } from '../../components/ui';
 import { Card, PipelineStepper } from '../../components/blocks';
@@ -145,6 +146,8 @@ function AttackViewInner({ offline }: AttackViewProps) {
   const labUpstream = upstreams?.find(u => u.id === 'lab');
   const isLabAvailable = Boolean(labUpstream?.available);
 
+  const queryClient = useQueryClient();
+
   const runStep = useCallback(async (step: AttackStep) => {
     if (offline) return;
     const remember = (result: AttackResult) => {
@@ -171,8 +174,12 @@ function AttackViewInner({ offline }: AttackViewProps) {
       setResults(current => ({ ...current, [step.id]: failed }));
       setStatuses(current => ({ ...current, [step.id]: 'error' }));
       remember(failed);
+    } finally {
+      // The attack wrote audit rows. Mark the audit pages stale so Live Audit
+      // fetches a fresh page as soon as it is opened.
+      void queryClient.invalidateQueries({ queryKey: ['audit'] });
     }
-  }, [offline]);
+  }, [offline, queryClient]);
 
   const runAll = useCallback(async () => {
     setRunningAll(true);

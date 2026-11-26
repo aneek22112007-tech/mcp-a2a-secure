@@ -139,6 +139,15 @@ class Settings(BaseSettings):
     max_body_bytes: int = Field(default=1_048_576, gt=0)
     tool_timeout_s: float = Field(default=5.0, gt=0)
     sandbox_mode: Literal["docker", "inprocess"] = "docker"
+    sandbox_allow_inprocess_in_production: bool = Field(
+        default=False,
+        description=(
+            "Let SANDBOX_MODE=inprocess start in production. For hosts with no "
+            "Docker daemon, such as the free Render web service. Tools then run "
+            "in the API process with the same time and size budget but no "
+            "container isolation."
+        ),
+    )
     sandbox_image: str = Field(default="mcp-guard-tool-runner:local", min_length=1)
     sandbox_timeout_s: float = Field(default=4.0, gt=0)
     sandbox_memory: str = Field(default="128m", pattern=r"^[1-9]\d*([kKmMgG])?$")
@@ -627,8 +636,14 @@ class Settings(BaseSettings):
             self.sandbox_timeout_s = self.tool_timeout_s / 2
         if not self.is_production_like:
             return
-        if self.sandbox_mode == "inprocess":
-            raise ValueError("SANDBOX_MODE=inprocess is not allowed in production")
+        if (
+            self.sandbox_mode == "inprocess"
+            and not self.sandbox_allow_inprocess_in_production
+        ):
+            raise ValueError(
+                "SANDBOX_MODE=inprocess is not allowed in production unless "
+                "SANDBOX_ALLOW_INPROCESS_IN_PRODUCTION=true"
+            )
         if self.sandbox_network != "none":
             raise ValueError("SANDBOX_NETWORK must be none in production")
         uid_text, gid_text = self.sandbox_run_as.split(":", 1)
