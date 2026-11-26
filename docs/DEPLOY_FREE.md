@@ -24,10 +24,11 @@ scanner, Guard Events, the analyst and LLM calls through Groq.
 
 Does not work on this setup:
 
-- Tool calls. Render has no Docker daemon, so every sandboxed call to
-  `list_notes`, `read_note` and `write_note` fails closed. Production refuses
-  `SANDBOX_MODE=inprocess` on purpose (`api/app/config.py`), and this guide
-  does not change that.
+- Tool calls, by default. Render has no Docker daemon, so every sandboxed call
+  to `list_notes`, `read_note` and `write_note` fails closed with "Sandbox
+  unavailable". Production refuses `SANDBOX_MODE=inprocess` unless you also set
+  `SANDBOX_ALLOW_INPROCESS_IN_PRODUCTION=true`. See "Tools without Docker"
+  below before you turn that on.
 - The 16 `fs_*` filesystem tools. They need Docker, so `UPSTREAM_FS_ENABLED`
   is off.
 - The notes agent, A2A tasks and Attack Simulator steps that run a tool.
@@ -137,6 +138,36 @@ cd "$REPO"
 
 The admin key prints once. Store it in a password manager. The API must have
 started once before this, so the tables exist.
+
+## 5a. Keys the API uses for itself
+
+Three features call the API's own `/mcp/` endpoint with a key from the
+environment. Each one is off until its key is set, and each should be a
+separate key, so the audit log shows which part made a call and you can revoke
+one without breaking the others. Create them in the console under **API
+Keys** (the raw key shows once), then paste each into the Render API's
+**Environment** tab. Give each key an expiry.
+
+| Variable | Used by | Scopes | Without it |
+| --- | --- | --- | --- |
+| `MCP_SELF_API_KEY` | Status probe (`/api/status`) | `agent:run` | Status shows MCP offline, and every probe writes an `auth.deny` 401 `missing` row that counts toward the failed-auth limit |
+| `NOTES_AGENT_API_KEY` | Notes agent (`POST /api/agents/notes/run`) | `agent:run`, `notes:read`, plus `notes:write` if the agent may write | 503 "Notes agent is not configured." |
+| `WORKER_NOTES_API_KEY` | A2A worker (`POST /api/a2a/tasks/run`) | `agent:run`, `notes:read`, plus `notes:write` only if managers should be able to delegate writes. Never `admin` | 503 "A2A worker is not configured. Set WORKER_NOTES_API_KEY." |
+
+The notes agent and the A2A worker also need working tool calls, so they still
+fail until the sandbox can run (next section). `LLM_ENABLED=true` and
+`GROQ_API_KEY` are already part of the Blueprint.
+
+### Tools without Docker
+
+`SANDBOX_MODE=inprocess` with `SANDBOX_ALLOW_INPROCESS_IN_PRODUCTION=true`
+runs the three notes tools in a worker thread inside the API process. The
+tool time limit, note size limit, note name checks, scopes, pinning and the
+injection guard still apply. What you lose is the container: no separate
+filesystem, no memory or process limit, and no network cut-off for the tool. The Sandbox page
+shows the mode as `inprocess`, so the live site does not claim container
+isolation it does not have. Notes are written to the API disk and reset on
+every restart.
 
 ## 6. Open it
 
