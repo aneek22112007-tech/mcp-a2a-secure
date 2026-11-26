@@ -339,7 +339,11 @@ def _cpu_arg(value: float) -> str:
 def _version_token(stdout: bytes) -> str | None:
     if not stdout:
         return None
-    line = stdout.decode("utf-8", "replace").strip().splitlines()[0].strip()
+    lines = stdout.decode("utf-8", "replace").strip().splitlines()
+    if not lines:
+        # The CLI printed only whitespace, which happens when no daemon answers.
+        return None
+    line = lines[0].strip()
     if _VERSION_RE.fullmatch(line):
         return line
     return None
