@@ -1,518 +1,341 @@
 # MCP Guard
 
-[![CI](https://github.com/aneek22112007-tech/mcp-a2a-secure/actions/workflows/ci.yml/badge.svg)](https://github.com/aneek22112007-tech/mcp-a2a-secure/actions/workflows/ci.yml)
-
-MCP Guard is an authenticating gateway for [Model Context Protocol](https://modelcontextprotocol.io) (MCP) tools. It is a FastAPI app that hosts an MCP server at `/mcp/` and a small REST API. Before a request reaches a tool, MCP Guard checks the caller's Bearer API key and the scopes attached to it.
-
-Most MCP servers trust whoever can reach them. We wanted a place to enforce who is calling and what they may do, and later to put LLM agents behind the same checks so an agent gets the access its key allows and nothing more. This is our OJT 2026 project on the Generative AI track.
-
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](api/pyproject.toml)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-111827?logo=modelcontextprotocol&logoColor=white)](https://modelcontextprotocol.io)
-[![React 19](https://img.shields.io/badge/React-19-20232A?logo=react&logoColor=61DAFB)](frontend/package.json)
-[![SQLite](https://img.shields.io/badge/SQLite-dev-003B57?logo=sqlite&logoColor=white)](api/app/config.py)
-[![License: MIT](https://img.shields.io/badge/license-MIT-22C55E)](LICENSE)
-[![OJT 2026](https://img.shields.io/badge/OJT%202026-GenAI%20track-7C3AED)](#team)
-
-> [!NOTE]
-> `main` currently ships a deny-all key verifier. Until key storage and verification land in [#84](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/84), every protected route and `/mcp/` returns 401. That is on purpose: the gateway refuses anything it can't verify.
-
-## How a request flows
+MCP Guard is a security gateway for [Model Context Protocol](https://modelcontextprotocol.io) (MCP) tools. It is a FastAPI service that hosts an MCP server at `/mcp/` and a REST API, and every request has to get past a scoped API key check, tool pinning, a tool-poisoning scanner and a prompt-injection check on tool output before anything comes back to the caller. Tools run in a locked-down Docker container, and every decision lands in an append-only audit log. Most MCP servers trust anyone who can reach them. We wanted one place that decides who is calling, which tools they can touch and whether a tool's description or output is trying to manipulate the model, and then we put our own LLM agents behind the same checks so an agent only gets what its key allows.
 
 <p align="center">
-  <img src="docs/assets/pipeline.svg" alt="Animated diagram of a request moving from an agent through Auth, Scopes, Scanner, Audit and the tool. A valid scoped key reaches the tool (200), a request with no key stops at Auth (401), and a key without the scope stops at Scopes (403). The scanner checks registered tools. Audit records tool calls and auth decisions." width="100%">
+  <img src="docs/assets/pipeline.svg" alt="Animated diagram of a request moving from an agent through Auth, Scopes, Scanner, Audit and the tool. A valid scoped key reaches the tool (200), a request with no key stops at Auth (401), and a key without the scope stops at Scopes (403)." width="100%">
 </p>
 
-The diagram loops through three cases. A key with the right scope reaches the tool. A request with no key is stopped at the auth step with a 401. A valid key without the needed scope is stopped at the scope check with a 403. The scanner runs on registered tools. Audit logging is implemented.
+The diagram loops through three cases: a key with the right scope reaches the tool, a request with no key stops at auth with a 401, and a valid key without the needed scope stops at the scope check with a 403.
+
+## Contents
+
+- [Live deployment](#live-deployment)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Tech stack](#tech-stack)
+- [Quick start (Docker Compose)](#quick-start-docker-compose)
+- [Local development without Docker](#local-development-without-docker)
+- [Commands](#commands)
+- [Configuration](#configuration)
+- [API and scopes](#api-and-scopes)
+- [Deploying for free](#deploying-for-free)
+- [Project structure](#project-structure)
+- [Documentation](#documentation)
+- [Security notes](#security-notes)
+- [Team](#team)
+- [License](#license)
+
+## Live deployment
+
+| Part | URL | Host |
+| --- | --- | --- |
+| Landing page and console | https://mcp-guard-psi.vercel.app | Vercel |
+| API and MCP endpoint | https://mcp-guard-api.onrender.com | Render (free web service) |
+| Sign-in service | `mcp-guard-login` on Render | Render (free web service) |
+| Database | Neon Postgres | Neon (free) |
+| LLM | Groq | Groq (free key) |
+
+The browser only talks to the Vercel site. [`frontend/vercel.json`](frontend/vercel.json) forwards `/api/*`, `/mcp`, `/health` and `/ready` to the API on Render and `/api/auth/*` to the sign-in service, so the whole thing runs on one origin. Open `/console` on the site and paste an API key to use the console.
+
+The hosted copy is a demo and is missing some features on purpose:
+
+- **No tool execution.** Render has no Docker daemon, so the sandbox is not available there. Production mode refuses to run tools inside the API process, so calls to `list_notes`, `read_note` and `write_note` fail closed with a 503. The `fs_*` filesystem tools are switched off, and the notes agent, A2A tasks and the Attack Simulator steps that run a tool do not work either.
+- **Groq instead of Ollama.** There is no local model on Render. Each LLM call tries Ollama first, fails straight away and falls back to Groq.
+- **The API sleeps.** Render free services go to sleep after about 15 minutes with no traffic. The first request after that can take up to a minute while it wakes up, so open `/health` first if you are about to show it to someone.
+- **Short-lived state.** Sign-in accounts live in memory and reset when the sign-in service sleeps or restarts. Notes on the API disk reset on every restart.
+- **120 second limit.** Vercel cuts off a forwarded request after 120 seconds, so scanning every tool with the AI scanner in one go can time out. Scan one tool at a time.
+
+What does work on the hosted copy: sign up and sign in, the console, API keys, the audit log and live audit stream, tool pinning, the rule scanner and AI scanner, Guard Events, the AI analyst and the LLM calls page.
+
+Everything, including the sandbox, the filesystem tools, the agents, Valkey and the load balancer, runs locally with Docker Compose. See the [quick start](#quick-start-docker-compose).
+
+## Features
+
+**Gateway auth with scoped API keys.** Protected REST routes and `/mcp/` need `Authorization: Bearer mcpg_...`. Keys are shown once when created, and only an 8-character prefix plus an HMAC-SHA256 hash (keyed with a server pepper) is stored. Each key carries scopes such as `notes:read`, `agent:run`, `audit:read` or `admin`. Every REST route has to appear in the route-to-scope map in [`api/app/auth/scopes.py`](api/app/auth/scopes.py), or the app refuses to start. Missing, malformed and unknown keys all get the same 401, so the response can't be used to probe for valid keys.
+
+**Tool pinning.** Each tool's name, description and input schema are hashed into a fingerprint. With `TOOL_PINNING_MODE=enforce`, a tool only runs after an admin approves that fingerprint, and unapproved tools are hidden from `tools/list`. If a description or schema changes later, that is drift: the tool is blocked again until someone reviews and re-approves it. This is the defence against a server quietly swapping a tool definition after you trusted it.
+
+**Tool-poisoning scanner, rules plus AI.** The rule scanner (R1 to R6) checks tool descriptions and schemas for prompt-injection phrases, exfiltration domains, overbroad parameters, oversized descriptions or schemas, suspicious parameter descriptions and odd tool names. Findings at `high` or `critical` block the tool when pinning is enforced. An optional AI pass (`SCANNER_AI_ENABLED`) asks the LLM to look for subtler poisoning that keyword rules miss. The model can only add findings, never clear a rule finding, and AI findings are capped below `critical`. If the model is down, the tool is marked as not checked rather than safe. See [docs/AI_SCANNER.md](docs/AI_SCANNER.md).
+
+**Prompt-injection guard on tool output.** Tool results are checked before they reach the caller for instruction overrides, fake system prompts, requests for keys or credentials, encoded payloads, exfiltration links and delimiter tricks (rules G1 to G6). In `enforce` mode a high-risk result is withheld and medium-risk text is cleaned, and each hit is written to the audit log as a `tool.output.injection` event. Production refuses `INJECTION_GUARD_MODE=off`.
+
+**Sandboxed tool runner.** Tools run in a fresh Docker container with a read-only root filesystem, no capabilities, no network, a non-root user and limits on memory, CPU, process count and file size. The container only sees the notes folder. If Docker or the runner image is missing, the call fails with a 503 instead of running inside the API. The official MCP filesystem server can be added as `fs_*` tools, each call in its own container. See [docs/UPSTREAM_FILESYSTEM.md](docs/UPSTREAM_FILESYSTEM.md).
+
+**Audit log.** Every auth decision and tool call is written to `audit_events`, with a hash of the arguments instead of their values. Writes and MCP `tools/call` are audit-first: the row is written before the tool runs. On Postgres a trigger blocks UPDATE, DELETE and TRUNCATE on the table, apart from the retention job. `GET /api/audit/stream` pushes events live over SSE.
+
+**A2A manager and worker agents.** `POST /api/a2a/tasks/run` runs a LangGraph manager that hands a notes task to a worker agent. The server narrows the worker's scopes to what the manager actually holds, signs the delegation with HMAC-SHA256 and the worker rejects anything invalid, expired or tampered with. The worker reaches tools only through `/mcp/` with its own key, so every gateway check still applies. This is a one-hop delegation that uses the task and agent-card shapes from the `a2a-sdk` package; it is not a full A2A protocol server. See [docs/A2A_EXECUTION.md](docs/A2A_EXECUTION.md).
+
+**Notes agent.** `POST /api/agents/notes/run` runs a LangGraph agent that calls MCP Guard's own `/mcp/` endpoint with its own key. A 401, 403 or 429 from the gateway stops the run.
+
+**AI security analyst.** Audit denials, output-injection events and open scanner findings are grouped into incidents by ordinary code. `POST /api/analyst/explain` asks the model to explain one incident in plain English. Every line of the timeline has to cite a real event, and a reply that fails validation is not shown. The analyst never blocks, revokes or approves anything. See [docs/AI_ANALYST.md](docs/AI_ANALYST.md).
+
+**Console.** The React console at `/console` reads the real API with the key you paste in. Views: Overview, Live Audit, AI Analyst, Agents, LLM Calls, Metrics, Tool Pinning, Scanner, Sandbox, Guard Events, Attack Simulator and API Keys. The Attack Simulator sends real bad keys, wrong scopes and request bursts at the gateway. When the API is unreachable, the console says so and shows the last real data it had, never made-up demo data. See [docs/CONSOLE.md](docs/CONSOLE.md).
+
+**Rate limiting.** Each API key has one token bucket (30 tokens, refilling at 5 per second by default) shared by REST and `/mcp`. A limited request gets 429 with `Retry-After`. Repeated failed logins from one IP are throttled separately.
+
+**Load balancing.** The Compose stack runs two API replicas behind Caddy. MCP traffic is routed by the `Authorization` header so a client keeps landing on the replica that holds its MCP session, and REST traffic goes to the replica with the fewest connections. Valkey holds the shared rate-limit bucket and relays audit events, so a client watching the live stream on one replica still sees writes made on the other. See [docs/LOAD_BALANCING.md](docs/LOAD_BALANCING.md).
+
+The LLM is never the final security authority. Auth, scope checks, fingerprint comparisons, scanner rules and the output guard are plain code. A model can explain something or flag it for a person, but it can't grant a scope, approve a changed schema or switch off a check, and enforcement keeps working when the model is down.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    subgraph CALLERS["Callers"]
+    subgraph Callers
         direction TB
-        AG["LLM agent"]
-        UI["React dashboard"]
-        A2A["A2A agents"]
-        INS["MCP Inspector / other clients"]
+        UI["Browser<br/>landing page + console"]
+        AG["LLM agents<br/>notes agent, A2A manager/worker"]
+        EXT["MCP clients<br/>Inspector, IDEs, scripts"]
     end
 
-    subgraph CORE["MCP Guard (FastAPI)"]
+    PROXY["Caddy<br/>static site + load balancer"]
+
+    subgraph API["MCP Guard API (FastAPI) x2 replicas"]
         direction TB
-        MW["HTTP middleware<br/>body limit, request ID, CSP, CORS"]
-        AUTH["Bearer auth<br/>mcpg_ keys, deny by default"]
-        SC["Scope check<br/>route-to-scope map"]
-        GW["Gateway<br/>allowlist, arg limit, timeout"]
-        SCAN["Tool-poisoning scanner"]
+        MW["Middleware<br/>body limit, request ID, security headers, CORS"]
+        AUTH["Bearer auth + scope check"]
+        RL["Rate limit"]
+        PIN["Tool pinning + scanner gate"]
+        GW["Gateway / MCP server at /mcp/"]
+        GUARD["Output injection guard"]
         AUD["Audit log + SSE"]
-        RL["Rate limit + metrics"]
+        LLM["LLMBackend<br/>Ollama, Groq fallback"]
+        AN["Analyst + AI scanner"]
     end
 
-    subgraph TOOLS["MCP server at /mcp/"]
-        direction TB
-        MCP["FastMCP 'mcp-guard'<br/>Streamable HTTP"]
-        T1["list_notes, read_note, write_note"]
-    end
+    SB["Docker sandbox<br/>tool runner, fs upstream"]
+    PG[("Postgres")]
+    VK[("Valkey")]
+    LOGIN["Sign-in service<br/>Express"]
 
-    DB[("SQLAlchemy async<br/>SQLite in dev")]
-
-    AG --> MW
-    UI --> MW
-    A2A --> MW
-    INS --> MW
-    MW --> AUTH --> SC
-    SC -->|"/api/notes"| GW --> MCP
-    SC -->|"/mcp/ (agent:run)"| MCP
-    MCP --> T1
-    SC --> SCAN
-    SC --> AUD
-    SC --> RL
-    AUTH --> DB
-    AUD --> DB
-
-    classDef built fill:#0f2a2e,stroke:#2dd4bf,color:#e2e8f0
-    class MW,AUTH,SC,GW,MCP,T1,UI,INS,DB,AUD,SCAN,RL,AG,A2A built
+    UI --> PROXY
+    EXT --> PROXY
+    AG --> GW
+    UI -. "/api/auth" .-> LOGIN
+    PROXY --> MW --> AUTH --> RL --> PIN --> GW
+    GW --> SB
+    SB --> GUARD --> GW
+    AUTH --> AUD
+    GW --> AUD
+    AUD --> PG
+    PIN --> PG
+    RL --> VK
+    AUD --> VK
+    AN --> LLM
+    AG --> LLM
 ```
 
-REST calls to `/api/notes` go through the gateway. MCP clients talk to the MCP server directly once they pass auth and the `agent:run` scope check. Audit rows are written for auth decisions and tool calls.
+The agents run inside the API process, but they call `/mcp/` over HTTP with their own keys, so they go through the same auth, pinning, sandbox and guard as any outside client.
 
-### Request sequence
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant M as Middleware
-    participant G as Auth
-    participant V as Key verifier
-    participant S as MCP server
-
-    C->>M: POST /mcp/ with Authorization: Bearer mcpg_...
-    M->>M: check body size, assign X-Request-ID
-    M->>G: forward
-    G->>G: parse header (single header, ASCII, Bearer, mcpg_ prefix, max 128 chars)
-    alt missing, malformed or unknown key
-        G->>V: verify(key)
-        V-->>G: None
-        G-->>C: 401 UNAUTHORIZED, WWW-Authenticate: Bearer
-    else valid key without agent:run
-        G-->>C: 403 FORBIDDEN, insufficient_scope
-    else valid key with agent:run or admin
-        G->>S: initialize / tools/list / tools/call
-        S-->>G: result
-        G-->>C: 200 OK
-    end
-```
-
-A malformed header is rejected before the verifier is called. Missing, malformed and unknown keys all get the same 401 body, so the response can't be used to probe for valid keys.
-
-## Features
-
-On `main` today:
-
-- **MCP server.** Built on the official Python SDK (FastMCP) and mounted at `/mcp/` over Streamable HTTP. It exposes three notes tools, `list_notes`, `read_note` and `write_note`. Note names are checked against `[A-Za-z0-9_-]{1,64}` and the resolved path must stay inside the notes directory.
-- **Notes REST API.** `/api/notes` routes call tools only through `gateway.call_tool()`, which applies a tool allowlist, a 128 KiB argument limit, a 5 second timeout and error messages that don't leak paths or tracebacks.
-- **API-key auth and scopes.** Protected REST routes and `/mcp/` need `Authorization: Bearer mcpg_...`. Scopes are `notes:read`, `notes:write`, `files:read`, `files:write`, `audit:read`, `metrics:read`, `sandbox:read`, `tools:read`, `agent:run`, `analyst:run` and `admin`. The key verifier is pluggable and defaults to deny-all. Every route has to appear in the scope map or the app fails at startup.
-- **Consistent errors.** 401, 403 and other errors use one JSON shape and include `WWW-Authenticate` where it applies.
-- **HTTP hardening.** Request IDs on every response and log line, a request body size limit, security headers with a strict CSP, a CORS allowlist, and API docs disabled outside development.
-- **Status endpoint.** `/api/status` does a real MCP handshake against the server and reports latency, protocol version and tools.
-- **Database layer.** SQLAlchemy 2 (async) with Alembic migrations and repositories. Tables exist for clients, API keys, audit events, sandbox runs, tool pins and analyst reports. SQLite is used in development.
-- **Audit log.** Every tool call and every auth decision is written to `audit_events`. `GET /api/audit` lists rows newest-first. `GET /api/audit/stream` is a live SSE feed for `audit:read`. Mutating REST calls (`PUT /api/notes/{name}`) and MCP `tools/call` are audit-first: a required row is written before the tool runs. Read tools are audited after execution, before the result is returned. Auth allow and deny are best-effort, so a 401 or 403 stays a 401 or 403.
-- **Rate limiting, metrics and retention.** Each API key has one token bucket, shared by REST and `/mcp`. With `REDIS_URL` set, every replica takes tokens from that same bucket in Valkey. Without it, the bucket stays in the process. A limited request gets 429 `RATE_LIMITED` and a `Retry-After` header. `GET /api/metrics` (`metrics:read`) reports database totals and in-process counters. Old audit rows are removed by `scripts/prune_audit.py`, with an optional scheduler. Sandbox run records are pruned on the same retention cycle. See [docs/LOAD_BALANCING.md](docs/LOAD_BALANCING.md).
-- **Docker sandbox.** `list_notes`, `read_note` and `write_note` run in a container with a read-only root, no capabilities, no network, a non-root user, and memory, CPU, pid and file-size limits. The container sees only the notes directory. If Docker or the runner image is unavailable, the call fails with 503 and is not run in the API process. `SANDBOX_MODE=inprocess` is for local development and tests. A production-like environment rejects it.
-- **Filesystem upstream.** With `UPSTREAM_FS_ENABLED=true`, the official filesystem MCP server is registered as `fs_` tools. Each call runs in its own container, mounted at `/projects`. `files:read` and `files:write` are required in addition to `agent:run`. The upstream is off by default. If it cannot start, the API still starts and the notes tools are the only tools. See [docs/UPSTREAM_FILESYSTEM.md](docs/UPSTREAM_FILESYSTEM.md).
-- **Hostile lab upstream.** With `UPSTREAM_LAB_ENABLED=true`, a separate, deliberately hostile MCP container is registered as `lab_*` tools to evaluate gateway containment, tool-poisoning scanners, schema drift detection, output injection guards, and resource limits. It is disabled by default and strictly refused in production. Lab tools require the dedicated `lab:call` scope. See [docs/UPSTREAM_LAB.md](docs/UPSTREAM_LAB.md).
-- **Tool pinning.** Each tool's name, description, and JSON schema are hashed. `TOOL_PINNING_MODE=enforce` returns 403 `Tool is not approved.` until an admin approves that hash, and `tools/list` plus `GET /api/mcp/info` omit tools that are not approved. `warn` writes an audit row and still runs the tool. `off` (the default) skips the check. A schema or description change is drift and has to be approved again. The hash does not cover the function body. An optional source digest is stored for operators and is not an allow or deny input.
-- **Rule-based Scanner.** A static tool-poisoning scanner evaluates tools against phrase rules for prompt injection, data exfiltration, overbroad parameters, and size anomalies. Unsafe patterns generate `ToolScanFinding` records. The `DbScanGate` hooks into the pinning flow to block tools with `high` or `critical` severity findings before they can run, but only if `TOOL_PINNING_MODE=enforce`.
-- **Notes agent.** `POST /api/agents/notes/run` runs a LangGraph agent. Its tools call `/mcp/` with `NOTES_AGENT_API_KEY`, so auth, scopes, rate limits, pinning, the scanner, the sandbox and the audit log still apply. ChatOllama is the primary model. ChatGroq is used only when Ollama cannot be reached or times out.
-- **Signed A2A delegation.** `POST /api/a2a/tasks/run` runs a manager-to-worker delegation pipeline with server-enforced scope attenuation and HMAC-SHA256 signed delegation tokens (`A2A_SIGNING_KEY`, with a secure ephemeral per-process fallback and startup warning). The worker verifies the signed token fail-closed before execution and emits `a2a.delegation.rejected` on any invalid, expired, or tampered grant. See [docs/A2A_EXECUTION.md](docs/A2A_EXECUTION.md).
-- **AI incident analyst.** Real audit denials and open scanner findings are grouped into incidents in code. `POST /api/analyst/explain` asks the local model to explain one incident. Every timeline line has to cite a real event, and a reply that fails the checks is not shown. The analyst never blocks, revokes, or approves. See [docs/AI_ANALYST.md](docs/AI_ANALYST.md).
-- **Frontend.** React 19, Vite and Tailwind. The live console at `/console` and `/dashboard` reads the real API.
-
-## GenAI
-
-The notes agent is a LangGraph client of MCP Guard. `POST /api/agents/notes/run` (`agent:run`) runs it. `GET /api/llm/health` (`admin`) reports whether the LLM is enabled, whether Ollama is reachable and has the configured model, and whether Groq is configured. The health response does not include the key.
-
-Agents are ordinary MCP Guard clients. The notes agent has its own API key and reaches tools only through `/mcp/`. The model sits behind `LLMBackend`: ChatOllama first, ChatGroq only when Ollama cannot be reached or times out. The model plans and summarizes. It does not grant a scope, approve a schema, or skip a gateway check. A gateway 401, 403, or 429 stops the run.
-
-From `api/`, with the API already running:
-
-```bash
-uv run python scripts/run_notes_agent.py "List the notes"
-```
+On the hosted copy, Vercel takes the place of Caddy, there is one API instance on Render with no Valkey and no sandbox, Neon provides Postgres and Groq is the only working model.
 
 ```mermaid
 flowchart LR
-    U["User or task"] --> AG["LangGraph notes agent"]
-    AG <--> LLM["LLMBackend<br/>ChatOllama, ChatGroq fallback"]
-    AG -->|"HTTP /mcp/<br/>NOTES_AGENT_API_KEY"| MG["MCP Guard /mcp/"]
-    MG --> T["MCP tools"]
+    B["Browser"] --> V["Vercel<br/>mcp-guard-psi.vercel.app"]
+    V -- "/api/*, /mcp, /health, /ready" --> R["Render<br/>mcp-guard-api"]
+    V -- "/api/auth/*" --> L["Render<br/>mcp-guard-login"]
+    R --> N[("Neon Postgres")]
+    R --> G["Groq"]
 ```
 
-The LLM is never the final security authority. Authentication, scope checks, fingerprint comparisons and scanner rules are plain code. Model output can explain something or flag it for a person to review, but it can't grant a scope, approve a changed schema or switch off a check. If the model is down, enforcement still works.
+## Tech stack
 
-## Security notes
+| Area | Used |
+| --- | --- |
+| API | Python 3.11+, FastAPI, Uvicorn, the official MCP Python SDK (FastMCP, Streamable HTTP) |
+| Data | SQLAlchemy 2 (async), Alembic, Postgres 16 (SQLite for local development), asyncpg |
+| Shared state | Valkey 8 (Redis-compatible) |
+| Agents and LLM | LangGraph, LangChain with ChatOllama (`qwen3.5:9b`) and ChatGroq (`qwen/qwen3.8-27b`, then `openai/gpt-oss-120b`) as fallback, `a2a-sdk` types |
+| Sandbox | Docker containers started per tool call |
+| Frontend | React 19, Vite 8, Tailwind CSS 4, TanStack Query, React Router |
+| Sign-in service | Node 22, Express, bcrypt, JWT, Google sign-in |
+| Proxy | Caddy 2 |
+| Hosting (demo) | Vercel, Render, Neon, Groq |
+| Tooling | uv for Python, npm for the frontend |
 
-- **Fail closed.** The default verifier denies every key. A route missing from the scope map stops the app from starting, and returns 403 if it is somehow reached. If the verifier raises an error on `/mcp/`, the client gets a generic 500 and the request goes no further.
-- **No key enumeration.** Missing, malformed and unknown keys get the same 401 body. A 403 carries `WWW-Authenticate: Bearer error="insufficient_scope"` and names the missing scope.
-- **Secrets stay out of logs.** Auth logs record a deny reason (`missing`, `malformed` or `rejected`) or the key prefix, never the key or its hash. Only key hashes are stored. `MCP_SELF_API_KEY` is held as a `SecretStr`.
-- **Strict header parsing.** Exactly one `Authorization` header, ASCII only, in the form `Bearer <token>` with no extra spaces. The token must start with `mcpg_` and be at most 128 characters. An `X-Request-ID` that doesn't match `[A-Za-z0-9._:-]` (up to 64 characters) is replaced with a UUID.
-- **Other headers and limits.** `Content-Length` is validated and the body is capped while streaming (413 when exceeded). Responses carry `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store` on every response. `Strict-Transport-Security` is sent when `HSTS_MAX_AGE_S` is greater than zero. Set `HSTS_MAX_AGE_S` above 0 only once the public server has HTTPS.
-- **Append-only audit log.** On Postgres, trigger revision `cc48301ff61d` prevents UPDATE, DELETE and TRUNCATE on `audit_events`. Retention is the only permitted delete (gated by `SET LOCAL mcp_guard.audit_retention = 'on'`). The `api_key_id` ON DELETE SET NULL update is allowed. On SQLite, revision `9db563fdadd8` installs `audit_events_append_only_update` and `audit_events_append_only_delete`. Both abort with `audit_events is append-only`, except a retention delete while `mcpg_audit_retention()` returns 1 and an update that only sets `api_key_id` to NULL. A database owner can disable triggers, so production should run as a non-owner role.
-- **Reverse proxy IP handling.** When `TRUSTED_PROXIES` is set, the real client IP is extracted from a single `X-Forwarded-For` header by walking right-to-left past trusted addresses. Without `TRUSTED_PROXIES`, `X-Forwarded-For` is ignored entirely.
-- **Failed-auth throttle.** Repeated 401 outcomes from the same client IP are counted in a fixed window, in that process only. After `AUTH_FAILURE_LIMIT` failures, every further request from that IP to that process returns 429 with `Retry-After` until the window resets. Only 401 outcomes count; 403 and success never increment or reset the counter. A second replica keeps its own counter.
+## Quick start (Docker Compose)
 
-The full threat model is in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+This is the full stack: Postgres, Valkey, a one-shot migration job, two API replicas and Caddy serving the site and balancing the API. You need Docker with Compose, and [uv](https://docs.astral.sh/uv/) only if you want to run scripts outside the containers.
 
-## Run with Docker
-
-For a containerized deployment using Docker Compose and PostgreSQL 16:
-
-### 1. Environment configuration
-
-Copy the template environment file to the repository root:
-
-```bash
-cp .env.compose.example .env
-```
-
-> [!IMPORTANT]
-> The environment file requires two mandatory secrets without default fallbacks:
-> - `POSTGRES_PASSWORD`: Strong password for the PostgreSQL service.
-> - `API_KEY_PEPPER`: Cryptographically secure random pepper (at least 32 bytes) for hashing API keys.
->
-> Compose strictly requires `POSTGRES_PASSWORD`, `API_KEY_PEPPER`, and `REDIS_PASSWORD` (`${VAR:?...}`) and will refuse to render or start if they are missing. The placeholder values in `.env.compose.example` (`change-me` and `change-me-to-a-long-random-value`) must be replaced before starting. A production-like process raises `ValueError: API_KEY_PEPPER is a placeholder; set a long random value` and does not include the value. Never commit `.env` or any file containing secret credentials.
-
-### 2. Build images and start services
-
-Before starting Compose, build the required container images:
-
-```bash
-# Build the local Docker sandbox runner image
-./api/scripts/build_sandbox_image.sh
-
-# Build the official upstream filesystem MCP server image (tag: mcp-guard-upstream-fs:2.2.0)
-./api/scripts/build_upstream_fs_image.sh
-
-# Build the API image and start all services in the background
-docker compose up -d --build
-
-# Verify container status
-docker compose ps
-```
-
-Expected service states:
-- `postgres`: `Up (healthy)`
-- `valkey`: `Up (healthy)`
-- `migrate`: `Exited (0)`
-- `notes-init`: `Exited (0)`
-- `api1` and `api2`: `Up (healthy)`
-- `proxy`: `Up (healthy)`, publishing `127.0.0.1:8000`
-
-**Key architecture and security notes:**
-- **Production mode**: Compose sets `ENVIRONMENT=production`. Production checks are active, including the sandbox network, the run-as user, and a refusal of a placeholder pepper. `/docs`, `/redoc`, and `/openapi.json` are disabled. When `TOOL_PINNING_MODE` and `INJECTION_GUARD_MODE` are not set, production uses `enforce`.
-- **Database**: Compose sets `DATABASE_URL` to its own Postgres URL. A `DATABASE_URL` in the shell does not replace it. Postgres does not publish a host port. Uncomment the ports mapping in `docker-compose.yml` only for local debugging.
-- **Migrations**: The `migrate` service runs `alembic upgrade head` once and exits. API replicas set `RUN_MIGRATIONS=false`, so their entrypoint does not run Alembic.
-- **Load balancer**: Caddy on the `proxy` service is the only published port. See [Running with the load balancer](#running-with-the-load-balancer) and [docs/LOAD_BALANCING.md](docs/LOAD_BALANCING.md).
-- **Docker socket exposure**: The API containers mount `/var/run/docker.sock` to launch ephemeral sandbox runners and upstream filesystem containers. That mount gives the container control over the host Docker daemon.
-- **Structured logging**: The entrypoint starts Uvicorn with `--log-config log_config.json`, `--no-proxy-headers`, and `--limit-concurrency` (default 256). Log lines include `rid=...`.
-
-### Running with the load balancer
-
-`docker compose up -d` starts Postgres, Valkey, a one-shot migrate, two API replicas, and Caddy. Talk to the stack at `http://127.0.0.1:8000`.
-
-- `GET /health` answers `{"status":"ok","app":"MCP Guard"}` when the process is up. It does not check Postgres.
-- `GET /ready` returns 503 with only `status` `not_ready` and `instance` before the process is ready. After that it runs `SELECT 1`. HTTP 200 means the database is ok, even when `shared_state` is `unavailable`. A database failure is 503 and adds `database` `unavailable`. The body never includes an exception message.
-- Restart one replica with `docker compose restart api1` or `docker compose restart api2`. The proxy stops sending it traffic after the `/ready` health check fails. MCP sessions that lived on the restarted replica return 404 until the client calls `initialize` again.
-- Create the admin key with `docker compose exec api1 python scripts/create_admin_key.py`. The same image is `api2`. Approve tools with `docker compose exec api1 python scripts/approve_current_tools.py`.
-
-Do not put the hostile lab (`UPSTREAM_LAB_ENABLED`) into this compose file. It is refused when `ENVIRONMENT` is production.
-
-### 3. Verify health
-
-Verify the running API health endpoint:
-
-```bash
-curl http://127.0.0.1:8000/health
-# Response: {"status":"ok","app":"MCP Guard"}
-```
-
-### 4. Admin key and tool pin approvals
-
-Docker Compose defaults to `TOOL_PINNING_MODE=enforce`. When enforcement is active, unapproved tools are rejected with HTTP 403.
-
-1. **Generate an initial administrator key**:
-   ```bash
-   docker compose exec api1 python scripts/create_admin_key.py
-   ```
-   Store the printed API key securely. It is displayed only once.
-
-2. **Approve built-in notes tools**:
-   The built-in notes tools (`list_notes`, `read_note`, `write_note`) can be approved in bulk:
-   ```bash
-   docker compose exec api1 python scripts/approve_current_tools.py
-   ```
-
-3. **Synchronize and approve filesystem tools**:
-   Filesystem tools are **not** automatically trusted or approved. They must be registered as pending pins and approved individually through the REST API using an admin key:
-   ```bash
-   # Synchronize pending pins from the live tool catalog
-   curl -X POST -H "Authorization: Bearer <ADMIN_KEY>" http://127.0.0.1:8000/api/pins/sync
-
-   # Approve specific filesystem tools individually
-   curl -X POST -H "Authorization: Bearer <ADMIN_KEY>" \
-     -H "Content-Type: application/json" \
-     -d '{"note": "Approved for filesystem read"}' \
-     http://127.0.0.1:8000/api/pins/fs_read_text_file/approve
-
-   curl -X POST -H "Authorization: Bearer <ADMIN_KEY>" \
-     -H "Content-Type: application/json" \
-     -d '{"note": "Approved for directory listing"}' \
-     http://127.0.0.1:8000/api/pins/fs_list_directory/approve
-
-   curl -X POST -H "Authorization: Bearer <ADMIN_KEY>" \
-     -H "Content-Type: application/json" \
-     -d '{"note": "Approved for filesystem write"}' \
-     http://127.0.0.1:8000/api/pins/fs_write_file/approve
-   ```
-
-### 5. Filesystem upstream named-volume semantics and verification
-
-- The `mcpg_shared` Docker named volume is shared between the API container and ephemeral upstream filesystem containers.
-- The API container path `/app/data/shared` maps directly to `/projects` inside upstream containers.
-- Read-only filesystem tools (`fs_read_text_file`, `fs_list_directory`, etc.) mount `/projects` with read-only permissions (`readonly`).
-- Write tools (`fs_write_file`, `fs_edit_file`, etc.) mount `/projects` with writable permissions.
-- Path traversal outside `/projects` and symlinks targeting unapproved paths are blocked by the path validation guard.
-
-#### Verification procedure (Part 0.1)
-
-To verify the end-to-end filesystem upstream container pipeline:
-1. Write a test file into `/app/data/shared` inside the API container:
-   ```bash
-   docker compose exec api1 sh -c 'echo "hello from mcpg_shared" > /app/data/shared/hello.txt'
-   ```
-2. Read the file through the MCP gateway using `fs_read_text_file` (with an approved pin and an API key with `files:read` scope).
-3. Verify the recorded sandbox run reports `mode=docker` via `GET /api/sandbox/runs`.
-4. Verify the container image in the run record is `mcp-guard-upstream-fs:2.2.0`.
-5. Verify container cleanup: ensure `docker ps -a --filter label=mcp_guard.sandbox=1` returns 0 entries.
-
----
-
-## Getting started (local development with uv + SQLite)
-
-The main local development path uses `uv` and a local SQLite database in `api/data/`. For containerized deployment with PostgreSQL 16, see [Run with Docker](#run-with-docker) above.
-
-You need Python 3.11+, [uv](https://docs.astral.sh/uv/), and Node 20.19+ or 22.12+ (Vite 8 requires it).
+**1. Configure.** Copy the template and replace the placeholders. `POSTGRES_PASSWORD`, `REDIS_PASSWORD` and `API_KEY_PEPPER` are required, and Compose will not start without them.
 
 ```bash
 git clone https://github.com/aneek22112007-tech/mcp-a2a-secure.git
-cd mcp-a2a-secure/api
+cd mcp-a2a-secure
+cp .env.compose.example .env
+# generate values with: openssl rand -hex 32
+```
 
-cp .env.example .env              # settings are read from api/.env
+Keep `POSTGRES_PASSWORD` hex, because it is placed inside the database URL. Never commit `.env`.
+
+**2. Build the sandbox images and start the stack.**
+
+```bash
+./api/scripts/build_sandbox_image.sh
+./api/scripts/build_upstream_fs_image.sh
+docker compose up -d --build
+docker compose ps
+```
+
+When it is up, `postgres`, `valkey`, `api1`, `api2` and `proxy` show as healthy, and `migrate` and `notes-init` have exited with code 0. Everything is served at http://127.0.0.1:8000.
+
+```bash
+curl http://127.0.0.1:8000/health
+# {"status":"ok","app":"MCP Guard"}
+```
+
+**3. Create an admin key and approve the built-in tools.** Compose enforces tool pinning, so nothing runs until it is approved.
+
+```bash
+docker compose exec api1 python scripts/create_admin_key.py
+docker compose exec api1 python scripts/approve_current_tools.py
+```
+
+The key is printed once. Keep it in a password manager. Filesystem tools are not approved by the script. Sync them with `POST /api/pins/sync` and approve each one you want through the Tool Pinning view or `POST /api/pins/{tool_name}/approve`.
+
+**4. Open the console** at http://127.0.0.1:8000/console and paste the admin key.
+
+**5. Turn on the LLM features (optional).** The agents, the AI scanner and the analyst need a model. Install [Ollama](https://ollama.com) on the host, pull the model and load it into memory before the first request so the first call doesn't time out:
+
+```bash
+ollama pull qwen3.5:9b
+curl http://localhost:11434/api/generate -d '{"model":"qwen3.5:9b","keep_alive":"30m"}'
+```
+
+Then set these in `.env` and run `docker compose up -d` again:
+
+```bash
+LLM_ENABLED=true
+SCANNER_AI_ENABLED=true
+GROQ_API_KEY=            # optional, used only if Ollama can't be reached or times out
+NOTES_AGENT_API_KEY=     # mcpg_ key with agent:run, for the notes agent
+WORKER_NOTES_API_KEY=    # mcpg_ key for the A2A worker
+A2A_SIGNING_KEY=         # openssl rand -hex 32, same value on every replica
+```
+
+The containers reach Ollama at `http://host.docker.internal:11434`. Without a running Ollama, every call goes to Groq if a key is set.
+
+**Sign-in pages (optional).** `/signin` and `/signup` use the separate Express service in `backend/`, which is not part of Compose. Run it with `cd backend && cp .env.example .env && npm install && npm start` (port 5001). The console does not need it.
+
+The API containers mount `/var/run/docker.sock` so they can start sandbox containers. That gives them control of the host's Docker daemon, so only run this stack on a machine you trust.
+
+## Local development without Docker
+
+For working on the code, the API runs with uv and SQLite. You need Python 3.11+, uv and Node 20.19+ or 22.12+.
+
+```bash
+cd api
+cp .env.example .env              # set API_KEY_PEPPER; SANDBOX_MODE=inprocess if Docker isn't running
 uv sync
 uv run alembic upgrade head       # creates the SQLite database in api/data/
-uv run python scripts/seed_dev.py # optional: adds dev clients, no keys
-
+uv run python scripts/seed_dev.py # optional: dev clients, no keys
+uv run python scripts/create_admin_key.py
 uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --log-config log_config.json
 ```
 
-The API is at `http://127.0.0.1:8000` and the MCP endpoint at `http://127.0.0.1:8000/mcp/`. Swagger UI is at `/docs` when `ENVIRONMENT` is `dev`, `development` or `local`.
-
-Frontend, in a second terminal:
+In a second terminal:
 
 ```bash
 cd frontend
 npm install
-npm run dev                       # http://localhost:5173, live console at /console
+npm run dev                       # http://localhost:5173, console at /console
 ```
 
-To try the tools without auth, run the server over stdio with MCP Inspector:
+`SANDBOX_MODE=inprocess` runs tools inside the API process. It is only allowed when `ENVIRONMENT` is `dev`, `development`, `local` or `test`. Swagger UI is at `/docs` in development only. Use `127.0.0.1` or `localhost` for MCP calls; other `Host` headers get a 421 from the MCP SDK's DNS rebinding protection.
+
+To try the tools without auth, run the MCP server over stdio with MCP Inspector:
 
 ```bash
 cd api
 npx @modelcontextprotocol/inspector uv run python -m app.mcp_server
 ```
 
-## API
+## Commands
 
-| Method | Path | Scope | Description |
-|---|---|---|---|
-| `GET` | `/health` | public | Liveness check |
-| `GET` | `/api/status` | public | MCP handshake against `MCP_SELF_URL`. Reports `online` only when `MCP_SELF_API_KEY` is set to a key with `agent:run` |
-| `GET` | `/api/mcp/info` | public | Server name, transport, endpoint and tool names. In enforce mode, only approved names |
-| `GET` | `/api/notes` | `notes:read` | List notes |
-| `GET` | `/api/notes/{name}` | `notes:read` | Read a note |
-| `PUT` | `/api/notes/{name}` | `notes:write` | Create or overwrite a note. Body `{"content": "..."}`, up to 100 KiB |
-| `POST`, `GET`, `DELETE` | `/mcp/` | `agent:run` | MCP Streamable HTTP (`initialize`, `tools/list`, `tools/call`) |
-| `GET` | `/api/audit` | `audit:read` | Audit events, newest first |
-| `GET` | `/api/audit/stream` | `audit:read` | Live SSE stream of audit events. The key is sent only in the `Authorization` header |
-| `GET` | `/api/analyst/status` | `analyst:run` | Whether the analyst can run. Does not call the model or return a key |
-| `GET` | `/api/analyst/incidents` | `audit:read` | Incidents in the analyst window, newest first |
-| `GET` | `/api/analyst/incidents/{incident_id}` | `audit:read` | One incident, its events, and the last validated report |
-| `POST` | `/api/analyst/explain` | `analyst:run` and `audit:read` | Explain one incident. `audit:read` is checked in the handler. Returns 503 when the LLM is disabled |
-| `GET` | `/api/metrics` | `metrics:read` | Returns database totals and in-process rate limit counters |
-| `GET` | `/api/sandbox/runs` | `sandbox:read` | Sandbox execution records, newest first |
-| `GET` | `/api/sandbox/runs/{run_id}` | `sandbox:read` | Details for one sandbox run |
-| `GET` | `/api/sandbox/health` | `sandbox:read` | Status of the active sandbox executor |
-| `GET` | `/api/upstreams` | `tools:read` | Registered upstreams. The filesystem entry reports enabled, image, tool names and `detail` |
-| `GET` | `/api/pins` | `tools:read` | Catalog tools and stored pins, with `matches` against the live fingerprint |
-| `GET` | `/api/pins/{tool_name}` | `tools:read` | One pin, or a catalog tool that has no row yet |
-| `POST` | `/api/pins/sync` | `admin` | Store a pending pin when the live fingerprint is not already stored |
-| `POST` | `/api/pins/{tool_name}/approve` | `admin` | Approve the live fingerprint. Required audit row, then the pin write |
-| `POST` | `/api/pins/{tool_name}/revoke` | `admin` | Revoke a stored pin. Required audit row, then the pin write |
-| `GET` | `/api/scanner/findings` | `scanner:read` | List paginated findings |
-| `GET` | `/api/scanner/findings/{finding_id}` | `scanner:read` | Retrieve a finding |
-| `POST` | `/api/scanner/run` | `admin` | Force a re-scan of all tools |
-| `POST` | `/api/scanner/run/{tool_name}` | `admin` | Force a re-scan of a specific tool |
-| `POST` | `/api/scanner/findings/{finding_id}/resolve` | `admin` | Manually resolve a finding |
-| `POST` | `/api/agents/notes/run` | `agent:run` | Run the notes agent. Body `{"task": "..."}`. Returns 503 when the LLM is disabled |
-| `GET` | `/api/llm/health` | `admin` | LLM enablement, Ollama reachability, and whether Groq is configured. The key is not returned |
-| `POST` | `/api/keys` | `admin` | Create an API key. The raw key is returned once |
-| `GET` | `/api/keys` | `admin` | List keys for a client (`client_id` query parameter) |
-| `DELETE` | `/api/keys/{key_id}` | `admin` | Revoke a key |
-| `GET` | `/docs`, `/redoc`, `/openapi.json` | public, dev only | Disabled outside development |
+| What | Command |
+| --- | --- |
+| Start the full stack | `docker compose up -d --build` |
+| Check service health | `docker compose ps` |
+| Stop the stack | `docker compose down` |
+| Follow API logs | `docker compose logs -f api1 api2` |
+| Restart one replica | `docker compose restart api1` |
+| Build the sandbox runner image | `./api/scripts/build_sandbox_image.sh` |
+| Build the filesystem upstream image | `./api/scripts/build_upstream_fs_image.sh` |
+| Create the admin key | `docker compose exec api1 python scripts/create_admin_key.py` |
+| Approve current built-in tools | `docker compose exec api1 python scripts/approve_current_tools.py` |
+| Run the notes agent (from `api/`) | `uv run python scripts/run_notes_agent.py "List the notes"` |
+| Run an A2A task (from `api/`) | `MANAGER_API_KEY=... API_BASE_URL=http://127.0.0.1:8000 uv run python scripts/run_a2a_task.py "list my notes"` |
+| Prune old audit rows (from `api/`) | `uv run python scripts/prune_audit.py` |
+| Demo scripts (from `api/`) | `./scripts/demo_tool_pinning.sh`, `demo_scanner.sh`, `demo_sandbox.sh`, `demo_audit.sh` |
+| Apply migrations (local) | `cd api && uv run alembic upgrade head` |
+| Frontend dev server | `cd frontend && npm run dev` |
 
-Gateway errors map to 400 (bad arguments), 403 (tool not approved when pinning is enforced or scan finds it risky), 404 (unknown tool or note), 413 (too large), 503 (sandbox unavailable) and 504 (tool timeout).
+## Configuration
 
-### Scopes
+The API reads `api/.env` locally and the root `.env` under Compose. Templates: [`api/.env.example`](api/.env.example) and [`.env.compose.example`](.env.compose.example). These are the settings you are most likely to touch; [docs/RUNBOOK.md](docs/RUNBOOK.md) lists all of them.
 
-| Scope | Allows |
-|---|---|
-| `notes:read` | Listing and reading notes |
-| `notes:write` | Creating and overwriting notes |
-| `files:read` | Reading and listing through the filesystem upstream |
-| `files:write` | Writing, editing, moving, appending and copying through the filesystem upstream |
-| `agent:run` | Everything under `/mcp/` |
-| `audit:read` | `GET /api/audit`, `GET /api/audit/stream`, the incident list and detail, and the `audit:read` check on explain |
-| `analyst:run` | `GET /api/analyst/status` and `POST /api/analyst/explain` |
-| `metrics:read` | `GET /api/metrics` |
-| `sandbox:read` | `GET /api/sandbox/runs` and `GET /api/sandbox/health` |
-| `tools:read` | `GET /api/pins`, `GET /api/pins/{tool_name}` and `GET /api/upstreams` |
-| `scanner:read` | `GET /api/scanner/findings` |
-| `admin` | Passes every scope check. Also required to sync, approve, and revoke pins, and scan tools |
-
-The route-to-scope map lives in [`api/app/auth/scopes.py`](api/app/auth/scopes.py).
-
-<details>
-<summary><b>Configuration</b> (<code>api/.env</code>)</summary>
-
-<br>
-
-| Variable | Default | Description |
-|---|---|---|
-| `APP_NAME` | `MCP Guard` | Display name |
-| `ENVIRONMENT` (or `APP_ENV`) | `dev` | Trimmed and lowercased. `dev`, `development` and `local` enable `/docs`, `/redoc` and `/openapi.json`. Any value other than `dev`, `development`, `local` or `test` is production-like: `API_KEY_PEPPER` is required and `CORS_ORIGINS` must be exact http/https origins |
-| `CORS_ORIGINS` | `["http://localhost:5173"]` | JSON list of allowed origins |
-| `TRUSTED_PROXIES` | `[]` | JSON list of trusted proxy IPs or CIDRs. When set, the real client IP is resolved from `X-Forwarded-For` |
-| `HSTS_MAX_AGE_S` | `0` | `max-age` for `Strict-Transport-Security`. Set above 0 only once the public server has HTTPS |
-| `AUTH_FAILURE_LIMIT` | `20` | Failed 401 attempts per IP before throttling (429) |
-| `AUTH_FAILURE_WINDOW_S` | `60` | Fixed window length in seconds for the failed-auth counter |
-| `AUTH_FAILURE_MAX_TRACKED_IPS` | `10000` | Maximum number of IPs tracked by the throttle (LRU eviction) |
-| `MCP_SELF_URL` | `http://127.0.0.1:8000/mcp/` | URL probed by `/api/status` |
-| `MCP_SELF_API_KEY` | unset | `mcpg_` key with `agent:run`, used only by the status probe |
-| `DATABASE_URL` | `sqlite+aiosqlite:///<api>/data/mcp_guard.db` | Async SQLAlchemy URL |
-| `NOTES_DIR` | `api/data/notes` | Where notes are stored as `.md` files |
-| `MAX_BODY_BYTES` | `1048576` | Request body limit (1 MiB) |
-| `TOOL_TIMEOUT_S` | `5` | Gateway tool timeout in seconds. Must be greater than `SANDBOX_TIMEOUT_S` |
-| `SANDBOX_MODE` | `docker` | `docker` runs each tool in a container. `inprocess` runs it in the API process and is rejected when the environment is production-like |
-| `SANDBOX_IMAGE` | `mcp-guard-tool-runner:local` | Runner image. Build it with `api/scripts/build_sandbox_image.sh` |
-| `SANDBOX_TIMEOUT_S` | `4` | Seconds to wait for one sandbox run |
-| `SANDBOX_MEMORY` | `128m` | Container memory limit, applied to both `--memory` and `--memory-swap` |
-| `SANDBOX_CPUS` | `0.5` | Container CPU limit |
-| `SANDBOX_PIDS_LIMIT` | `64` | Process limit inside the container |
-| `SANDBOX_MAX_FILE_BYTES` | `1048576` | Largest file the container may write |
-| `SANDBOX_MAX_OUTPUT_BYTES` | `1048576` | Largest tool result accepted |
-| `SANDBOX_MAX_CONCURRENT` | `4` | How many sandbox runs may be active at once. A full queue returns 503 |
-| `SANDBOX_NETWORK` | `none` | Docker network for the run. `host` is rejected. Production requires `none` |
-| `SANDBOX_RUN_AS` | `65534:65534` | `uid:gid` inside the container. Production rejects a uid that starts with 0 |
-| `SANDBOX_NOTES_SOURCE` | unset | Absolute host path, or `volume:<name>`, mounted at `/notes`. Unset uses `NOTES_DIR` |
-| `SANDBOX_DOCKER_BIN` | `docker` | Docker CLI used to start runs |
-| `UPSTREAM_FS_ENABLED` | `false` | Register `fs_` tools from the official filesystem MCP server. A failure to start that server leaves the notes tools only |
-| `UPSTREAM_FS_IMAGE` | `mcp-guard-upstream-fs:2.2.0` | Image for each filesystem call. Build it with `api/scripts/build_upstream_fs_image.sh` |
-| `UPSTREAM_FS_DIR` | `api/data/shared` | Host directory mounted at `/projects`. Created on first use, not when settings load |
-| `UPSTREAM_FS_TIMEOUT_S` | `30` | Seconds for one filesystem container. Separate from `SANDBOX_TIMEOUT_S` |
-| `AUDIT_STREAM_MAX_SUBSCRIBERS` | `20` | Concurrent subscribers on `GET /api/audit/stream` |
-| `AUDIT_STREAM_QUEUE_SIZE` | `100` | Per-subscriber SSE queue. A full queue drops events for that subscriber |
-| `RATE_LIMIT_CAPACITY` | `30` | Token bucket capacity for one API key. REST and `/mcp` share it |
-| `RATE_LIMIT_REFILL_RATE_PER_SEC` | `5.0` | Tokens added to that bucket each second |
-| `REDIS_URL` | unset | Valkey or Redis URL for the shared bucket, audit relay, and pin-cache clears. Required when `MULTI_INSTANCE` is true |
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `ENVIRONMENT` | `dev` | Anything other than `dev`, `development`, `local` or `test` is treated as production, which turns on stricter checks and turns off `/docs` |
+| `DATABASE_URL` | SQLite in `api/data/` | Async SQLAlchemy URL. Hosted Postgres strings with `sslmode` and `channel_binding` are accepted |
+| `API_KEY_PEPPER` | none | Secret used to hash API keys. Required in production. Changing it invalidates every key |
+| `CORS_ORIGINS` | `["http://localhost:5173"]` | JSON list of allowed browser origins |
+| `MCP_ALLOWED_HOSTS` / `MCP_ALLOWED_ORIGINS` | `[]` | JSON lists of extra `Host` and `Origin` values `/mcp` accepts, on top of the local defaults. Set them when the API sits behind a hosted proxy |
+| `TOOL_PINNING_MODE` | `off` (`enforce` in production) | `off`, `warn` or `enforce` |
+| `INJECTION_GUARD_MODE` | `enforce` in production | `off`, `warn` or `enforce`. `off` is refused in production |
+| `SANDBOX_MODE` | `docker` | `docker`, or `inprocess` for development only |
+| `UPSTREAM_FS_ENABLED` | `false` | Register the official filesystem MCP server as `fs_*` tools |
+| `RATE_LIMIT_CAPACITY` / `RATE_LIMIT_REFILL_RATE_PER_SEC` | `30` / `5.0` | Per-key token bucket |
+| `REDIS_URL` | unset | Valkey or Redis URL for the shared bucket and audit relay |
 | `MULTI_INSTANCE` | `false` | When true, startup refuses SQLite and a missing `REDIS_URL` |
-| `INSTANCE_ID` | host name | Name returned by `/ready`. Compose sets `api1` and `api2` |
-| `DB_POOL_SIZE` | `5` | SQLAlchemy pool size for Postgres |
-| `DB_MAX_OVERFLOW` | `5` | Extra Postgres connections above the pool size |
-| `DB_POOL_TIMEOUT_S` | `10` | Seconds to wait for a pooled Postgres connection |
-| `DB_POOL_RECYCLE_S` | `1800` | Seconds before a pooled Postgres connection is recycled |
-| `READY_DB_TIMEOUT_S` | `2.0` | Seconds `/ready` waits for `SELECT 1` |
-| `RUN_MIGRATIONS` | `true` in the entrypoint | Set to `false` on the API replicas. Compose runs Alembic in the `migrate` service |
-| `UVICORN_LIMIT_CONCURRENCY` | `256` | Entry point `--limit-concurrency`. Not a Settings field |
-| `AUDIT_RETENTION_DAYS` | `90` | Number of days to retain audit log events |
-| `ENABLE_RETENTION_SCHEDULER` | `False` | Enable automatic cleanup of old audit records via a background task |
-| `SANDBOX_RUN_RETENTION_DAYS` | `90` | Number of days to retain sandbox runs |
-| `TOOL_PINNING_MODE` | `off` | `off` skips pinning. `warn` audits a mismatch and still runs the tool. `enforce` returns 403 `Tool is not approved.` and hides unapproved tools from `tools/list` and `GET /api/mcp/info` |
-| `TOOL_PINNING_BOOTSTRAP_APPROVE` | `false` | Approve every current tool when the process starts. Rejected when the environment is production-like |
-| `TOOL_PINNING_CACHE_TTL_S` | `5` | Seconds to cache pin rows. Approve, revoke, and sync clear the cache |
-| `SCANNER_ENABLED` | `True` | Run the static scanner at startup. `DbScanGate` blocks unapproved tools |
-| `SCANNER_BLOCK_SEVERITIES` | `critical,high` | Comma-separated severities that block a tool from running |
-| `LLM_ENABLED` | `false` | When false, LLM calls raise, `POST /api/agents/notes/run` returns 503, and `POST /api/analyst/explain` returns 503. Incident grouping still runs |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Local Ollama server. Must be an http or https URL |
-| `OLLAMA_MODEL` | `qwen3.5:9b` | Primary chat model |
-| `GROQ_API_KEY` | unset | Used only when Ollama cannot be reached or times out. Never logged or returned |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Fallback chat model |
-| `LLM_TIMEOUT_SECONDS` | `60` | Timeout for one LLM request |
-| `NOTES_AGENT_API_KEY` | unset | `mcpg_` key with `agent:run`. The notes agent sends it only to `/mcp/` |
-| `WORKER_NOTES_API_KEY` | unset | Separate `mcpg_` key for the A2A notes worker (`agent:run` plus attenuated notes scopes) |
-| `A2A_SIGNING_KEY` | unset | Secret key for HMAC-SHA256 signing of A2A delegation tokens. Generates an ephemeral per-process key with a startup warning when unset |
+| `LLM_ENABLED` | `false` | Turns on the agents and the analyst |
+| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | `http://localhost:11434` / `qwen3.5:9b` | Primary model |
+| `GROQ_API_KEY` / `GROQ_MODEL` | unset / `qwen/qwen3.8-27b` | Groq model used when Ollama can't be reached or times out |
+| `GROQ_FALLBACK_MODEL` | `openai/gpt-oss-120b` | Second Groq model, tried only if `GROQ_MODEL` fails |
+| `SCANNER_AI_ENABLED` | `false` | Turns on the AI scanner pass. Needs `LLM_ENABLED=true` |
+| `NOTES_AGENT_API_KEY` / `WORKER_NOTES_API_KEY` | unset | Keys the notes agent and A2A worker use against `/mcp/` |
+| `A2A_SIGNING_KEY` | unset | HMAC key for delegation tokens. Without it each process makes a temporary key and logs a warning |
+| `MCP_SELF_API_KEY` | unset | Key with `agent:run` used only by the `/api/status` probe |
+| `AUDIT_RETENTION_DAYS` | `90` | How long audit rows are kept |
+| `HSTS_MAX_AGE_S` | `0` | Set above 0 only once the server is behind HTTPS |
 
-The frontend reads `VITE_MCP_GUARD_API_URL` (default `http://localhost:8000`). Don't commit `.env` files or real keys; `.env` is in `.gitignore`.
+The frontend build reads `VITE_API_BASE_URL`. Don't put API keys in any `VITE_` variable; the console asks for the key at runtime and keeps it in `sessionStorage` for that tab.
 
-</details>
+## API and scopes
 
-<details>
-<summary><b>curl examples</b></summary>
+| Method | Path | Scope |
+| --- | --- | --- |
+| `GET` | `/health`, `/ready` | public |
+| `GET` | `/api/status`, `/api/mcp/info` | public |
+| `POST`, `GET`, `DELETE` | `/mcp/` | `agent:run` (plus the tool's own scope) |
+| `GET` / `PUT` | `/api/notes`, `/api/notes/{name}` | `notes:read` / `notes:write` |
+| `GET` | `/api/audit`, `/api/audit/stream` | `audit:read` |
+| `GET` | `/api/metrics` | `metrics:read` |
+| `GET` | `/api/sandbox/runs`, `/api/sandbox/runs/{run_id}`, `/api/sandbox/health` | `sandbox:read` |
+| `GET` | `/api/pins`, `/api/pins/{tool_name}`, `/api/upstreams` | `tools:read` |
+| `POST` | `/api/pins/sync`, `/api/pins/{tool_name}/approve`, `/api/pins/{tool_name}/revoke` | `admin` |
+| `GET` | `/api/scanner/findings`, `/api/scanner/findings/{finding_id}` | `scanner:read` |
+| `POST` | `/api/scanner/run`, `/api/scanner/run/{tool_name}`, `/api/scanner/findings/{finding_id}/resolve` | `admin` |
+| `POST` | `/api/agents/notes/run` | `agent:run` |
+| `POST` / `GET` | `/api/a2a/tasks/run`, `/api/a2a/tasks/{id}` | `agent:run` |
+| `GET` | `/api/a2a/capabilities`, `/api/a2a/agent-card` | public |
+| `GET` | `/api/analyst/status` | `analyst:run` |
+| `GET` | `/api/analyst/incidents`, `/api/analyst/incidents/{incident_id}` | `audit:read` |
+| `POST` | `/api/analyst/explain` | `analyst:run` and `audit:read` |
+| `GET` | `/api/llm/health`, `/api/llm-calls` | `admin` |
+| `POST` | `/api/guard/check` | `admin` |
+| `POST`, `GET`, `DELETE` | `/api/keys`, `/api/keys/{key_id}` | `admin` |
 
-<br>
+Filesystem tools also need `files:read` or `files:write`, and the hostile lab tools need `lab:call`. `admin` passes every scope check.
 
-No key. This is what `main` returns today:
+A quick check against a running stack:
 
 ```bash
+# no key: 401
 curl -i http://127.0.0.1:8000/api/notes
-```
 
-```http
-HTTP/1.1 401 Unauthorized
-www-authenticate: Bearer
-x-request-id: 7479a8cd-...
-content-security-policy: default-src 'none'; frame-ancestors 'none'
-
-{"error":{"code":"UNAUTHORIZED","message":"Authentication required.","details":null,"request_id":"7479a8cd-..."}}
-```
-
-The next examples need a real key, which becomes possible once [#84](https://github.com/aneek22112007-tech/mcp-a2a-secure/pull/84) is merged. `$READ_KEY` has only `notes:read`; `$AGENT_KEY` has `agent:run`.
-
-Valid key, wrong scope:
-
-```bash
-curl -i -X PUT http://127.0.0.1:8000/api/notes/hello \
-  -H "Authorization: Bearer $READ_KEY" -H "Content-Type: application/json" \
-  -d '{"content":"hi"}'
-```
-
-```http
-HTTP/1.1 403 Forbidden
-www-authenticate: Bearer error="insufficient_scope", scope="notes:write"
-
-{"error":{"code":"FORBIDDEN","message":"Missing required scope: notes:write.","details":null,"request_id":"..."}}
-```
-
-Valid key with the right scope:
-
-```bash
-curl -s http://127.0.0.1:8000/api/notes -H "Authorization: Bearer $READ_KEY"
-# ["hello", ...]
-```
-
-MCP `initialize`:
-
-```bash
+# MCP initialize with a key that has agent:run
 curl -i -X POST http://127.0.0.1:8000/mcp/ \
   -H "Authorization: Bearer $AGENT_KEY" \
   -H "Content-Type: application/json" \
@@ -520,81 +343,98 @@ curl -i -X POST http://127.0.0.1:8000/mcp/ \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
 ```
 
-```text
-HTTP/1.1 200 OK
-mcp-session-id: e246cc77...
+## Deploying for free
 
-event: message
-data: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{...},"serverInfo":{"name":"mcp-guard",...}}}
-```
+The hosted demo runs on Vercel (frontend), Render (API and sign-in service, defined in [`render.yaml`](render.yaml)), Neon (Postgres) and Groq (LLM), with Upstash Redis as an optional extra. None of them need a credit card. In short:
 
-Use `127.0.0.1` or `localhost`. The MCP SDK's DNS rebinding protection answers other `Host` headers with 421.
+1. Create a Neon project and copy its connection string.
+2. On Render, create a Blueprint from this repo on the `deploy/free-tier` branch and fill in `DATABASE_URL`, `CORS_ORIGINS`, `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS` and `GROQ_API_KEY`. Render generates the pepper, signing key and JWT secret.
+3. On Vercel, import the repo with `frontend` as the root directory and set `VITE_API_BASE_URL` to the site's own address.
+4. From your laptop, run `create_admin_key.py` and `approve_current_tools.py` against Neon with the pepper from Render.
 
-</details>
+The full walkthrough, with troubleshooting, is in [docs/DEPLOY_FREE.md](docs/DEPLOY_FREE.md).
 
-<details>
-<summary><b>Project structure</b></summary>
-
-<br>
+## Project structure
 
 ```text
 mcp-a2a-secure/
-├── api/                        # MCP Guard backend (FastAPI + MCP)
+├── api/                      FastAPI gateway and MCP server
 │   ├── app/
-│   │   ├── main.py             # app setup: middleware, routers, /mcp mount, scope-map check
-│   │   ├── auth/               # header parsing, verifier, principal, scopes, /mcp auth middleware
-│   │   ├── gateway.py          # the single path from REST routes to tools
-│   │   ├── mcp_server.py       # FastMCP "mcp-guard" and the notes tools
-│   │   ├── mcp_client.py       # Streamable HTTP client (status probe, demo)
-│   │   ├── middleware.py       # body limit, request ID, security headers
-│   │   ├── errors.py           # JSON error format
-│   │   ├── config.py           # settings (pydantic-settings)
-│   │   ├── database.py         # async engine and sessions
-│   │   ├── models/             # clients, api_keys, audit_events, sandbox_runs, tool_pins, tool_scan_findings
-│   │   ├── pins/               # scan hook, MCP pin middleware, tools/list filter
-│   │   ├── scanner/            # rule-based tool-poisoning scanner engine and gate
-│   │   ├── repos/              # repository layer
-│   │   └── routes/             # notes, status, pins, sandbox, scanner
-│   ├── alembic/                # migrations
-│   ├── scripts/seed_dev.py     # dev clients (no credentials)
-│   ├── scripts/approve_current_tools.py
-│   ├── scripts/demo_tool_pinning.sh
-│   ├── scripts/demo_scanner.sh
-│   ├── tests/
-│   ├── .env.example
-│   ├── log_config.json
+│   │   ├── main.py           app setup, routers, /mcp mount, scope-map check
+│   │   ├── auth/             key parsing and verification, scopes, MCP auth
+│   │   ├── gateway.py        the single path from REST routes to tools
+│   │   ├── mcp_server.py     FastMCP "mcp-guard" and the notes tools
+│   │   ├── pins/             tool fingerprints, approval and drift checks
+│   │   ├── scanner/          rule scanner (R1 to R6), AI scanner, scan gate
+│   │   ├── guard/            prompt-injection guard for tool output (G1 to G6)
+│   │   ├── sandbox/          Docker tool runner
+│   │   ├── upstream/         filesystem and lab upstream servers
+│   │   ├── agents/           notes agent and A2A manager/worker
+│   │   ├── analyst/          incident grouping and explanations
+│   │   ├── llm/              Ollama/Groq backend and call recording
+│   │   ├── audit/            audit events, redaction, SSE
+│   │   ├── models/, repos/   database models and queries
+│   │   ├── routes/           REST endpoints
+│   │   ├── rate_limit.py     per-key token buckets
+│   │   └── config.py         settings and production checks
+│   ├── alembic/              migrations
+│   ├── sandbox/, docker/     runner and upstream images
+│   ├── scripts/              admin key, tool approval, agents, demos
+│   ├── Dockerfile
 │   └── pyproject.toml
-├── frontend/                   # React 19 + Vite + Tailwind (landing page and dashboard)
-├── backend/                    # separate Express service for Google sign-in on the web app
-├── docs/
-│   ├── THREAT_MODEL.md
-│   ├── MCP_IMPLEMENTATION.md
-│   ├── DATA_MODEL.md
-│   ├── ARCHITECTURE_NOTES.md
-│   ├── RUNBOOK.md
-│   └── assets/pipeline.svg
-├── PERFORMANCE_BOTTLENECKS.md
-└── LICENSE
+├── frontend/                 React landing page and console (src/console/)
+├── backend/                  Express sign-in service
+├── deploy/Caddyfile          load balancer and static site config
+├── docs/                     design notes, guides and the threat model
+├── docker-compose.yml        full local stack
+├── render.yaml               Render Blueprint for the free deploy
+└── .env.compose.example      Compose settings template
 ```
 
-</details>
+## Documentation
 
-More detail: [MCP implementation](docs/MCP_IMPLEMENTATION.md), [data model](docs/DATA_MODEL.md), [threat model](docs/THREAT_MODEL.md), [runbook](docs/RUNBOOK.md), [architecture notes](docs/ARCHITECTURE_NOTES.md).
+| Document | What's in it |
+| --- | --- |
+| [ARCHITECTURE_NOTES.md](docs/ARCHITECTURE_NOTES.md) | Design notes on how the pieces fit |
+| [THREAT_MODEL.md](docs/THREAT_MODEL.md) | Trust boundaries, threats and the controls that exist in code |
+| [MCP_IMPLEMENTATION.md](docs/MCP_IMPLEMENTATION.md) | How the MCP server and its tools are built |
+| [DATA_MODEL.md](docs/DATA_MODEL.md) | Tables and relationships |
+| [CONSOLE.md](docs/CONSOLE.md) | Running and using the live console |
+| [AI_SCANNER.md](docs/AI_SCANNER.md) | Rule and AI tool-poisoning scanner |
+| [AI_ANALYST.md](docs/AI_ANALYST.md) | Incident grouping and the analyst's safeguards |
+| [A2A_EXECUTION.md](docs/A2A_EXECUTION.md) | Manager-to-worker delegation, scope attenuation and signing |
+| [LOAD_BALANCING.md](docs/LOAD_BALANCING.md) | Caddy, two replicas and the shared Valkey state |
+| [UPSTREAM_FILESYSTEM.md](docs/UPSTREAM_FILESYSTEM.md) | The official filesystem server as `fs_*` tools |
+| [UPSTREAM_LAB.md](docs/UPSTREAM_LAB.md) | A deliberately hostile MCP server for testing the gateway (never in production) |
+| [DEPLOY_FREE.md](docs/DEPLOY_FREE.md) | Free hosting on Vercel, Render, Neon and Groq |
+| [RUNBOOK.md](docs/RUNBOOK.md) | Operations, every setting and troubleshooting |
+| [PRIVACY.md](docs/PRIVACY.md) | What is stored and where data goes |
+| [PERFORMANCE_BOTTLENECKS.md](PERFORMANCE_BOTTLENECKS.md) | Known performance limits |
+
+## Security notes
+
+- **Fail closed.** An unmapped route stops the app from starting. A missing sandbox gives a 503 rather than running the tool in the API. An unapproved or flagged tool gets a 403 when pinning is enforced.
+- **Secrets stay out of storage and logs.** Only key hashes are stored. Logs record a deny reason or the key prefix, never the key. The audit log stores a hash of tool arguments, not the values. The LLM health endpoints never return the Groq key.
+- **Strict request handling.** One `Authorization` header, ASCII only, `Bearer mcpg_...` up to 128 characters. Bodies are capped while streaming (413). Every response carries a strict CSP, `X-Frame-Options: DENY`, `nosniff`, `no-referrer` and `no-store`.
+- **Append-only audit.** Database triggers block edits and deletes on `audit_events`, apart from the retention job. A database owner can still disable triggers, so production should connect as a non-owner role.
+- **Proxy-aware IPs.** `X-Forwarded-For` is ignored unless `TRUSTED_PROXIES` is set, and then only trusted hops are skipped.
+- **Production refuses unsafe settings.** A placeholder pepper, `SANDBOX_MODE=inprocess`, `INJECTION_GUARD_MODE=off`, the hostile lab and bootstrap tool approval are all rejected at startup.
+- **Docker socket.** The Compose API containers mount the Docker socket to start sandbox containers, which gives them control of the host's Docker daemon.
+
+The full threat model is in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ## Team
 
 <table>
 <tr>
 <td align="center" width="180">
-<a href="https://github.com/aneek22112007-tech"><img src="https://github.com/aneek22112007-tech.png?size=100" width="80" height="80" alt="Aneek Das"><br>Aneek Das</a>
+<a href="https://github.com/aneek22112007-tech"><img src="https://github.com/aneek22112007-tech.png?size=100" width="80" height="80" alt="Aneek Das"><br>Aneek Das</a><br><sub>@aneek22112007-tech</sub>
 </td>
 <td align="center" width="180">
-<a href="https://github.com/codeslayerpdx"><img src="https://github.com/codeslayerpdx.png?size=100" width="80" height="80" alt="Priyanshu Dwivedi"><br>Priyanshu Dwivedi</a>
+<a href="https://github.com/codeslayerpdx"><img src="https://github.com/codeslayerpdx.png?size=100" width="80" height="80" alt="Priyanshu Dwivedi"><br>Priyanshu Dwivedi</a><br><sub>@codeslayerpdx</sub>
 </td>
 </tr>
 </table>
-
-[![Contributors](https://contrib.rocks/image?repo=aneek22112007-tech/mcp-a2a-secure)](https://github.com/aneek22112007-tech/mcp-a2a-secure/graphs/contributors)
 
 ## License
 

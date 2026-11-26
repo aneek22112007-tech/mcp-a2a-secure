@@ -1,7 +1,8 @@
 """Chat model adapter.
 
 Ollama is the primary provider. Groq is used only when Ollama cannot be
-reached or the call times out. A bad or empty reply is not a reason to
+reached or the call times out. On Groq, GROQ_MODEL is tried first and
+GROQ_FALLBACK_MODEL second if the first call fails. A bad or empty reply is not a reason to
 switch providers.
 """
 
@@ -153,12 +154,12 @@ class LLMBackend:
             request_id=request_id,
         )
 
-    def _groq_model(self) -> ChatGroq:
+    def _groq_model(self, model_name: str | None = None) -> ChatGroq:
         secret = settings.groq_api_key
         if secret is None or not secret.get_secret_value().strip():
             raise LLMUnavailableError("Groq is not configured.")
         return ChatGroq(
-            model=settings.groq_model,
+            model=model_name or settings.groq_model,
             groq_api_key=secret.get_secret_value(),
             timeout=settings.llm_timeout_seconds,
             max_retries=0,
@@ -174,43 +175,53 @@ class LLMBackend:
         key_prefix: str | None,
         request_id: str | None,
     ) -> LLMInvocation:
+        """Try GROQ_MODEL, then GROQ_FALLBACK_MODEL if the first one fails."""
+
         try:
-            model = self._groq_model()
+            self._groq_model()
         except LLMUnavailableError:
             raise LLMUnavailableError(
                 "Ollama is unreachable and Groq is not configured."
             ) from None
 
-        started = time.perf_counter()
-        try:
-            message = await _call(model, messages)
-        except Exception as exc:
-            await _record(
+        names = [settings.groq_model]
+        second = (settings.groq_fallback_model or "").strip()
+        if second and second != settings.groq_model:
+            names.append(second)
+
+        last_exc: BaseException | None = None
+        for name in names:
+            started = time.perf_counter()
+            try:
+                message = await _call(self._groq_model(name), messages)
+            except Exception as exc:  # noqa: BLE001
+                await _record(
+                    provider="groq",
+                    model=name,
+                    purpose=purpose,
+                    status="error",
+                    latency_ms=_elapsed_ms(started),
+                    input_tokens=None,
+                    output_tokens=None,
+                    fell_back=True,
+                    key_prefix=key_prefix,
+                    request_id=request_id,
+                    error=type(exc).__name__,
+                )
+                _log_failure("groq", exc, purpose, request_id)
+                last_exc = exc
+                continue
+            return await _success(
+                message,
                 provider="groq",
-                model=settings.groq_model,
-                purpose=purpose,
-                status="error",
-                latency_ms=_elapsed_ms(started),
-                input_tokens=None,
-                output_tokens=None,
+                model=name,
+                started=started,
                 fell_back=True,
+                purpose=purpose,
                 key_prefix=key_prefix,
                 request_id=request_id,
-                error=type(exc).__name__,
             )
-            _log_failure("groq", exc, purpose, request_id)
-            raise LLMUnavailableError("The LLM call failed.") from exc
-
-        return await _success(
-            message,
-            provider="groq",
-            model=settings.groq_model,
-            started=started,
-            fell_back=True,
-            purpose=purpose,
-            key_prefix=key_prefix,
-            request_id=request_id,
-        )
+        raise LLMUnavailableError("The LLM call failed.") from last_exc
 
 
 def _is_connection_or_timeout(exc: BaseException) -> bool:

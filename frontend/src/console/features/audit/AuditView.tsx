@@ -352,25 +352,40 @@ function AuditViewInner({ offline: _offline }: AuditViewProps) {
                 : 'Unavailable'}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div className="home-actions">
           <StreamDot state={streamState} />
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={showConsolePolls}
-              onChange={event => {
-                setShowConsolePolls(event.target.checked);
-                resetPage();
-              }}
-            />
-            Show console polls
-          </label>
         </div>
       </header>
 
-      <div className="row-between" style={{ flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div className="search-field" style={{ width: 340 }}>
+      {data && (
+        <div className="summary-strip" aria-label="Summary of events on this page">
+          <div className="summary-cell">
+            <span className="summary-label">Events on page</span>
+            <span className="summary-value">{displayItems.length}</span>
+          </div>
+          <div className="summary-cell">
+            <span className="summary-label"><span className="summary-dot is-allow" aria-hidden />Allowed</span>
+            <span className="summary-value">{displayItems.filter(e => e.decision === 'allowed').length}</span>
+          </div>
+          <div className="summary-cell">
+            <span className="summary-label"><span className="summary-dot is-deny" aria-hidden />Denied</span>
+            <span className="summary-value">{deniedOnPage}</span>
+          </div>
+          <div className="summary-cell">
+            <span className="summary-label">Distinct keys</span>
+            <span className="summary-value">{new Set(displayItems.map(e => e.key_prefix).filter(Boolean)).size}</span>
+          </div>
+          <div className="summary-cell">
+            <span className="summary-label">Distinct tools</span>
+            <span className="summary-value">{new Set(displayItems.map(e => e.tool_name).filter(Boolean)).size}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="card table-card">
+      <div className="table-toolbar">
+        <div className="table-toolbar-left">
+          <div className="search-field" style={{ width: 320 }}>
             <Search size={13} aria-hidden />
             <input
               ref={searchRef}
@@ -385,11 +400,10 @@ function AuditViewInner({ offline: _offline }: AuditViewProps) {
             />
             {!search && <kbd className="kbd" aria-hidden>F</kbd>}
           </div>
-          <div role="group" aria-label="Decision" style={{ display: 'inline-flex', gap: 6 }}>
+          <div role="group" aria-label="Decision" className="seg seg-text">
             {(['', 'allowed', 'denied'] as const).map(d => (
               <button
                 key={d || 'all'}
-                className="chip"
                 aria-pressed={filterDecision === d}
                 onClick={() => { setFilterDecision(d); resetPage(); }}
               >
@@ -398,7 +412,18 @@ function AuditViewInner({ offline: _offline }: AuditViewProps) {
             ))}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="table-toolbar-right">
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={showConsolePolls}
+              onChange={event => {
+                setShowConsolePolls(event.target.checked);
+                resetPage();
+              }}
+            />
+            Show console polls
+          </label>
           {expanded.size > 0 && (
             <button className="btn btn-ghost btn-sm" onClick={() => setExpanded(new Set())}>Collapse all</button>
           )}
@@ -422,9 +447,8 @@ function AuditViewInner({ offline: _offline }: AuditViewProps) {
       {filtersOpen && (
         <div
           id="audit-filters"
-          className="panel"
+          className="table-filters"
           style={{
-            padding: 14,
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
             gap: 10,
@@ -491,7 +515,7 @@ function AuditViewInner({ offline: _offline }: AuditViewProps) {
       )}
 
       {/* Table */}
-      <div className="panel">
+      <div className="table-card-body">
         {isLoading && !data ? (
           <LoadingPanel label="Loading audit events…" />
         ) : isError && !data ? (
@@ -553,6 +577,7 @@ function AuditViewInner({ offline: _offline }: AuditViewProps) {
             )}
           </>
         )}
+      </div>
       </div>
 
       {/* Detail drawer */}

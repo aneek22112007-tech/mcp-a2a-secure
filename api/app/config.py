@@ -3,7 +3,7 @@ import re
 import socket
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -50,10 +50,38 @@ def normalize_database_url(url: str) -> str:
         return url
     stripped = url.strip()
     if stripped.startswith("postgres://"):
-        return f"postgresql+asyncpg://{stripped[len('postgres://') :]}"
-    if stripped.startswith("postgresql://"):
-        return f"postgresql+asyncpg://{stripped[len('postgresql://') :]}"
+        stripped = f"postgresql+asyncpg://{stripped[len('postgres://') :]}"
+    elif stripped.startswith("postgresql://"):
+        stripped = f"postgresql+asyncpg://{stripped[len('postgresql://') :]}"
+    if stripped.startswith("postgresql+asyncpg://"):
+        stripped = _asyncpg_query_params(stripped)
     return stripped
+
+
+def _asyncpg_query_params(url: str) -> str:
+    """Rewrite libpq-only query options that asyncpg rejects.
+
+    Hosted Postgres providers hand out URLs with ``sslmode`` and
+    ``channel_binding``. asyncpg takes ``ssl`` instead and has no
+    ``channel_binding`` option, so map the first and drop the second.
+    """
+    base, sep, query = url.partition("?")
+    if not sep:
+        return url
+    params = parse_qsl(query, keep_blank_values=True)
+    if not any(k in ("sslmode", "channel_binding") for k, _ in params):
+        return url
+    has_ssl = any(k == "ssl" for k, _ in params)
+    out: list[tuple[str, str]] = []
+    for key, value in params:
+        if key == "channel_binding":
+            continue
+        if key == "sslmode":
+            if has_ssl:
+                continue
+            key, has_ssl = "ssl", True
+        out.append((key, value))
+    return f"{base}?{urlencode(out)}" if out else base
 
 
 class Settings(BaseSettings):
@@ -85,6 +113,17 @@ class Settings(BaseSettings):
     mcp_self_api_key: SecretStr | None = Field(
         default=None,
         description="API key for internal status probe",
+    )
+    mcp_allowed_hosts: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Extra Host header values /mcp accepts, added to the local defaults. "
+            "Set the public host name when the API runs behind a hosted proxy."
+        ),
+    )
+    mcp_allowed_origins: list[str] = Field(
+        default_factory=list,
+        description="Extra exact Origin values /mcp accepts, added to the local defaults.",
     )
 
     database_url: str = Field(
@@ -266,9 +305,13 @@ class Settings(BaseSettings):
         description="Groq API key. Used only when Ollama cannot be reached.",
     )
     groq_model: str = Field(
-        default="llama-3.3-70b-versatile",
+        default="qwen/qwen3.8-27b",
         min_length=1,
-        description="Groq model used as the fallback chat model.",
+        description="First Groq model tried when Ollama cannot be reached.",
+    )
+    groq_fallback_model: str | None = Field(
+        default="openai/gpt-oss-120b",
+        description="Second Groq model, tried only if GROQ_MODEL fails. Empty to turn off.",
     )
     llm_timeout_seconds: float = Field(
         default=60,
@@ -546,6 +589,13 @@ class Settings(BaseSettings):
                     raise ValueError(
                         "CORS_ORIGINS must be exact http/https origins in production"
                     )
+
+        for host in self.mcp_allowed_hosts:
+            if not re.fullmatch(r"[A-Za-z0-9.-]+(:(\d+|\*))?", host):
+                raise ValueError("MCP_ALLOWED_HOSTS entries must be host or host:port")
+        for origin in self.mcp_allowed_origins:
+            if not _is_exact_http_origin(origin):
+                raise ValueError("MCP_ALLOWED_ORIGINS must be exact http/https origins")
 
         networks = []
         for p in self.trusted_proxies:

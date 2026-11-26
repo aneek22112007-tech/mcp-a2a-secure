@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Play, Clock, Info } from 'lucide-react';
 import { ConsoleErrorBoundary, LoadingPanel, ErrorPanel } from '../../components/ui';
-import { PipelineStrip } from '../../components/Pipeline';
+import { Card, PipelineStepper } from '../../components/blocks';
 import { lightsMatched, pipelineLights, type StageLight } from '../../components/pipelineLogic';
 import { useUpstreams } from '../../api/hooks';
 import { errorOf, waitForCaption, type AttackResult } from './runners';
@@ -197,10 +197,9 @@ function AttackViewInner({ offline }: AttackViewProps) {
         </button>
       </header>
 
-      <section className="panel panel-pad">
-        <div className="section-label label-with-icon">Request pipeline</div>
-        <PipelineStrip lights={lights} />
-      </section>
+      <Card title="Request pipeline" description="Each attack lights up the check that stopped it" label="Request pipeline">
+        <PipelineStepper lights={lights} />
+      </Card>
 
       <p className="panel panel-note">
         <Info size={14} aria-hidden />

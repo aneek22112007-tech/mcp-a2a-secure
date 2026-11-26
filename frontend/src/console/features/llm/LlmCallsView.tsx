@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Cpu, Clock, Repeat, Activity } from 'lucide-react';
+import { BarList, Card, StatCard, StatusRow, type BarListItem } from '../../components/blocks';
 import { useLlmCalls, useLlmHealth } from '../../api/hooks';
 import type { LlmCallRecord } from '../../api/client';
 import {
@@ -30,6 +31,18 @@ function llmStatusBadgeClass(status: string): string {
     default:
       return 'badge-muted';
   }
+}
+
+function countBy(calls: LlmCallRecord[], keyOf: (c: LlmCallRecord) => string): BarListItem[] {
+  const counts: Record<string, number> = {};
+  for (const c of calls) {
+    const k = keyOf(c);
+    counts[k] = (counts[k] ?? 0) + 1;
+  }
+  return Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 6)
+    .map(([k, v]) => ({ key: k, value: v, name: <span className="mono">{k}</span> }));
 }
 
 function LlmCallsViewInner({ offline: _offline }: LlmCallsViewProps) {
@@ -64,164 +77,104 @@ function LlmCallsViewInner({ offline: _offline }: LlmCallsViewProps) {
   const total = callsQuery.data?.total ?? 0;
   const nextOffset = offset + limit < total ? offset + limit : null;
 
+  const byPurpose = countBy(filteredCalls, c => c.purpose || 'unknown');
+  const byStatus = countBy(filteredCalls, c => c.status || 'unknown');
+  const byModel = countBy(filteredCalls, c => `${c.provider || '—'} · ${c.model || '—'}`);
+  const summary = callsQuery.data;
+
   return (
     <div className="console-page">
-      <header className="page-header">
+      <header className="home-head">
         <div>
           <h1 className="page-title">LLM Calls</h1>
-          <p className="page-sub">
-            Recorded model invocations, latency, status, and provider health.
-          </p>
+          <p className="page-sub">Recorded model invocations, latency, status and provider health</p>
         </div>
       </header>
 
-      {/* Provider & model health card from GET /api/llm/health */}
-      <section aria-label="LLM provider health">
-        {healthQuery.isLoading && !health ? (
-          <div className="panel" style={{ padding: '12px 16px', fontSize: 12, color: 'var(--c-text-muted)' }}>
-            Checking LLM provider health…
-          </div>
-        ) : healthQuery.isError && !health ? (
-          <ErrorPanel
-            message="Failed to load LLM provider health"
-            onRetry={() => void healthQuery.refetch()}
+      <div className="grid-3-1">
+        <div className="stat-grid stat-grid-3">
+          <StatCard
+            label="Total calls"
+            icon={<Activity size={14} />}
+            value={summary ? fmtNumber(summary.call_count) : '—'}
+            narrative="Recorded in the database"
           />
-        ) : health ? (
-          <div
-            className="panel"
-            style={{
-              padding: '12px 16px',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-              gap: 12,
-            }}
-          >
-            {[
-              {
-                label: 'LLM',
-                value: health.enabled ? 'Enabled' : 'Disabled',
-                badge: health.enabled ? 'badge-allow' : 'badge-muted',
-              },
-              {
-                label: 'Ollama',
-                value: health.ollama_reachable ? 'Reachable' : 'Unreachable',
-                badge: health.ollama_reachable ? 'badge-allow' : 'badge-deny',
-              },
-              {
-                label: 'Ollama model',
-                value: health.ollama_model || '—',
-                mono: true,
-              },
-              {
-                label: 'Model present',
-                value: health.ollama_model_present ? 'Yes' : 'No',
-                badge: health.ollama_model_present ? 'badge-allow' : 'badge-review',
-              },
-              {
-                label: 'Groq fallback',
-                value: health.groq_configured ? 'Configured' : 'Not configured',
-                badge: health.groq_configured ? 'badge-info' : 'badge-muted',
-              },
-            ].map(({ label, value, mono, badge }) => (
-              <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span className="section-label">{label}</span>
-                {badge ? (
-                  <span className={`badge ${badge}`} style={{ alignSelf: 'flex-start' }}>
-                    {value}
-                  </span>
-                ) : (
-                  <span className={mono ? 'mono' : ''} style={{ fontSize: 12 }}>
-                    {value}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </section>
+          <StatCard
+            label="Average duration"
+            icon={<Clock size={14} />}
+            value={summary && summary.call_count > 0 ? fmtDuration(summary.avg_latency_ms) : '—'}
+            narrative="Across all recorded calls"
+          />
+          <StatCard
+            label="Fallback rate"
+            icon={<Repeat size={14} />}
+            value={summary && summary.call_count > 0 ? fmtPercent(summary.fallback_rate) : '—'}
+            narrative={`${fmtNumber(summary?.metrics?.fallback_count ?? 0)} fallback calls`}
+          />
+        </div>
 
-      {/* Real summary metrics from GET /api/llm-calls */}
-      {callsQuery.data && (
-        <div
-          className="kpi-row"
-          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}
-        >
-          <div className="kpi-card" style={{ ['--kpi-tone' as string]: 'var(--c-amber)', gap: 8 }}>
-            <div className="kpi-head">
-              <span className="kpi-icon" aria-hidden><Activity size={13} /></span>
-              <span className="stat-card-label">Total calls</span>
-            </div>
-            <div className="kpi-value" style={{ fontSize: 24 }}>
-              {fmtNumber(callsQuery.data.call_count)}
-            </div>
-            <div className="kpi-foot-note">Recorded in database</div>
-          </div>
+        {/* Provider and model health from GET /api/llm/health */}
+        <Card title="Providers" description="From /api/llm/health" label="LLM provider health" bodyClassName="status-list">
+          {healthQuery.isLoading && !health ? (
+            <span className="page-sub">Checking LLM provider health…</span>
+          ) : healthQuery.isError && !health ? (
+            <ErrorPanel message="Failed to load LLM provider health" onRetry={() => void healthQuery.refetch()} />
+          ) : health ? (
+            <>
+              <StatusRow label="LLM" value={health.enabled ? 'Enabled' : 'Disabled'} tone={health.enabled ? 'ok' : 'neutral'} />
+              <StatusRow label="Ollama" value={health.ollama_reachable ? 'Reachable' : 'Unreachable'} tone={health.ollama_reachable ? 'ok' : 'bad'} />
+              <StatusRow label="Model" value={<span className="mono">{health.ollama_model || '—'}</span>} tone={health.ollama_model_present ? 'ok' : 'warn'} />
+              <StatusRow label="Groq fallback" value={health.groq_configured ? 'Configured' : 'Not configured'} tone={health.groq_configured ? 'ok' : 'neutral'} />
+            </>
+          ) : null}
+        </Card>
+      </div>
 
-          <div className="kpi-card" style={{ ['--kpi-tone' as string]: 'var(--c-info)', gap: 8 }}>
-            <div className="kpi-head">
-              <span className="kpi-icon" aria-hidden><Clock size={13} /></span>
-              <span className="stat-card-label">Average duration</span>
-            </div>
-            <div className="kpi-value" style={{ fontSize: 24 }}>
-              {callsQuery.data.call_count > 0
-                ? fmtDuration(callsQuery.data.avg_latency_ms)
-                : '—'}
-            </div>
-            <div className="kpi-foot-note">Across all recorded calls</div>
-          </div>
-
-          <div className="kpi-card" style={{ ['--kpi-tone' as string]: 'var(--c-review)', gap: 8 }}>
-            <div className="kpi-head">
-              <span className="kpi-icon" aria-hidden><Repeat size={13} /></span>
-              <span className="stat-card-label">Fallback rate</span>
-            </div>
-            <div className="kpi-value" style={{ fontSize: 24 }}>
-              {callsQuery.data.call_count > 0
-                ? fmtPercent(callsQuery.data.fallback_rate)
-                : '—'}
-            </div>
-            <div className="kpi-foot-note">
-              {fmtNumber(callsQuery.data.metrics?.fallback_count ?? 0)} fallback calls
-            </div>
-          </div>
+      {filteredCalls.length > 0 && (
+        <div className="grid-3">
+          <Card title="By purpose" description={`Loaded calls${filterPurpose ? ', filtered' : ''}`}>
+            <BarList items={byPurpose} color="var(--c-info-bar)" />
+          </Card>
+          <Card title="By status" description="Outcome of each call">
+            <BarList items={byStatus} color="var(--c-allow-bar)" />
+          </Card>
+          <Card title="By provider and model" description="Where each call was served">
+            <BarList items={byModel} color="var(--c-info-bar)" />
+          </Card>
         </div>
       )}
 
-      {/* Purpose filter */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <label
-          htmlFor="llm-purpose-filter"
-          className="section-label"
-          style={{ margin: 0 }}
-        >
-          Purpose
-        </label>
-        <select
-          id="llm-purpose-filter"
-          className="input mono"
-          value={filterPurpose}
-          onChange={e => setFilterPurpose(e.target.value)}
-          style={{ width: 220, fontSize: 12 }}
-          aria-label="Filter LLM calls by purpose"
-        >
-          <option value="">All purposes</option>
-          {availablePurposes.map(purpose => (
-            <option key={purpose} value={purpose}>
-              {purpose}
-            </option>
-          ))}
-        </select>
-        {filterPurpose && (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => setFilterPurpose('')}
+      <div className="card table-card">
+      <div className="table-toolbar">
+        <div className="table-toolbar-left">
+          <label htmlFor="llm-purpose-filter" className="toolbar-label">Purpose</label>
+          <select
+            id="llm-purpose-filter"
+            className="input mono"
+            value={filterPurpose}
+            onChange={e => setFilterPurpose(e.target.value)}
+            style={{ width: 220 }}
+            aria-label="Filter LLM calls by purpose"
           >
-            Clear filter
-          </button>
-        )}
+            <option value="">All purposes</option>
+            {availablePurposes.map(purpose => (
+              <option key={purpose} value={purpose}>
+                {purpose}
+              </option>
+            ))}
+          </select>
+          {filterPurpose && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => setFilterPurpose('')}
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
         {callsQuery.data && (
-          <span style={{ fontSize: 11, color: 'var(--c-text-muted)', marginLeft: 'auto' }}>
+          <span className="toolbar-count">
             Showing {fmtNumber(filteredCalls.length)} of {fmtNumber(allCalls.length)} loaded
             {total > allCalls.length ? ` (${fmtNumber(total)} total)` : ''}
           </span>
@@ -229,7 +182,7 @@ function LlmCallsViewInner({ offline: _offline }: LlmCallsViewProps) {
       </div>
 
       {/* Calls table */}
-      <div className="panel">
+      <div className="table-card-body">
         {callsQuery.isLoading && !callsQuery.data ? (
           <LoadingPanel label="Loading LLM calls…" />
         ) : callsQuery.isError && !callsQuery.data ? (
@@ -331,6 +284,7 @@ function LlmCallsViewInner({ offline: _offline }: LlmCallsViewProps) {
             )}
           </>
         )}
+      </div>
       </div>
 
       {/* Call detail drawer */}

@@ -83,6 +83,18 @@ def _get_gate() -> _Gate:
     return _gate
 
 
+async def enter_gate() -> bool:
+    """Take one analyst slot without waiting. False when all slots are in use."""
+
+    return await _get_gate().try_enter()
+
+
+async def leave_gate() -> None:
+    """Give back a slot taken with ``enter_gate``."""
+
+    await _get_gate().leave()
+
+
 def analyst_busy() -> bool:
     """True when this process is already at ``analyst_max_concurrency``."""
 

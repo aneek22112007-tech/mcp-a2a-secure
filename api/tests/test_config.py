@@ -117,7 +117,7 @@ def test_llm_settings_defaults(monkeypatch):
     assert settings.ollama_base_url == "http://localhost:11434"
     assert settings.ollama_model == "qwen3.5:9b"
     assert settings.groq_api_key is None
-    assert settings.groq_model == "llama-3.3-70b-versatile"
+    assert settings.groq_model == "qwen/qwen3.8-27b"
     assert settings.llm_timeout_seconds == 60
     assert settings.notes_agent_api_key is None
 
@@ -226,3 +226,37 @@ def test_docker_compose_and_env_example_pin_enforce():
     assert "API_KEY_PEPPER=change-me-to-a-long-random-value" in env_text
     assert "mcpg_dev_password" not in env_text
     assert "mcpg_dev_pepper" not in env_text
+
+
+def test_mcp_allowed_hosts_and_origins(monkeypatch):
+    monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
+    monkeypatch.delenv("MCP_ALLOWED_ORIGINS", raising=False)
+    settings = _isolated_settings(monkeypatch)
+    assert settings.mcp_allowed_hosts == []
+    assert settings.mcp_allowed_origins == []
+
+    settings = _isolated_settings(
+        monkeypatch,
+        MCP_ALLOWED_HOSTS='["mcp-guard-api.onrender.com"]',
+        MCP_ALLOWED_ORIGINS='["https://mcp-guard.vercel.app"]',
+    )
+    assert settings.mcp_allowed_hosts == ["mcp-guard-api.onrender.com"]
+    assert settings.mcp_allowed_origins == ["https://mcp-guard.vercel.app"]
+
+    for bad in ('["*"]', '["evil.com/path"]', '["a b"]'):
+        with pytest.raises(ValueError):
+            _isolated_settings(monkeypatch, MCP_ALLOWED_HOSTS=bad)
+    for bad in ('["*"]', '["https://a.com/x"]', '["a.com"]'):
+        with pytest.raises(ValueError):
+            _isolated_settings(monkeypatch, MCP_ALLOWED_ORIGINS=bad)
+    monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
+    monkeypatch.delenv("MCP_ALLOWED_ORIGINS", raising=False)
+
+
+def test_mcp_transport_security_stays_on():
+    from app.mcp_server import mcp
+
+    security = mcp.settings.transport_security
+    assert security is not None
+    assert security.enable_dns_rebinding_protection is True
+    assert "localhost:*" in security.allowed_hosts

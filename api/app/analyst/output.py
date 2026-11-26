@@ -48,7 +48,9 @@ def _reject(reason: str) -> None:
     raise AnalystOutputError(reason)
 
 
-def _strip_wrappers(text: str) -> str:
+def strip_wrappers(text: str) -> str:
+    """Drop a think block and a code fence around the reply."""
+
     stripped = _THINK_RE.sub("", text).strip()
     fenced = _FENCE_RE.fullmatch(stripped)
     if fenced is not None:
@@ -62,7 +64,9 @@ def _joined(body: ReportBody) -> str:
     return "\n".join(parts)
 
 
-def _unsafe(text: str) -> bool:
+def unsafe_text(text: str) -> bool:
+    """True when the text holds a key, a link, or a high guard-rule match."""
+
     if _LEAK_RE.search(text):
         return True
     view = _SEPARATORS.sub(" ", normalize_for_scan(text))
@@ -78,7 +82,7 @@ def parse_report(text: str, *, refs: set[str]) -> ReportBody:
 
     if len(text) > settings.analyst_max_output_chars:
         _reject("too_long")
-    raw = _strip_wrappers(text)
+    raw = strip_wrappers(text)
     try:
         loaded = json.loads(raw)
     except json.JSONDecodeError:
@@ -93,6 +97,6 @@ def parse_report(text: str, *, refs: set[str]) -> ReportBody:
         for ref in item.refs:
             if ref not in refs:
                 _reject("unknown_ref")
-    if _unsafe(_joined(body)):
+    if unsafe_text(_joined(body)):
         _reject("unsafe_output")
     return body

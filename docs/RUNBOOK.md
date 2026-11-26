@@ -75,7 +75,8 @@ All API variables can be loaded from `api/.env` for local development (copy `api
 | `OLLAMA_BASE_URL` | `http://localhost:11434` (`http://host.docker.internal:11434` in Compose) | Local & Compose | Base URL of local Ollama server |
 | `OLLAMA_MODEL` | `qwen3.5:9b` | Local & Compose | Primary Ollama chat model |
 | `GROQ_API_KEY` | unset (`None`) | Local & Compose | Optional Groq API key fallback |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Local & Compose | Fallback Groq chat model |
+| `GROQ_MODEL` | `qwen/qwen3.8-27b` | Local & Compose | Groq model used when Ollama is unreachable |
+| `GROQ_FALLBACK_MODEL` | `openai/gpt-oss-120b` | Local & Compose | Second Groq model if `GROQ_MODEL` fails |
 | `LLM_TIMEOUT_SECONDS` | `60` | Local & Compose | Timeout in seconds for one LLM request |
 | `NOTES_AGENT_API_KEY` | unset (`None`) | Local & Compose | Optional API key for notes agent self-calls to `/mcp/` |
 | `WORKER_NOTES_API_KEY` | unset (`None`) | Local & Compose | Optional API key for A2A worker notes calls |

@@ -3,9 +3,14 @@
  */
 import './styles/console.css';
 import './styles/premium.css';
+import './styles/theme.css';
+import './styles/layout.css';
+import './styles/v4.css';
+import './styles/analyst-chat.css';
 import { useEffect, useState, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
+import { BootScreen } from './components/BootScreen';
 import { ConnectScreen } from './features/connect/ConnectScreen';
 import { ConsoleShell } from './components/Shell';
 import { VIEW_IDS, type ViewId } from './components/views';
@@ -143,12 +148,17 @@ export function ConsoleApp() {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const tick = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         await consoleApi.health();
         if (!cancelled) setBackendUp(true);
       } catch {
         if (!cancelled) setBackendUp(false);
+      } finally {
+        inFlight = false;
       }
     };
     void tick();
@@ -178,9 +188,7 @@ export function ConsoleApp() {
 
   if (backendUp === null) {
     return (
-      <main className="boot-screen" role="status">
-        Checking backend…
-      </main>
+      <BootScreen />
     );
   }
 
@@ -200,7 +208,7 @@ export function ConsoleApp() {
   return (
     <QueryClientProvider client={queryClient}>
       <ConsoleBody session={session} offline={offline} backendUp={backendUp === true} />
-      <Toaster richColors theme="dark" position="bottom-right" />
+      <Toaster richColors theme="light" position="bottom-right" />
     </QueryClientProvider>
   );
 }
